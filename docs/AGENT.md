@@ -42,7 +42,7 @@ The AI fetches the skill page, a long set of instructions that includes your own
 
 Notes for local agents:
 
-- `wowmentor setup` already put `wowui` in `~/.local/bin` (a link to `~/.wowmentor/app/wowui`). On the same Mac `wowui` reads your WoW Mentor config by itself, so you do not need to set any address. If your agent's shell does not have `~/.local/bin` on its path, tell it to run `~/.wowmentor/app/wowui`.
+- `wowmentor setup` already put `wowui` in `~/.local/bin` (a link to `~/.wowmentor/app/wowui`). On the same Mac `wowui` reads your WoW Mentor config by itself, so you do not need to set any address. If your agent's shell does not have `~/.local/bin` on its path, tell it to run `~/.wowmentor/app/wowui`. On Windows the installer puts `wowmentor.cmd` and `wowui.cmd` in `%LOCALAPPDATA%\WoWMentor\bin` (added to your user PATH, so a **new** PowerShell window finds them); if the agent's shell does not, tell it to run `& "$env:LOCALAPPDATA\WoWMentor\bin\wowui.cmd"`.
 - To read the game feed from the command line: `wowui feed`. Or fetch the feed link with `curl`.
 - First command after any reset: `wowui brief`.
 - To see what is on the player's screen and whether the game has received it: `wowui state`.

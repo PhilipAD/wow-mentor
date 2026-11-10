@@ -4,6 +4,7 @@
 1. Every relative link in a Markdown file points at a file that exists, and `#anchor` parts match a heading.
 2. Every `wowmentor <command>` and `wowui <command>` that appears in a code span or code block names a real command.
 3. Every ```json block parses; blocks that contain overlay ops are also validated with the real server schema.
+4. The Windows installer pieces exist, install.ps1 is plain ASCII, and the README shows both one-line installs.
 
 Run from anywhere:  python3 .github/scripts/check_docs.py
 """
@@ -17,6 +18,14 @@ MD_FILES = ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "NOTI
     [".github/PULL_REQUEST_TEMPLATE.md"]
 LINK = re.compile(r"(?<!\!)\[[^\]]*\]\(([^)\s]+)\)")
 FENCE = re.compile(r"^```(\w*)\s*$")
+# Code blocks whose `wowmentor <word>` / `wowui <word>` lines are checked against the real command lists.
+CMD_LANGS = ("span", "bash", "sh", "powershell", "pwsh", "ps1", "bat", "cmd", "console", "text-cmd")
+ONE_LINERS = (
+    "curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh | bash",
+    "irm https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.ps1 | iex",
+)
+INSTALLER_FILES = ("install.sh", "install.ps1", "Install WoW Mentor.command", "Install-WoWMentor.cmd", "wowmentor.cmd",
+                   "wowui.cmd", "scripts/test_install.sh", "scripts/test_install.ps1", "docs/WINDOWS.md")
 errors = []
 
 
@@ -88,6 +97,35 @@ def check_versions():
         err("CHANGELOG.md", "no entry for version %s" % __version__)
 
 
+def check_installers():
+    """The Windows installer files exist, install.ps1 is ASCII (Windows PowerShell 5.1 reads BOM-less files as ANSI)
+    and the README, the installers and CI agree on the one-line installs."""
+    for rel in INSTALLER_FILES:
+        if not os.path.exists(os.path.join(ROOT, rel)):
+            err(rel, "missing (the docs and CI refer to it)")
+    ps1 = os.path.join(ROOT, "install.ps1")
+    if os.path.exists(ps1):
+        data = open(ps1, "rb").read()
+        bad = [i for i, b in enumerate(data) if b > 127]
+        if bad:
+            err("install.ps1", "%d non-ASCII bytes (first at offset %d); keep it plain ASCII" % (len(bad), bad[0]))
+        text = data.decode("ascii", "replace")
+        if ONE_LINERS[1] not in text:
+            err("install.ps1", "the header must show the one-liner: %s" % ONE_LINERS[1])
+        if "Tls12" not in text:
+            err("install.ps1", "must force TLS 1.2 for Windows PowerShell 5.1")
+    readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+    for line in ONE_LINERS:
+        if line not in readme:
+            err("README.md", "missing the one-line install: %s" % line)
+    ci = os.path.join(ROOT, ".github", "workflows", "ci.yml")
+    if os.path.exists(ci):
+        text = open(ci, encoding="utf-8").read()
+        for needle in ("windows-latest", "scripts/test_install.ps1"):
+            if needle not in text:
+                err(".github/workflows/ci.yml", "no Windows job: %r not found" % needle)
+
+
 def main():
     wm = help_commands(["wowmentor.sh"])
     wu = help_commands(["wowui"])
@@ -120,12 +158,12 @@ def main():
                 continue                      # design notes may describe commands that are still being built
             for m in re.finditer(r"(?<![\w./-])(?<!-m )(?<!from )wowmentor[ \t]+((?:--)?[a-z][a-z0-9-]*)", snippet):
                 word = m.group(1)
-                if lang in ("span", "bash", "sh"):
+                if lang in CMD_LANGS:
                     if word not in wm and word not in ("is", "has", "was", "will"):
                         err(rel, "unknown command `wowmentor %s`" % word)
             for m in re.finditer(r"(?<![\w./-])wowui[ \t]+([a-z][a-z0-9-]*)", snippet):
                 word = m.group(1)
-                if lang in ("span", "bash", "sh") and word not in wu:
+                if lang in CMD_LANGS and word not in wu:
                     err(rel, "unknown command `wowui %s`" % word)
             if lang == "json":
                 try:
@@ -140,6 +178,7 @@ def main():
                     except uidoc.OpError as e:
                         err(rel, "overlay ops are rejected by the server schema: %s" % "; ".join(e.errors))
     check_versions()
+    check_installers()
     if errors:
         print("\n".join(errors))
         print("\n%d problem(s) found" % len(errors))

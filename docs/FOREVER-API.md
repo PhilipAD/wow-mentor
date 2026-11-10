@@ -1,6 +1,6 @@
 # What the Forever client allows addons to do
 
-**What this is for:** a researched report on what is and is not possible for an addon like WoW Mentor on the WoW Forever client, why the design is the way it is, and what the Mac helper does where the game says no. **Who it is for:** contributors, and curious players. You do not need it to use WoW Mentor.
+**What this is for:** a researched report on what is and is not possible for an addon like WoW Mentor on the WoW Forever client, why the design is the way it is, and what the helper (macOS or Windows) does where the game says no. **Who it is for:** contributors, and curious players. You do not need it to use WoW Mentor.
 
 Research date: 2026-11-09. Forever is new and still changing, so check anything important against a current client before depending on it.
 
@@ -29,7 +29,7 @@ The addon in this repository follows one rule everywhere: wrap every optional AP
 
 | Topic | Can an addon do it on Forever? | Confidence | What WoW Mentor does |
 | --- | --- | --- | --- |
-| Is the game window in the foreground? | No API found | Medium | The Mac bridge asks macOS which window is in front |
+| Is the game window in the foreground? | No API found | Medium | The bridge asks the OS (macOS or Windows) which window is in front |
 | Scan nameplates | Yes, in the open world; identity is secret in instances | High / Medium | Reads them for a "nearby" list and tolerates `unknown` |
 | Combat log | No (`COMBAT_LOG_EVENT_UNFILTERED` is closed to addons) | High | Rebuilds fights from other events; killer is best effort |
 | Action bar contents | Yes (`GetActionInfo`) | High (existence) | Scans slots and compares with the spellbook |
@@ -46,7 +46,7 @@ The addon in this repository follows one rule everywhere: wrap every optional AP
 **Allowed?** We found no Lua API that tells an addon whether the game window has operating system focus. The Warcraft Wiki API index has no such function. The only function we found with that name, `IsWindowFocused`, comes from `awesome_wotlk`, a third-party patch for the old 3.3.5 client, so it does not exist in Forever and would not be acceptable (it modifies the game client). Old addons guessed from side effects: when the game window loses focus, frames stop updating (`OnUpdate` stops firing) or the frame rate drops to about 10, and they measured that. That is a heuristic from retail-era addons, not a Forever fact, and it gives false positives under load. (Confidence: Medium that there is no API; Low for the heuristic on Forever.)
 Sources: [World of Warcraft API index](https://warcraft.wiki.gg/wiki/World_of_Warcraft_API), [Alt-Tab Toggle addon FAQ](https://www.wowace.com/projects/alt-tab-toggle), [awesome_wotlk API reference](https://github.com/FrostAtom/awesome_wotlk/blob/main/docs/api_reference.md).
 
-**What the bridge does instead:** the bridge asks macOS (CoreGraphics window list) which window is in front and reports `foreground` as true, false or `unknown` (when macOS gives no answer), together with the game's AFK flag and how fresh the strip is. See [HOW-IT-WORKS.md](HOW-IT-WORKS.md#presence). The addon itself never claims to know.
+**What the bridge does instead:** the bridge asks the operating system which window is in front (CoreGraphics window list on a Mac, the foreground window on Windows) and reports `foreground` as true, false or `unknown` (when the system gives no answer), together with the game's AFK flag and how fresh the strip is. See [HOW-IT-WORKS.md](HOW-IT-WORKS.md#presence). The addon itself never claims to know.
 
 ## 2. Nameplate scanning
 
