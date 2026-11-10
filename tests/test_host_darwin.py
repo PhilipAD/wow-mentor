@@ -50,10 +50,12 @@ class PlistTests(unittest.TestCase):
         self.assertEqual(back["ProgramArguments"][1:], ["-m", "wowmentor", "bridge"], "arguments stay separate: no shell string is built")
         self.assertEqual(back["EnvironmentVariables"]["WOWMENTOR_HOME"], os.path.join(self.tmp, 'we"ird home'))
 
+    @unittest.skipIf(os.name == "nt", "macOS path layout is checked on POSIX")
     def test_the_bridge_plist_uses_the_launcher_app_when_given(self):
         p = darwin.make_plist("bridge", bridge_app="/Users/x/Applications/WoW Mentor Bridge.app")
         self.assertEqual(p["ProgramArguments"], ["/Users/x/Applications/WoW Mentor Bridge.app/Contents/MacOS/wowmentor-bridge"])
 
+    @unittest.skipIf(os.name == "nt", "macOS path layout is checked on POSIX")
     def test_the_services_object_installs_with_the_launcher_from_the_helpers(self):
         svc = darwin.make().services
         path = svc.install("bridge", {}, {"launcher": "/L/App.app"})
@@ -73,6 +75,7 @@ class PlistTests(unittest.TestCase):
 
 
 class LocationsTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "macOS path layout is checked on POSIX")
     def test_default_places_on_a_mac(self):
         loc = darwin.make().locations
         self.assertTrue(loc.config_home().endswith(os.path.join(".config", "wowmentor")))

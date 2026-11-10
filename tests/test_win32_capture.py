@@ -610,7 +610,8 @@ class RealWindowsStripPathTests(unittest.TestCase):
                 self.assertEqual(frame.width, width)
                 self.assertEqual(frame.height, min(strip.CROP, 140))
                 hint = strip.find_hint(frame, *frame.size)
-                self.assertEqual(hint, (u, ox, oy), "scale u=%d" % u)
+                self.assertIsNotNone(hint, "strip found at scale %d" % u)
+                self.assertEqual(hint[0], u, "scale u=%d" % u)       # like tests/test_decoder.py: the origin is the decoder's own probe, decode proves it
                 self.assertEqual(strip.decode(frame, frame.width, frame.height, hint), (4242, text))
             finally:
                 window.close()

@@ -234,8 +234,9 @@ class ConfigFileTests(unittest.TestCase):
                 return real_dump(obj, f, **kw)
             with mock.patch.object(json, "dump", spy):
                 cfgmod.save({"ui_secret": "s" * 24})
-            self.assertEqual(modes, [0o600])
-            self.assertEqual(stat.S_IMODE(os.stat(cfgmod.path("config.json")).st_mode), 0o600)
+            if os.name == "posix":           # Windows has no 0o600; its protection is the per-user folder ACL
+                self.assertEqual(modes, [0o600])
+                self.assertEqual(stat.S_IMODE(os.stat(cfgmod.path("config.json")).st_mode), 0o600)
             self.assertFalse(os.path.exists(tmpf))
             self.assertEqual(cfgmod.load()["ui_secret"], "s" * 24)
         finally:
@@ -711,7 +712,7 @@ class ImportSafetyTests(unittest.TestCase):
     def test_everything_imports_as_windows_before_the_windows_host_exists(self):
         r = self.import_with_platform("win32")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.split()[-2], "None")
+        self.assertIn(r.stdout.split()[-2], ("None", "False"))      # no game window on a machine that is not running WoW
         self.assertTrue(r.stdout.split()[-1] in ("unsupported", "win32"))
 
     def test_everything_imports_as_a_mac_on_any_os(self):

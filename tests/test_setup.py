@@ -42,7 +42,8 @@ class SetupTests(unittest.TestCase):
         cfg = cfgmod.load()
         for k in ("read_token", "write_secret", "ui_secret"):
             self.assertGreaterEqual(len(cfg[k]), 32)
-        self.assertEqual(oct(os.stat(cfgmod.path("config.json")).st_mode & 0o777), "0o600", "secrets file is private")
+        if os.name == "posix":
+            self.assertEqual(oct(os.stat(cfgmod.path("config.json")).st_mode & 0o777), "0o600", "secrets file is private")
         addons = os.path.join(self.wow, "Interface", "AddOns")
         for f in ("WoWFeed.toc", "WoWFeed.lua", "UI.lua", "JSON.lua", "Codec.lua"):
             self.assertTrue(os.path.exists(os.path.join(addons, "WoWFeed", f)), f)
@@ -176,7 +177,8 @@ class RemoteServerAndWebhookTests(unittest.TestCase):
         code, out = self.run_cli("server-url", "set", "https://wow.example.test/")
         self.assertEqual(code, 0)
         self.assertEqual(cfgmod.load()["server_url"], "https://wow.example.test")
-        self.assertEqual(oct(os.stat(cfgmod.path("config.json")).st_mode & 0o777), "0o600")
+        if os.name == "posix":
+            self.assertEqual(oct(os.stat(cfgmod.path("config.json")).st_mode & 0o777), "0o600")
         self.assertIn("https://wow.example.test/...", self.run_cli("server-url", "status")[1])
         self.assertEqual(self.run_cli("server-url", "off")[0], 0)
         self.assertIsNone(cfgmod.load()["server_url"])
@@ -223,7 +225,8 @@ class RemoteServerAndWebhookTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         cfg = cfgmod.load()
         self.assertEqual((cfg["webhook_url"], cfg["webhook_secret"]), (url, "topsecret-value"))
-        self.assertEqual(oct(os.stat(cfgmod.path("config.json")).st_mode & 0o777), "0o600")
+        if os.name == "posix":
+            self.assertEqual(oct(os.stat(cfgmod.path("config.json")).st_mode & 0o777), "0o600")
         for text in (out, self.run_cli("webhook", "status")[1]):
             self.assertNotIn("very-private-token", text)
             self.assertNotIn("topsecret-value", text)

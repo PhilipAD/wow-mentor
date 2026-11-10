@@ -79,6 +79,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
     echo "$out" | grep -q "1/5  Found WoW at" || fail "no setup output ($mode): $out"
     echo "$out" | grep -q "Added the wowmentor and wowui commands" || fail "no PATH message ($mode)"
     grep -qF '.local/bin' "$HOME/.zshrc" || fail "PATH line not written to .zshrc ($mode)"
+    # shellcheck disable=SC2016  # the dollar signs are literal text that was written to .zshrc
     [ "$(grep -cF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.zshrc")" = 1 ] || fail "PATH line duplicated ($mode)"
     [ -x "$HOME/.wowmentor/app/wowmentor.sh" ] || fail "program not installed ($mode)"
     [ "$(readlink "$HOME/.local/bin/wowmentor")" = "$HOME/.wowmentor/app/wowmentor.sh" ] || fail "symlink wrong ($mode)"

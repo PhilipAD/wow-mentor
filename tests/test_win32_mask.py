@@ -361,8 +361,9 @@ class WindowsTests(unittest.TestCase):
         self.pump(0.4)
         before = self.screen_pixel(x + 20, y + 2)
         below = self.screen_pixel(x + 20, y + h + 3)
-        if before != 0xFFFFFF or below != 0x000000:
-            msg = "no interactive desktop (screen DC read white=%06x black=%06x)" % (before, below)
+        # SS_BLACKRECT uses COLOR_WINDOWFRAME, which is dark grey (696969) on current Windows, so only require "not white".
+        if before != 0xFFFFFF or below == 0xFFFFFF:
+            msg = "no interactive desktop (screen DC read strip=%06x below=%06x)" % (before, below)
             print("WIN32_MASK_EXCLUSION: SKIPPED, " + msg)
             self.skipTest(msg)
         self.assertTrue(self.win.place((x, y, w, h)))

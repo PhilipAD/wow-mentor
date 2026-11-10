@@ -445,9 +445,10 @@ def tighten_acl(path, run=subprocess.run, env=None):
         return False
 
 
-def replace_retrying(src, dst, tries=10, delay=0.05, sleep=time.sleep, replace=os.replace):
+def replace_retrying(src, dst, tries=10, delay=0.05, sleep=time.sleep, replace=None):
     """os.replace, retried (about 3 s in all) while an indexer, antivirus scanner or reader holds the destination: winerror 5, 32, 33,
     1224. Any other error, or the last failure, is raised."""
+    replace = replace or os.replace             # looked up at call time so a patched os.replace is honoured
     for attempt in range(tries):
         try:
             replace(src, dst)
