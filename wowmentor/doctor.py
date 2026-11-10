@@ -1,7 +1,7 @@
 """`wowmentor doctor`: check the whole chain and say, in plain words, what to fix."""
-import json, os, re, subprocess, sys, time, urllib.request
+import json, os, re, sys, time, urllib.request
 
-from . import __version__, config as cfgmod, install_mac as mac
+from . import __version__, config as cfgmod, host as hostmod, install
 from .bridge import localnet, webhook as whmod
 
 OK, WARN, BAD = "ok", "warn", "bad"
@@ -34,7 +34,7 @@ def _ago(t, now):
 
 
 def session_checks(cfg, now=None):
-    """Session state and webhook health as doctor rows (status, title, fix). Needs only the server, so it also runs off-Mac."""
+    """Session state and webhook health as doctor rows (status, title, fix). Needs only the server, so it runs on any system."""
     now = time.time() if now is None else now
     out = []
     add = lambda status, title, fix="": out.append((status, title, fix))
@@ -75,10 +75,12 @@ def checks(cfg):
     out = []
     add = lambda status, title, fix="": out.append((status, title, fix))
 
-    if sys.platform != "darwin":
-        add(BAD, "This is not a Mac", "WoW Mentor reads the game window with a macOS API; other systems are not supported yet.")
+    h = hostmod.get()
+    ok, why = h.capture.available()
+    if not ok:
+        add(BAD, h.text["not_supported_title"], why)
         return out
-    add(OK if sys.version_info >= (3, 9) else BAD, "Python %d.%d" % sys.version_info[:2], "Install Apple's command line tools: xcode-select --install")
+    add(OK if sys.version_info >= (3, 9) else BAD, "Python %d.%d" % sys.version_info[:2], h.text["python_fix"])
 
     if not cfg.get("ui_secret"):
         add(BAD, "Not set up yet", "Run: wowmentor setup")
@@ -86,15 +88,15 @@ def checks(cfg):
     add(OK, "Config found (%s)" % cfgmod.home())
 
     wow = cfg.get("wow_dir")
-    if not wow or not os.path.isdir(mac.addons_dir(wow)):
-        add(BAD, "WoW folder not found (%s)" % wow, 'Run: wowmentor setup --wow-dir "/Applications/World of Warcraft/_forever_"')
+    if not wow or not os.path.isdir(install.addons_dir(wow)):
+        add(BAD, "WoW folder not found (%s)" % wow, 'Run: wowmentor setup --wow-dir "%s"' % h.text["example_wow_path"])
         return out
     add(OK, "WoW folder: %s" % wow)
 
-    ver = mac.addon_installed_version(wow)
+    ver = install.addon_installed_version(wow)
     pkg_ver = None
     try:
-        with open(os.path.join(mac.PKG, "addon", mac.ADDON, mac.ADDON + ".toc")) as f:
+        with open(os.path.join(install.PKG, "addon", install.ADDON, install.ADDON + ".toc"), encoding="utf-8", errors="replace") as f:
             for line in f:
                 if line.startswith("## Version:"):
                     pkg_ver = line.split(":", 1)[1].strip()
@@ -107,8 +109,8 @@ def checks(cfg):
     else:
         add(OK, "Addon installed (version %s)" % ver)
 
-    n = mac.slots_present(wow)
-    add(OK if n >= mac.POOL + 1 else WARN, "Overlay slots: %d of %d" % (n, mac.POOL + 1), "Run: wowmentor setup, then fully quit and restart WoW")
+    n = install.slots_present(wow)
+    add(OK if n >= install.POOL + 1 else WARN, "Overlay slots: %d of %d" % (n, install.POOL + 1), "Run: wowmentor setup, then fully quit and restart WoW")
 
     local = cfgmod.server_root(cfg)
     code, _ = _get(local + "/healthz")
@@ -118,22 +120,23 @@ def checks(cfg):
             "Check that the server is running and server_url is right: wowmentor server-url status")
     else:
         add(OK if code == 200 else BAD, "Server %s" % ("is running" if code == 200 else "is not running"), "Run: wowmentor start   (see logs: wowmentor logs)")
-    add(OK if mac.agent_running("bridge") else BAD, "Bridge %s" % ("is running" if mac.agent_running("bridge") else "is not running"), "Run: wowmentor start")
+    bridge_up = h.services.is_running("bridge")
+    add(OK if bridge_up else BAD, "Bridge %s" % ("is running" if bridge_up else "is not running"), "Run: wowmentor start")
 
-    running = subprocess.run(["pgrep", "-f", "World of Warcraft"], capture_output=True).returncode == 0
+    running = h.capture.game_running()
     add(OK if running else WARN, "WoW is %s" % ("running" if running else "not running"), "Start the game and log in to a character")
 
     if running:
         try:
-            from .bridge import app as bridge
-            wid = bridge.wow_window()
-            frame = bridge.grab_top(wid, 120) if wid else None
+            from .bridge import strip
+            wid = h.capture.find_game()
+            frame = h.capture.grab_top(wid, 120) if wid else None
             if frame is not None:
-                h = bridge.find_hint(frame, *frame.size)
-                add(OK if h else WARN, "Screen capture works%s" % ("" if h else ", but the data strip is not visible"),
+                hint = strip.find_hint(frame, *frame.size)
+                add(OK if hint else WARN, "Screen capture works%s" % ("" if hint else ", but the data strip is not visible"),
                     "Log in to a character (not the login screen), then /reload. If it persists: wowmentor logs")
             else:
-                add(BAD, "Cannot capture the game window", "Open System Settings > Privacy & Security > Screen & System Audio Recording, turn on '%s', then: wowmentor restart" % mac.APP_NAME.replace('.app', ''))
+                add(BAD, "Cannot capture the game window", h.text["capture_fix"] % {"app": "WoW Mentor Bridge"})
         except Exception as e:
             add(WARN, "Could not test screen capture (%s)" % e)
 
@@ -147,7 +150,7 @@ def checks(cfg):
             add(WARN, "Feed is stale (the game is closed, minimised or on a login screen)", "Log in to a character and keep WoW visible once")
         sm = re.search(r"uislot=(\d+)", body)
         if sm:
-            add(OK, "Overlay is connected (slot %s of %d used this session)" % (sm.group(1), mac.POOL))
+            add(OK, "Overlay is connected (slot %s of %d used this session)" % (sm.group(1), install.POOL))
         elif age is not None and age >= 0:
             add(WARN, "Overlay slots not detected in the game", "Fully quit and restart WoW once, then /reload")
     else:
@@ -170,8 +173,8 @@ def checks(cfg):
     if server_ok:
         out.extend(session_checks(cfg))
 
-    if os.path.isdir(mac.addons_dir(wow)):
-        packs = [d for d in os.listdir(mac.addons_dir(wow)) if d.lower().startswith("guidelime_")]
+    if os.path.isdir(install.addons_dir(wow)):
+        packs = [d for d in os.listdir(install.addons_dir(wow)) if d.lower().startswith("guidelime_")]
         add(OK if packs else WARN, "Guidelime guide packs: %s" % (", ".join(packs) if packs else "none found (guide editing will be unavailable)"),
             "Optional: install Guidelime and a guide pack if you want the mentor to edit your leveling guide")
     if cfg.get("public_url"):

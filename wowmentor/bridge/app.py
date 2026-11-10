@@ -1,13 +1,14 @@
-"""The WoW Mentor bridge (macOS).
+"""The WoW Mentor bridge.
 
 Reads the thin pixel strip the in-game addon draws along the top edge of the game window (lossless window capture,
 no input is ever sent to the game), rebuilds the addon's sections, and pushes a text snapshot to the local server.
 It also delivers the mentor overlay and guide edits back into the game (uisync.py, guidesync.py).
 The strip format is the wow-ai codec (MIT, chelinho139): 3 bits per cell, each of R/G/B fully on or off.
 """
-import collections, ctypes, datetime, glob, json, os, re, struct, subprocess, sys, threading, time, urllib.error, urllib.request
+import collections, datetime, glob, json, os, re, struct, sys, threading, time, urllib.error, urllib.request
 
 from . import events as evmod, localnet, luasv, presence as presmod, webhook as whmod
+from .. import host as hostmod
 from ..server import events as srvevents
 
 CFG = {}          # filled by configure(); keys: wow_dir, local_url, write_secret, ui_secret, include_chat, mask_path, data_dir
@@ -300,239 +301,46 @@ def render():
         out += ["--- RECENT EVENTS (newest last) ---"] + list(events)
     return "\n".join(out) + "\n"
 
-# Geometry (must match the addon): one strip unit = u captured pixels (u found at runtime).
-# Row 1: white anchor cell, then data cells of CW x CH units. Row 2: three status bars BARW units wide.
-CW, CH, BARW, BARGAP = 3, 2, 120, 6
-CROP = 220   # rows of the captured window to look at (the strip sits at the very top of the game area)
-
-class Frame(object):
-    """Read-only view of captured BGRA pixels: frame[x, y] -> (r, g, b, a). No imaging library needed.
-
-    The decoder uses `row()` and `cell()` instead of `frame[x, y]`: they read the bytes directly and never build tuples, which is what
-    keeps a 3456-pixel-wide capture cheap enough to decode five times a second."""
-    def __init__(self, raw, width, height, stride):
-        self.raw, self.width, self.height, self.stride = raw, width, height, stride
-        self.size = (width, height)
-
-    def __getitem__(self, xy):
-        x, y = xy
-        o = y * self.stride + x * 4
-        d = self.raw
-        return (d[o + 2], d[o + 1], d[o], d[o + 3])
-
-    def row(self, y):
-        """The BGRA bytes of one pixel row (index x * 4 + 0/1/2 = b/g/r)."""
-        o = y * self.stride
-        return self.raw[o:o + self.width * 4]
-
-    def cell(self, x, y):
-        """The 3-bit cell value at (x, y): bit 2 = red on, bit 1 = green on, bit 0 = blue on (a channel >= 128 counts as on)."""
-        o = y * self.stride + x * 4
-        d = self.raw
-        return (4 if d[o + 2] >= 128 else 0) + (2 if d[o + 1] >= 128 else 0) + (1 if d[o] >= 128 else 0)
+# The strip decoder lives in strip.py (pure code); the names stay importable from here.
+from .strip import (Frame, CW, CH, BARW, BARGAP, CROP, cellv, white, cell_xy, magic, decode, find_hint, bars, BAR_TESTS, measure_bars)  # noqa: E402,F401
 
 
-def cellv(px, x, y):
-    c = getattr(px, "cell", None)
-    if c is not None: return c(x, y)
-    r, g, b = px[x, y][:3]
-    return (4 if r >= 128 else 0) + (2 if g >= 128 else 0) + (1 if b >= 128 else 0)
-
-def white(p): return p[0] >= 200 and p[1] >= 200 and p[2] >= 200
-
-def cell_xy(h, c):
-    u, ox, oy = h
-    return ox + c * CW * u + (CW * u) // 2, oy + (CH * u) // 2
-
-def magic(px, W, H, h):
-    u, ox, oy = h
-    if oy + CH * u >= H or ox + CW * u * 8 >= W: return False
-    x, y = cell_xy(h, 0)
-    if not white(px[x, y]): return False
-    acc = 0
-    for c in range(1, 7):
-        x, y = cell_xy(h, c); acc = (acc << 3) | cellv(px, x, y)
-    return (acc >> 2) == 0xC71A
-
-def decode(px, W, H, h):
-    u, ox, oy = h
-    step = CW * u
-    x = ox + step + step // 2                       # centre of data cell 1
-    y = oy + (CH * u) // 2
-    row = px.row(y) if hasattr(px, "row") else None  # fast path: index the row's bytes directly
-    acc = nb = 0; out = bytearray(); need = 6
-    while True:
-        if x >= W: return None
-        if row is not None:
-            o = x * 4
-            v = (4 if row[o + 2] >= 128 else 0) + (2 if row[o + 1] >= 128 else 0) + (1 if row[o] >= 128 else 0)
-        else:
-            v = cellv(px, x, y)
-        x += step
-        acc = (acc << 3) | v; nb += 3
-        while nb >= 8:
-            out.append((acc >> (nb - 8)) & 255); nb -= 8; acc &= (1 << nb) - 1
-            if len(out) == 2 and (out[0] != 0xC7 or out[1] != 0x1A): return None
-            if len(out) == 6:
-                need = 8 + out[4] * 256 + out[5]
-                if need > 4000: return None
-            if len(out) >= need: break
-        if len(out) >= need: break
-    ln = out[4] * 256 + out[5]; s1 = s2 = 0
-    for k in range(2, 6 + ln):
-        s1 = (s1 + out[k]) % 255; s2 = (s2 + s1) % 255
-    if out[6 + ln] != s1 or out[7 + ln] != s2: return None
-    return out[2] * 256 + out[3], bytes(out[6:6 + ln]).decode("utf-8", "replace")
-
-def find_hint(px, W, H):
-    """Look for the white anchor followed by the 0xC71A header near the top-left of the capture."""
-    raw, stride = getattr(px, "raw", None), getattr(px, "stride", None)
-    for u in (1, 2, 3):
-        for oy in range(0, min(H - CH * u - 1, CROP - 10)):
-            y = oy + (CH * u) // 2
-            for ox in range(0, 12):
-                x = ox + (CW * u) // 2
-                if raw is not None:                       # fast path: look at the bytes, build no tuples
-                    o = y * stride + x * 4
-                    if raw[o] < 200 or raw[o + 1] < 200 or raw[o + 2] < 200: continue
-                elif not white(px[x, y]): continue
-                h = (u, ox, oy)
-                if magic(px, W, H, h): return h
-    return None
-
-bars = {"t": 0, "health": None, "power": None, "target": None}
-BAR_TESTS = (
-    ("health", lambda p: min(p[:3]) >= 150),
-    ("power", lambda p: p[0] >= 150 and p[1] >= 150 and p[2] < 150),
-    ("target", lambda p: p[0] >= 150 and p[1] < 150 and p[2] < 150 and (p[0] - max(p[1], p[2])) > 80),
-)
-def measure_bars(px, W, H, h):
-    u, ox, oy = h
-    y = oy + CH * u + (CH * u) // 2
-    if y >= H: return
-    for i, (name, test) in enumerate(BAR_TESTS):
-        x0 = ox + i * (BARW + BARGAP) * u; width = BARW * u
-        if x0 + width >= W: return
-        f = sum(1 for x in range(x0, x0 + width) if test(px[x, y])) / width
-        bars[name] = 1.0 if f > 0.97 else (0.0 if f < 0.02 else f)
-    bars["t"] = time.time()
-
-# ---- window capture: CGWindowListCreateImage via ctypes (lossless, ~30 ms, reads the game window's own
-# backing store so overlays, other windows and other Spaces do not matter). Needs Screen Recording permission.
-import ctypes
-from ctypes import c_double, c_uint32, c_void_p, c_size_t, c_long, c_int, c_int64, c_char_p, c_ubyte, Structure, POINTER, byref
-if sys.platform == "darwin":
-    _cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
-    _cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
-    class _Pt(Structure): _fields_ = [("x", c_double), ("y", c_double)]
-    class _Sz(Structure): _fields_ = [("w", c_double), ("h", c_double)]
-    class _Rect(Structure): _fields_ = [("origin", _Pt), ("size", _Sz)]
-    def _sig(lib, name, res, args):
-        f = getattr(lib, name); f.restype = res; f.argtypes = args
-    _sig(_cg, "CGWindowListCreateImage", c_void_p, [_Rect, c_uint32, c_uint32, c_uint32])
-    _sig(_cg, "CGWindowListCopyWindowInfo", c_void_p, [c_uint32, c_uint32])
-    _sig(_cg, "CGImageGetWidth", c_size_t, [c_void_p]); _sig(_cg, "CGImageGetHeight", c_size_t, [c_void_p])
-    _sig(_cg, "CGImageGetBytesPerRow", c_size_t, [c_void_p]); _sig(_cg, "CGImageGetDataProvider", c_void_p, [c_void_p])
-    _sig(_cg, "CGDataProviderCopyData", c_void_p, [c_void_p])
-    _sig(_cg, "CGRectMakeWithDictionaryRepresentation", c_ubyte, [c_void_p, POINTER(_Rect)])
-    _sig(_cf, "CFDataGetLength", c_long, [c_void_p]); _sig(_cf, "CFDataGetBytePtr", POINTER(c_ubyte), [c_void_p])
-    _sig(_cf, "CFRelease", None, [c_void_p]); _sig(_cf, "CFArrayGetCount", c_long, [c_void_p])
-    _sig(_cf, "CFArrayGetValueAtIndex", c_void_p, [c_void_p, c_long]); _sig(_cf, "CFDictionaryGetValue", c_void_p, [c_void_p, c_void_p])
-    _sig(_cf, "CFStringCreateWithCString", c_void_p, [c_void_p, c_char_p, c_uint32])
-    _sig(_cf, "CFStringGetCString", c_ubyte, [c_void_p, c_char_p, c_long, c_uint32]); _sig(_cf, "CFNumberGetValue", c_ubyte, [c_void_p, c_int, c_void_p])
-_UTF8 = 0x08000100
-_KEYS = {}
-_RECT_NULL = None
-if sys.platform == "darwin":
-    _KEYS = {k: _cf.CFStringCreateWithCString(None, k.encode(), _UTF8) for k in ("kCGWindowOwnerName", "kCGWindowLayer", "kCGWindowNumber", "kCGWindowBounds", "kCGWindowAlpha")}
-    _RECT_NULL = _Rect(_Pt(float("inf"), float("inf")), _Sz(0, 0))
-
-def _cfnum(ref):
-    v = c_int64(0)
-    if not ref or not _cf.CFNumberGetValue(ref, 4, byref(v)): return None
-    return v.value
-
-def _cfdouble(ref):
-    v = c_double(0)
-    if not ref or not _cf.CFNumberGetValue(ref, 6, byref(v)): return None      # 6 = kCFNumberFloat64Type
-    return v.value
-
-WOW_OWNERS = ("Wow", "World of Warcraft")
-
+# ---- window capture and the screen mask live in the host layer (wowmentor/host): macOS uses CoreGraphics (lossless, reads the
+# game window's own backing store, needs Screen Recording permission). The functions below are thin wrappers so the rest of the
+# bridge, the doctor and the tests keep one stable place to call.
 def frontmost_is_wow():
-    """True if the front-most normal window (layer 0, visible) belongs to WoW, False if another app's does, None if unknown
-    (not a Mac, no windows reported, or any CoreGraphics error). Needs no permission: only owner names are read."""
-    if sys.platform != "darwin": return None
+    """True if the front-most normal window belongs to WoW, False if another app's does, None if unknown (unsupported system,
+    no windows reported, or any error). Needs no permission: only owner names are read."""
     try:
-        arr = _cg.CGWindowListCopyWindowInfo(0x1 | 0x10, 0)      # on screen only, without desktop elements; ordered front to back
-        if not arr: return None
-        try:
-            for i in range(_cf.CFArrayGetCount(arr)):
-                d = _cf.CFArrayGetValueAtIndex(arr, i)
-                if _cfnum(_cf.CFDictionaryGetValue(d, _KEYS["kCGWindowLayer"])) != 0: continue
-                a = _cfdouble(_cf.CFDictionaryGetValue(d, _KEYS["kCGWindowAlpha"]))
-                if a is not None and a <= 0.0: continue
-                owner = _cf.CFDictionaryGetValue(d, _KEYS["kCGWindowOwnerName"])
-                if not owner: continue
-                buf = ctypes.create_string_buffer(256)
-                if not _cf.CFStringGetCString(owner, buf, 256, _UTF8): continue
-                return buf.value.decode("utf-8", "ignore") in WOW_OWNERS
-        finally:
-            _cf.CFRelease(arr)
+        return hostmod.get().capture.foreground_is_game()
     except Exception:
         return None
-    return None
 
 def wow_window():
-    """CGWindowID of the biggest WoW window (0 if the game is not running)."""
-    arr = _cg.CGWindowListCopyWindowInfo(0, 0)
-    if not arr: return 0
-    best, area = 0, 0.0
-    try:
-        for i in range(_cf.CFArrayGetCount(arr)):
-            d = _cf.CFArrayGetValueAtIndex(arr, i)
-            owner = _cf.CFDictionaryGetValue(d, _KEYS["kCGWindowOwnerName"])
-            if not owner: continue
-            buf = ctypes.create_string_buffer(256)
-            if not _cf.CFStringGetCString(owner, buf, 256, _UTF8) or buf.value.decode("utf-8", "ignore") not in ("Wow", "World of Warcraft"): continue
-            if _cfnum(_cf.CFDictionaryGetValue(d, _KEYS["kCGWindowLayer"])) != 0: continue
-            r = _Rect()
-            if not _cg.CGRectMakeWithDictionaryRepresentation(_cf.CFDictionaryGetValue(d, _KEYS["kCGWindowBounds"]), byref(r)): continue
-            if r.size.w * r.size.h > area: area, best = r.size.w * r.size.h, _cfnum(_cf.CFDictionaryGetValue(d, _KEYS["kCGWindowNumber"])) or 0
-    finally:
-        _cf.CFRelease(arr)
-    return best
+    """The host's handle for the biggest WoW window (None if the game is not running)."""
+    return hostmod.get().capture.find_game()
 
-def grab_top(wid, rows):
-    """(width, rows, rgba bytes) for the top rows of the window, or None if the capture failed."""
-    img = _cg.CGWindowListCreateImage(_RECT_NULL, 8, wid, 9)   # IncludingWindow, BoundsIgnoreFraming | BestResolution
-    if not img: return None
-    try:
-        w, h, bpr = _cg.CGImageGetWidth(img), _cg.CGImageGetHeight(img), _cg.CGImageGetBytesPerRow(img)
-        data = _cg.CGDataProviderCopyData(_cg.CGImageGetDataProvider(img))
-        try: raw = ctypes.string_at(_cf.CFDataGetBytePtr(data), min(rows, h) * bpr)
-        finally: _cf.CFRelease(data)
-    finally:
-        _cf.CFRelease(img)
-    return Frame(raw, w, min(rows, h), bpr)
+def grab_top(handle, rows):
+    """A Frame of the top rows of the window, or None if the capture failed."""
+    return hostmod.get().capture.grab_top(handle, rows)
 
 def frames():
-    wid = 0; wid_t = 0.0; warned = 0.0
+    cap = hostmod.get().capture
+    wid = None; wid_t = 0.0; warned = 0.0
     while True:
         t0 = time.time()
-        if not wid or t0 - wid_t > 15: wid, wid_t = wow_window(), t0
+        if not wid or t0 - wid_t > 15: wid, wid_t = cap.find_game(), t0
         if not wid:
             if t0 - warned > 30: warned = t0; print("game window not found", flush=True)
             time.sleep(3); continue
-        im = grab_top(wid, CROP)
+        im = cap.grab_top(wid, CROP)
         if im is None:
-            wid = 0
-            if t0 - warned > 30: warned = t0; print("could not capture the game window (Screen Recording permission?)", flush=True)
+            wid = None
+            if t0 - warned > 30: warned = t0; print("could not capture the game window (%s)" % hostmod.get().text["capture_failed_hint"], flush=True)
             time.sleep(2); continue
         yield im
         time.sleep(max(0, 0.1 - (time.time() - t0)))
 
-mask = {"proc": None, "sent": None, "row_at": 0.0}
 def mask_row(px, y, W, H):
     """One row of the scene just below the strip, as base64 RGB every 4th pixel, so the mask can copy it and vanish into the picture."""
     if y >= H or not hasattr(px, "row"): return None
@@ -545,27 +353,12 @@ def mask_row(px, y, W, H):
     return base64.b64encode(bytes(out))
 
 def update_mask(h, W, px=None, H=0):
-    """Tell the overlay helper where the strip is so it can paint over it on screen (window capture ignores overlays)."""
-    MASK = CFG.get("mask_path")
-    if not MASK or not os.path.exists(MASK): return
-    msg = "%d %d %d %d %d\n" % (0, max(0, h[2] - 1), W, 2 * CH * h[0] + 2, W)
-    alive = mask["proc"] and mask["proc"].poll() is None
-    now = time.time()
-    row = None
-    if px is not None and now - mask["row_at"] >= 0.05:
-        try: row = mask_row(px, max(0, h[2] - 1) + 2 * CH * h[0] + 2, W, H)
-        except Exception: row = None
-    if mask["sent"] == msg and alive and row is None: return
-    try:
-        if not alive:
-            mask["proc"] = subprocess.Popen([MASK], stdin=subprocess.PIPE)
-        if mask["sent"] != msg or not alive:
-            mask["proc"].stdin.write(msg.encode()); mask["sent"] = msg
-        if row:
-            mask["proc"].stdin.write(b"R " + row + b"\n"); mask["row_at"] = now
-        mask["proc"].stdin.flush()
-    except Exception as e:
-        print("mask error:", e, flush=True); mask["proc"] = None
+    """Tell the host's overlay helper where the strip is so it can paint over it on screen (window capture ignores overlays)."""
+    m = hostmod.get().mask
+    if not m.available(): return
+    y0 = max(0, h[2] - 1)
+    row_y = y0 + 2 * CH * h[0] + 2
+    m.update((0, y0, W, 2 * CH * h[0] + 2), W, (lambda: mask_row(px, row_y, W, H)) if px is not None else None)
 
 def tail():
     hint = None; last_id = None; warned = 0; last_ok = time.time()
@@ -732,10 +525,12 @@ def configure(cfg):
 
 
 def run(cfg):
-    if sys.platform != "darwin":
-        print("The WoW Mentor bridge reads the game window with a macOS API and only runs on a Mac.", flush=True)
+    ok, why = hostmod.get().capture.available()
+    if not ok:
+        print(why, flush=True)
         return
     configure(cfg)
+    hostmod.get().mask.start(CFG)
     from . import guidesync, uisync
     uisync.configure(os.path.join(CFG["wow_dir"], "Interface", "AddOns"), CFG["local_url"])
     guidesync.configure(os.path.join(CFG["wow_dir"], "Interface", "AddOns"), CFG["local_url"], os.path.join(CFG["data_dir"], "guide-backups"))

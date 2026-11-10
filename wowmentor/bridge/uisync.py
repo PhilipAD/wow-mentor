@@ -8,6 +8,7 @@ slot and applies the document. Outbound: the addon reports rev/slot/door in the 
 import json, os, re, struct, threading, time, urllib.error, urllib.request
 
 from . import localnet
+from .. import host
 
 ADDONS = ""      # set by configure()
 POOL = 1000
@@ -31,7 +32,7 @@ def atomic_write(path, data):
     try:
         with open(tmp, "wb") as f:
             f.write(data)
-        os.replace(tmp, path)
+        host.get().fs.atomic_replace(tmp, path)
     except BaseException:
         try:
             os.remove(tmp)

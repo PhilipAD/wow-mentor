@@ -86,7 +86,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
     [ ! -e "$HOME/.wowmentor/app/.git" ] || fail ".git copied ($mode)"
     [ ! -f "$HOME/Library/LaunchAgents/com.wowmentor.server.plist" ] || fail "launchd touched ($mode)"
     "$HOME/.local/bin/wowmentor" --version | grep -q "^wowmentor " || fail "wowmentor --version ($mode)"
-    "$HOME/.local/bin/wowmentor" links | grep -q "Paste this to your AI agent" || fail "links ($mode)"
+    links_out="$("$HOME/.local/bin/wowmentor" links)" || fail "links ($mode)"      # not piped into grep -q: that closes the pipe early and flakes with BrokenPipe
+    printf '%s\n' "$links_out" | grep -q "Paste this to your AI agent" || fail "links text ($mode)"
     ok "full install via $mode, re-run keeps the config"
     cp "$WOWMENTOR_HOME/config.json" "$SANDBOX/config.before"
     PATH="$SANDBOX/bin-mac:/usr/bin:/bin" bash "$ROOT/install.sh" --wow-dir "$WOW" --no-launchd --no-build >/dev/null 2>&1 || fail "second install ($mode) failed"

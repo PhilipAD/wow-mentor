@@ -3,7 +3,10 @@
 Standard library only, Python 3.9+. Secrets are random and live only in this file; nothing is sent anywhere until you
 run `wowmentor share` (or deploy the server yourself).
 """
-import json, os, secrets, sys
+import json, os, secrets
+
+from . import host
+from .host.common import write_private_file
 
 DEFAULTS = {
     "port": 8095,
@@ -19,7 +22,8 @@ DEFAULTS = {
 
 
 def home():
-    return os.path.abspath(os.path.expanduser(os.environ.get("WOWMENTOR_HOME", "~/.config/wowmentor")))
+    """The config folder: $WOWMENTOR_HOME if set, else the host's default (~/.config/wowmentor on macOS)."""
+    return os.path.abspath(os.path.expanduser(os.environ["WOWMENTOR_HOME"] if "WOWMENTOR_HOME" in os.environ else host.get().locations.config_home()))
 
 
 def path(*parts):
@@ -50,7 +54,7 @@ def read_json(p):
 def set_aside(p):
     """Keep a file the program cannot use as `<p>.bak` (replacing an older .bak) so it can start from defaults without destroying it."""
     try:
-        os.replace(p, p + ".bak")
+        host.get().fs.atomic_replace(p, p + ".bak")
     except OSError:
         pass
 
@@ -58,38 +62,21 @@ def set_aside(p):
 def write_json_atomic(p, obj, mode=0o600, **dump_kw):
     """Write JSON via a private temp file (created with `mode`, never world readable), fsync, then rename. Raises OSError on
     failure after removing the temp file, so a full disk leaves the old file intact."""
-    tmp = p + ".tmp"
+    def write(f):
+        json.dump(obj, f, **dump_kw)
+        if dump_kw.get("indent"):
+            f.write("\n")
     try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-        try:
-            os.fchmod(fd, mode)
-        except (AttributeError, OSError):
-            pass
-        with os.fdopen(fd, "w") as f:
-            json.dump(obj, f, **dump_kw)
-            if dump_kw.get("indent"):
-                f.write("\n")
-            f.flush()
-            try:
-                os.fsync(f.fileno())
-            except OSError:
-                pass
-        os.replace(tmp, p)
-    except (OSError, ValueError, TypeError, RecursionError) as e:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        raise e if isinstance(e, OSError) else OSError("could not serialize %s: %s" % (os.path.basename(p), type(e).__name__))
+        write_private_file(p, mode=mode, replace=host.get().fs.atomic_replace, writer=write)
+    except (ValueError, TypeError, RecursionError) as e:
+        raise OSError("could not serialize %s: %s" % (os.path.basename(p), type(e).__name__))
 
 
 def log_dir():
     if os.environ.get("WOWMENTOR_LOGS"):
         d = os.environ["WOWMENTOR_LOGS"]
-    elif sys.platform == "darwin":
-        d = os.path.expanduser("~/Library/Logs/WoWMentor")
     else:
-        d = path("logs")
+        d = host.get().locations.log_dir()
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -188,7 +175,7 @@ Things the mentor must never do or say: <for example: never tell me to learn gat
 
 def profile_text():
     try:
-        with open(path("profile.md")) as f:
+        with open(path("profile.md"), encoding="utf-8", errors="replace") as f:
             txt = f.read().strip()
         # drop comment lines that start with '#'
         return "\n".join(l for l in txt.splitlines() if not l.startswith("#")).strip()

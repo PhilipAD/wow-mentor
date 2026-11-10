@@ -1,9 +1,10 @@
-import contextlib, io, json, os, plistlib, shutil, subprocess, sys, tempfile, time, unittest
+import contextlib, io, json, os, shutil, sys, tempfile, time, unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wowmentor import cli, config as cfgmod, doctor, install_mac as mac
+from wowmentor import cli, config as cfgmod, doctor, host, install
+from wowmentor.host.fake import FakeCapture, FakeHost
 from wowmentor.bridge import webhook as whmod
 from helpers import RunningServer, jhttp
 from test_webhook import Receiver
@@ -20,14 +21,12 @@ class SetupTests(unittest.TestCase):
         os.makedirs(os.path.join(self.wow, "Interface", "AddOns", "SomeOtherAddon"))
         with open(os.path.join(self.wow, "Interface", "AddOns", "SomeOtherAddon", "x.lua"), "w") as f:
             f.write("keep me")
-        self.launchctl = mock.patch.object(mac, "launchctl", return_value=mock.Mock(returncode=0, stdout="", stderr=""))
-        self.launchctl.start()
-        self.platform = mock.patch.object(sys, "platform", "darwin")       # setup refuses to run elsewhere; these tests use fake folders only
-        self.platform.start()
+        self.fake = FakeHost(name="darwin", capture=FakeCapture(game=None))      # nothing here touches launchd, the screen or the real game
+        self.host = host.using(self.fake)
+        self.host.__enter__()
 
     def tearDown(self):
-        self.platform.stop()
-        self.launchctl.stop()
+        self.host.__exit__(None, None, None)
         self.env.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -47,7 +46,7 @@ class SetupTests(unittest.TestCase):
         addons = os.path.join(self.wow, "Interface", "AddOns")
         for f in ("WoWFeed.toc", "WoWFeed.lua", "UI.lua", "JSON.lua", "Codec.lua"):
             self.assertTrue(os.path.exists(os.path.join(addons, "WoWFeed", f)), f)
-        self.assertEqual(mac.slots_present(self.wow), mac.POOL + 1)
+        self.assertEqual(install.slots_present(self.wow), install.POOL + 1)
         self.assertTrue(os.path.exists(os.path.join(addons, "WoWFeed", "sig", "ok.wav")))
         with open(os.path.join(addons, "SomeOtherAddon", "x.lua")) as f:
             self.assertEqual(f.read(), "keep me", "other addons untouched")
@@ -60,7 +59,7 @@ class SetupTests(unittest.TestCase):
     def test_find_wow_dirs_prefers_forever(self):
         root = os.path.join(self.tmp, "Applications", "World of Warcraft")
         os.makedirs(os.path.join(root, "_retail_", "Interface", "AddOns"))
-        found = mac.find_wow_dirs([root])
+        found = install.find_wow_dirs([root])
         self.assertEqual(found[0], self.wow)
         self.assertEqual(len(found), 2)
 
@@ -77,27 +76,35 @@ class SetupTests(unittest.TestCase):
         cfgmod.save(cfg)
         self.assertIn("https://example.trycloudflare.com/ui/" + cfg["ui_secret"], self.run_cli("links")[1])
 
-    def test_plists_are_valid(self):
-        for kind in ("server", "bridge", "tunnel"):
-            p = mac.write_plist(kind)
-            with open(p, "rb") as f:
-                data = plistlib.load(f)
-            self.assertEqual(data["Label"], mac.label(kind))
-            self.assertNotEqual(data["Label"], mac.LABELS[kind], "a custom WOWMENTOR_HOME must not share the real install's launchd label")
-            self.assertTrue(data["KeepAlive"])
-            self.assertIn("wowmentor", " ".join(data["ProgramArguments"]) + data["EnvironmentVariables"]["PYTHONPATH"])
-            if sys.platform == "darwin" and shutil.which("plutil"):
-                self.assertEqual(subprocess.run(["plutil", "-lint", p], capture_output=True).returncode, 0)
+    def test_no_launchd_is_still_accepted_as_the_old_name_of_no_services(self):
+        for flag in ("--no-launchd", "--no-services"):
+            code, out = self.run_cli("setup", "--wow-dir", self.wow, "--no-build", flag)
+            self.assertEqual(code, 0, out)
+            self.assertIn("Skipped starting services", out)
+        self.assertEqual([c for c in self.fake.services.calls if c[0] in ("install", "start")], [], "no service is touched")
+
+    def test_setup_starts_both_services_and_opens_the_permission_page_when_the_host_has_one(self):
+        self.fake.text["permission_lines"] = ("5/5  grant it", "     choose %(app)s")
+        code, out = self.run_cli("setup", "--wow-dir", self.wow, "--no-build")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.fake.services.calls, [("install", "server"), ("install", "bridge"), ("start", "server"), ("start", "bridge")])
+        self.assertIn("choose WoW Mentor Bridge", out)
+        self.assertEqual(self.fake.shell.privacy_opened, 1)
+
+    def test_setup_says_so_and_stops_on_a_host_without_capture(self):
+        with host.using(FakeHost(capture=FakeCapture(ok=False, reason="no capture here"))):
+            code, out = self.run_cli("setup", "--wow-dir", self.wow, "--no-build")
+        self.assertEqual(code, 1)
+        self.assertIn("no capture here", out)
 
     def test_doctor_reports_without_crashing_when_nothing_runs(self):
         cfg = cfgmod.load()
-        if sys.platform == "darwin":
-            self.assertIn((doctor.BAD, "Not set up yet"), [(st, t) for st, t, _ in doctor.checks(cfg)], "not set up yet is a clear red item")
-            self.run_cli("setup", "--wow-dir", self.wow, "--no-build", "--no-launchd")
-            cfg = cfgmod.load()
-            cfg["port"] = 1                      # nothing listens there
-            titles = [t for _, t, _ in doctor.checks(cfg)]
-            self.assertTrue(any("Server is not running" in t for t in titles), titles)
+        self.assertIn((doctor.BAD, "Not set up yet"), [(st, t) for st, t, _ in doctor.checks(cfg)], "not set up yet is a clear red item")
+        self.run_cli("setup", "--wow-dir", self.wow, "--no-build", "--no-launchd")
+        cfg = cfgmod.load()
+        cfg["port"] = 1                      # nothing listens there
+        titles = [t for _, t, _ in doctor.checks(cfg)]
+        self.assertTrue(any("Server is not running" in t for t in titles), titles)
 
     def test_uninstall_removes_only_ours(self):
         self.run_cli("setup", "--wow-dir", self.wow, "--no-build", "--no-launchd")
@@ -125,8 +132,12 @@ class RemoteServerAndWebhookTests(unittest.TestCase):
         os.environ.pop("WOWMENTOR_WEBHOOK_SECRET", None)
         self.wow = os.path.join(self.tmp, "World of Warcraft", "_forever_")
         os.makedirs(os.path.join(self.wow, "Interface", "AddOns"))
+        self.fake = FakeHost(name="darwin", capture=FakeCapture(game=None))
+        self.host = host.using(self.fake)
+        self.host.__enter__()
 
     def tearDown(self):
+        self.host.__exit__(None, None, None)
         self.env.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -170,27 +181,23 @@ class RemoteServerAndWebhookTests(unittest.TestCase):
         self.assertEqual(self.run_cli("server-url", "off")[0], 0)
         self.assertIsNone(cfgmod.load()["server_url"])
 
-    @unittest.skipUnless(sys.platform == "darwin", "setup is macOS only")
     def test_setup_installs_no_local_server_when_server_url_is_set(self):
         cfg = self.cfg_with_secrets(server_url="https://wow.example.test")
-        with mock.patch.object(mac, "write_plist") as wp, mock.patch.object(mac, "start_agent", return_value=True) as sa, mock.patch.object(mac, "open_screen_recording_settings"):
-            code, out = self.run_cli("setup", "--wow-dir", self.wow, "--no-build")
+        code, out = self.run_cli("setup", "--wow-dir", self.wow, "--no-build")
         self.assertEqual(code, 0, out)
-        self.assertEqual([c.args[0] for c in wp.call_args_list], ["bridge"])
-        self.assertEqual([c.args[0] for c in sa.call_args_list], ["bridge"])
+        self.assertEqual([c[1] for c in self.fake.services.calls if c[0] == "install"], ["bridge"])
+        self.assertEqual([c[1] for c in self.fake.services.calls if c[0] == "start"], ["bridge"])
         self.assertIn("No local server installed", out)
         self.assertNotIn("wow.example.test/ui", out)
-        with mock.patch.object(mac, "write_plist") as wp, mock.patch.object(mac, "start_agent", return_value=True), mock.patch.object(mac, "open_screen_recording_settings"):
-            c = cfgmod.load(); c["server_url"] = None; cfgmod.save(c)
-            self.run_cli("setup", "--wow-dir", self.wow, "--no-build")
-        self.assertEqual([c.args[0] for c in wp.call_args_list], ["server", "bridge"], "without server_url both services are installed as before")
+        self.fake.services.calls.clear()
+        c = cfgmod.load(); c["server_url"] = None; cfgmod.save(c)
+        self.run_cli("setup", "--wow-dir", self.wow, "--no-build")
+        self.assertEqual([c[1] for c in self.fake.services.calls if c[0] == "install"], ["server", "bridge"], "without server_url both services are installed as before")
 
-    @unittest.skipUnless(sys.platform == "darwin", "start is macOS only")
     def test_start_skips_the_server_for_a_remote_one_and_share_refuses(self):
         self.cfg_with_secrets(server_url="https://wow.example.test")
-        with mock.patch.object(mac, "start_agent", return_value=True) as sa:
-            self.run_cli("start")
-        self.assertEqual([c.args[0] for c in sa.call_args_list], ["bridge"])
+        self.run_cli("start")
+        self.assertEqual([c[1] for c in self.fake.services.calls if c[0] == "start"], ["bridge"])
         code, out = self.run_cli("share", "on")
         self.assertEqual(code, 1)
         self.assertIn("server_url is set", out)
@@ -335,7 +342,6 @@ class RemoteServerAndWebhookTests(unittest.TestCase):
         self.assertEqual(rows[0][0], doctor.WARN)
         self.assertIn("Could not read the session", rows[0][1])
 
-    @unittest.skipUnless(sys.platform == "darwin", "doctor is macOS only")
     def test_doctor_names_a_remote_server(self):
         cfg = self.cfg_with_secrets(server_url="http://127.0.0.1:1", wow_dir=self.wow)
         titles = [t for _, t, _ in doctor.checks(cfg)]

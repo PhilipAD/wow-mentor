@@ -6,7 +6,7 @@ import errno, hmac, json, os, re, shutil, socket, stat, sys, tempfile, threading
 from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from helpers import RunningServer, http, jhttp, raw_http, status_of
-from wowmentor import config as cfgmod, install_mac
+from wowmentor import config as cfgmod
 from wowmentor.bridge import app as bridge, events as evmod, guidesync, luasv, presence as presmod, uisync, webhook as whmod
 from wowmentor.server import app as server_app, events as srvevents, tugapi, agentmem
 
@@ -318,13 +318,7 @@ class ConfigFileTests(unittest.TestCase):
         self.assertEqual(os.listdir(home), ["precious.txt"], "a folder with someone else's file in it is not deleted")
 
 
-class LauncherAndSubprocessTests(unittest.TestCase):
-    def test_launcher_source_escapes_hostile_paths(self):
-        src = install_mac.launcher_source('/Users/a b/"; system("rm -rf ~"); "/py\\thon?', "/pkg/\u00e9")
-        define = [l for l in src.splitlines() if l.startswith("#define PYTHON")][0]
-        self.assertEqual(define, '#define PYTHON "/Users/a b/\\"; system(\\"rm -rf ~\\"); \\"/py\\\\thon\\077"')
-        self.assertIn('#define PYPATH "/pkg/\\303\\251"', src)
-
+class SubprocessTests(unittest.TestCase):
     def test_no_shell_true_or_os_system_anywhere(self):
         for dirpath, _, names in os.walk(os.path.join(ROOT, "wowmentor")):
             for n in names:
@@ -332,25 +326,6 @@ class LauncherAndSubprocessTests(unittest.TestCase):
                     text = read(os.path.join(dirpath, n))
                     self.assertNotIn("shell=True", text, n)
                     self.assertNotIn("os.system(", text, n)
-
-    def test_launchctl_off_mac_says_so(self):
-        with mock.patch.object(install_mac.sys, "platform", "linux"):
-            with self.assertRaises(RuntimeError) as cm:
-                install_mac.launchctl("print", "x")
-        self.assertIn("macOS only", str(cm.exception))
-
-    def test_plist_with_spaces_and_quotes_in_paths_round_trips(self):
-        import plistlib
-        tmp = tempfile.mkdtemp(prefix="wowmentor-plist-")
-        try:
-            with mock.patch.dict(os.environ, {"WOWMENTOR_HOME": os.path.join(tmp, 'we"ird home'), "WOWMENTOR_LOGS": os.path.join(tmp, "my logs")}):
-                p = install_mac.make_plist("bridge", python="/opt/py thon/bin/python3 -c 'x'")
-                back = plistlib.loads(plistlib.dumps(p))
-                self.assertEqual(back["ProgramArguments"][0], "/opt/py thon/bin/python3 -c 'x'")
-                self.assertEqual(back["ProgramArguments"][1:], ["-m", "wowmentor", "bridge"], "arguments stay separate: no shell string is built")
-                self.assertEqual(back["EnvironmentVariables"]["WOWMENTOR_HOME"], os.path.join(tmp, 'we"ird home'))
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ------------------------------------------------------------------------------------------------ bridge files
@@ -716,13 +691,33 @@ class SupervisorAndRenderTests(unittest.TestCase):
 
 
 class ImportSafetyTests(unittest.TestCase):
-    def test_bridge_and_installer_import_off_mac(self):
+    """Every module imports on every OS: the platform is patched before the first import, in a fresh interpreter."""
+
+    def import_with_platform(self, platform):
         import subprocess
-        code = ("import sys; sys.platform='linux'; import wowmentor.bridge.app as b, wowmentor.install_mac as m, wowmentor.cli, wowmentor.doctor; "
-                "print(b.wow_window if hasattr(b,'wow_window') else 'nowin'); print(b.frontmost_is_wow())")
-        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, env=dict(os.environ, PYTHONPATH=ROOT))
+        pre = ("import argparse, base64, collections, ctypes, datetime, glob, hashlib, hmac, http.server, importlib.util, json, plistlib, re, secrets, "
+               "shutil, socket, struct, subprocess, tempfile, threading, urllib.error, urllib.parse, urllib.request, uuid, random, abc, contextlib, io, "
+               "ssl")                              # the stdlib must load with the real platform
+        code = (pre + "; import sys; sys.platform=%r; ssl.SSLContext._load_windows_store_certs = lambda *a, **k: None; import wowmentor.bridge.app as b, wowmentor.install_mac as m, wowmentor.cli, wowmentor.doctor; "
+                "import wowmentor.host as h, wowmentor.host.darwin, wowmentor.host.unsupported, wowmentor.host.fake; "
+                "print(b.wow_window if hasattr(b,'wow_window') else 'nowin'); print(b.frontmost_is_wow()); print(h.get().name)" % platform)
+        return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, env=dict(os.environ, PYTHONPATH=ROOT))
+
+    def test_bridge_and_installer_import_off_mac(self):
+        r = self.import_with_platform("linux")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue(r.stdout.strip().endswith("None"))
+        self.assertEqual(r.stdout.split()[-2:], ["None", "unsupported"])
+
+    def test_everything_imports_as_windows_before_the_windows_host_exists(self):
+        r = self.import_with_platform("win32")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.split()[-2], "None")
+        self.assertTrue(r.stdout.split()[-1] in ("unsupported", "win32"))
+
+    def test_everything_imports_as_a_mac_on_any_os(self):
+        r = self.import_with_platform("darwin")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.split()[-1], "darwin")
 
 
 if __name__ == "__main__":

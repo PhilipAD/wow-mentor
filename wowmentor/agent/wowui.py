@@ -20,7 +20,7 @@ def load_env():
     import json as _json
     home = os.path.abspath(os.path.expanduser(os.environ.get("WOWMENTOR_HOME", "~/.config/wowmentor")))
     try:
-        with open(os.path.join(home, "config.json")) as f:
+        with open(os.path.join(home, "config.json"), encoding="utf-8") as f:
             d = _json.load(f)
         return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
@@ -455,7 +455,7 @@ def cmd_theme(a):
 
 
 def cmd_ops(a):
-    raw = sys.stdin.read() if a.file in (None, "-") else open(a.file).read()
+    raw = sys.stdin.read() if a.file in (None, "-") else open(a.file, encoding="utf-8").read()
     try:
         ops = json.loads(raw)
     except ValueError as e:
@@ -625,12 +625,12 @@ def cmd_tug_sub(a):
 
 
 def cmd_tug_set(a):
-    text = sys.stdin.read() if a.file in (None, "-") else open(a.file).read()
+    text = sys.stdin.read() if a.file in (None, "-") else open(a.file, encoding="utf-8").read()
     tug_send(a, [{"guide": a.guide, "ops": [{"op": "set", "text": text.rstrip("\n")}], "note": a.note or ""}])
 
 
 def cmd_tug_ops(a):
-    raw = sys.stdin.read() if a.file in (None, "-") else open(a.file).read()
+    raw = sys.stdin.read() if a.file in (None, "-") else open(a.file, encoding="utf-8").read()
     try:
         body = json.loads(raw)
     except ValueError as e:

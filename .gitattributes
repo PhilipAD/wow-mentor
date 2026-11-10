@@ -1,0 +1,11 @@
+# Line endings are part of the product: Lua, .toc, shell and Python files must stay LF on every checkout (Windows included).
+*.lua   text eol=lf
+*.toc   text eol=lf
+*.sh    text eol=lf
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+install.sh text eol=lf
+wowui   text eol=lf
+*.ps1   text eol=crlf

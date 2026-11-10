@@ -11,6 +11,7 @@ before every agent edit. Nothing is ever deleted from your AddOns folder.
 import json, os, re, shutil, time, urllib.error, urllib.request
 
 from . import localnet
+from .. import host
 from ..server import tugdoc
 
 VERSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")      # backup ids look like "12" or "12-prerestore" (\Z, not `$`: no trailing newline)
@@ -37,7 +38,7 @@ def write_atomic(path, text):
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        host.get().fs.atomic_replace(tmp, path)
     except BaseException:
         try:
             os.remove(tmp)          # a full disk must not leave a half-written temp file next to the guide
