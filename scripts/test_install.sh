@@ -77,7 +77,9 @@ if [ "$(uname -s)" = "Darwin" ]; then
     else export WOWMENTOR_SRC="$ROOT"; unset WOWMENTOR_TARBALL_URL; fi
     out="$(PATH="$SANDBOX/bin-mac:/usr/bin:/bin" bash "$ROOT/install.sh" --wow-dir "$WOW" --no-launchd --no-build 2>&1)" || fail "install ($mode) failed: $out"
     echo "$out" | grep -q "1/5  Found WoW at" || fail "no setup output ($mode): $out"
-    echo "$out" | grep -q "Tip: to run 'wowmentor'" || fail "no PATH tip ($mode)"
+    echo "$out" | grep -q "Added the wowmentor and wowui commands" || fail "no PATH message ($mode)"
+    grep -qF '.local/bin' "$HOME/.zshrc" || fail "PATH line not written to .zshrc ($mode)"
+    [ "$(grep -cF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.zshrc")" = 1 ] || fail "PATH line duplicated ($mode)"
     [ -x "$HOME/.wowmentor/app/wowmentor.sh" ] || fail "program not installed ($mode)"
     [ "$(readlink "$HOME/.local/bin/wowmentor")" = "$HOME/.wowmentor/app/wowmentor.sh" ] || fail "symlink wrong ($mode)"
     [ -d "$WOW/Interface/AddOns/WoWFeed" ] && [ -d "$WOW/Interface/AddOns/WFSlot1000" ] || fail "addon not installed ($mode)"

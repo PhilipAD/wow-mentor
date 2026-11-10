@@ -108,6 +108,9 @@ def cmd_links(a):
     say("Overlay and guide API:   %s" % cfgmod.ui_base(cfg, public=bool(cfg.get("public_url"))))
     say("Agent briefing page:     %s/skill" % cfgmod.ui_base(cfg, public=bool(cfg.get("public_url"))))
     say("Events (read only):      %s/events?since=0" % cfgmod.feed_url(cfg, public=bool(cfg.get("public_url"))))
+    code, _ = doctor._get(cfgmod.server_root(cfg) + "/healthz", 2)
+    if code != 200:
+        say("\nHeads up: the server is not answering yet, so these links will not work until it does. Run: wowmentor start   (then: wowmentor doctor)")
     if not cfg.get("public_url") and not cfgmod.server_url(cfg):
         say("\nThese work on this Mac only. Using an AI that runs somewhere else (a website or another computer)? Run:  wowmentor share on")
     say("\nPaste this to your AI agent:\n")

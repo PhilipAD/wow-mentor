@@ -86,9 +86,15 @@ say ""
 case ":$PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *)
+    # shellcheck disable=SC2016  # the dollar signs are meant literally: this is text for the shell startup file
+    line='export PATH="$HOME/.local/bin:$PATH"'
+    rc="$HOME/.zshrc"
+    if ! grep -qsF "$line" "$rc" 2>/dev/null; then
+      printf '\n# added by WoW Mentor so the wowmentor and wowui commands work\n%s\n' "$line" >> "$rc"
+    fi
     say ""
-    say "Tip: to run 'wowmentor' from any folder, add this line to ~/.zshrc and open a new Terminal:"
-    # shellcheck disable=SC2016  # the dollar signs are meant literally: this is text for the user to copy
-    say '  export PATH="$HOME/.local/bin:$PATH"'
+    say "Added the wowmentor and wowui commands to your Terminal startup file (~/.zshrc)."
+    say "Open a new Terminal tab to use them, or run this once in the current one:"
+    say "  $line"
     ;;
 esac

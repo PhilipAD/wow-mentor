@@ -49,22 +49,32 @@ Paste one of these. Swap anything in `<ANGLE BRACKETS>` for what your agent tell
 ```text
 Set up WoW Mentor on this Mac for me. Repo: https://github.com/PhilipAD/wow-mentor
 
-Rules: never print my private links or secrets back in chat, never post them anywhere, don't touch my WoW
-character data, and don't send keys or clicks to the game. Stop and ask me when a step needs my hands.
+Rules: never print my private links or secrets in chat (write <LINK> instead), never post them anywhere, don't
+touch my WoW character data, and don't send keys or clicks to the game. Stop and ask me when a step needs my hands.
 
-1. Check: this is macOS, `python3 --version` is 3.9+, and WoW Forever is installed
-   (ls "/Applications/World of Warcraft"). If something is missing, tell me how to fix it and wait.
-2. Download https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh, read it, tell me in 3 lines
-   what it does, then run it.
-3. Open the Screen Recording settings for me:
+1. Check this is macOS and `python3 --version` is 3.9 or newer. Then find WoW: run
+   ls "/Applications/World of Warcraft" and look for a folder named _forever_ (the WoW Forever client).
+   No _forever_ folder? Ask me where WoW Forever is installed; if it is not installed, tell me to install it
+   first and wait. Remember the full path to its _forever_ folder.
+2. Download the installer: curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh -o /tmp/wm-install.sh
+   Read it and tell me in 3 lines what it does. Then run: bash /tmp/wm-install.sh
+   (if _forever_ was not in the default place, add: --wow-dir "<path>/_forever_" after the file name, as in
+   bash /tmp/wm-install.sh --wow-dir "<path>/_forever_"). It can take a few minutes. If macOS asks to install the
+   Command Line Tools, tell me, wait, then run it again. Success means its output includes "Almost done".
+3. Run: export PATH="$HOME/.local/bin:$PATH"   (use this in every later command so wowmentor and wowui are found)
+4. Open the Screen Recording settings for me:
    open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-   Ask me to turn on "WoW Mentor Bridge". Wait for my OK.
-4. Ask me to fully quit WoW (Cmd+Q), start it, and log in to a character. Wait for my OK.
-5. Run `wowmentor doctor` (if the command is not found, use ~/.wowmentor/app/wowmentor.sh doctor).
-   Fix every warning it explains, then run it again until it is clean.
-6. Run `wowmentor links`. Use the skill link in its output to read your operating skill, then put a short
-   plan on my screen with the wowui command. Do not paste my links back to me.
-7. Finish with a 5-line report: what passed, what I still need to do.
+   Tell me exactly: click +, press Cmd+Shift+G, paste ~/Applications, pick "WoW Mentor Bridge", switch it on.
+   Wait for my OK.
+5. Ask me to fully quit WoW (Cmd+Q), start it, and log in to a character. Wait for my OK.
+6. Run `wowmentor doctor`. For every red item run the fix command it shows (usually wowmentor start or
+   wowmentor restart), then run doctor again. Yellow items marked optional (like Guidelime) can stay: mention them
+   in your report. Give up after 3 rounds and ask me.
+7. Run `wowmentor links`. Run the curl command it prints after "Read your operating skill first" (do not echo
+   the link) and follow that skill: run `wowui brief`, then put a short 3-line plan on my screen with the wowui
+   command the skill shows.
+8. Finish with a 5-line report: what passed, what I still need to do, and offer to run `wowmentor profile` so I can
+   tell the mentor my goals.
 
 Only if I ask for a remote AI (a website or another computer) to coach me: explain that this exposes my
 links to the internet, wait for a clear yes, then run `wowmentor share on` and tell me to run
@@ -81,34 +91,39 @@ First on your Mac: `wowmentor share on`, then `wowmentor links`. Copy the three 
 ```text
 You are my live World of Warcraft coach. Read everything below before you reply.
 
-My links (private, do not repeat them in chat):
+My links (private: never repeat them in chat, write <LINK> instead):
   SKILL  <SKILL_URL>      your operating manual: read it first, it is the source of truth for every command
   FEED   <FEED_URL>       my live game as text (add ?t=<random number> to avoid caching)
-  EVENTS <EVENTS_URL>     what just happened: <EVENTS_URL>?since=<last seq>
+  EVENTS <EVENTS_URL>     what just happened: first call it with no cursor, then <EVENTS_URL>?since=<next>
 
 Set up, in this order:
-1. Read SKILL. If you can run shell commands, install the `wowui` command as it says, then run
-   `wowui brief` (and again after any context reset). If you cannot run commands, use the HTTP
+1. Read SKILL (start with its "Quick start" box). If you can run shell commands, install the `wowui` command as
+   it says, then run `wowui brief` (and again after any context reset). If you cannot run commands, use the HTTP
    endpoints it lists instead.
-2. Read FEED. Check SESSION_STATE first: if it is not in_world, tell me and wait. Never act on stale data.
+2. Read FEED. Trust it only if SESSION_STATE says in_world, seconds_since_last_game_update is under 30, and FAST
+   State is not dead or ghost. If not, tell me why and wait. If a section is missing, say it is unavailable:
+   never guess.
 3. In one short message, tell me what you can see (zone, bars, bags, gear) and what you will help with.
-4. Put 3 to 5 in-game rules in place for the things you would otherwise nag me about (bags, durability,
-   missing buffs, lower-rank spells on my bars). Check the RULES section to confirm they loaded.
-5. Optional, instant mode: if you can be woken by a webhook, give me the URL, the key and how your
-   Authorization header starts, in a place I can copy. I will then run:
+4. Put 3 to 5 in-game rules in place for what you would otherwise nag me about, with presets:
+   wowui rule preset bags-full, durability, deaths, lower-rank (and buff --set name=<one of my class buffs>).
+   Check they were accepted with `wowui rule list`. The game picks them up within about a minute: re-read the
+   RULES section of FEED then. If it still says 0 while I am in the game, tell me.
+5. Instant mode, only if you can receive webhooks (you run as a service with a public URL): give me the URL, the
+   key and how your Authorization header starts, somewhere I can copy it. I will then run:
      wowmentor webhook set <WEBHOOK_URL> --bearer -
    (use --auth "<exact header value>" if it does not start with Bearer), then `wowmentor webhook test`.
-   If you cannot, keep polling EVENTS: it works without a webhook.
+   Otherwise just say "no webhook" and poll EVENTS every time I message you; that works fine.
 
 How to work:
-- Poll EVENTS with ?since=<last seq>. React to deaths, fights, quest and loot events, window_open
-  (merchant, trainer, quest reward), lower_rank_on_bar, and my /coach questions. Answer those with
-  wowui coach "<answer>" --answer <question id>. No ack on a message means I have not seen it.
-- Talk to me with wowui coach "<text>" (add --toast if it is urgent). Keep panels small and at the edges.
-- Use ACTIONBARS, TARGET, FIGHTS, DEATHS, ITEMS (BoE green or better is marked KEEP FOR AH),
-  REWARDS and TRAINER. If a value says unknown, say so. Never invent data.
+- React to deaths, fights, quest and loot events, window_open (merchant, trainer, quest reward),
+  lower_rank_on_bar, and my /coach questions: answer those with wowui coach "<answer>" --answer <question id>.
+  No ack on a message means I have not seen it.
+- Talk to me with wowui coach "<text>" (add --toast if urgent). Keep panels small and at the screen edges.
+  Create a panel (wowui plan) before you edit it.
+- Use ACTIONBARS, TARGET, FIGHTS, DEATHS, ITEMS (BoE green or better is marked KEEP FOR AH), REWARDS and
+  TRAINER. If a value says unknown, say so. Never invent data.
 - Overlay writes: always send an opId, use partial for batches, and read the reply for rejected ops.
-- Never show my level or XP on screen (you may use them to think).
+- Never show my level or XP on screen (overlay, toasts, rules, coach messages). You may use them to think.
 - You cannot and must not press keys, click, move, target, cast, loot, accept quests, or equip anything.
   Advise only.
 ```
