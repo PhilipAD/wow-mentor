@@ -573,6 +573,12 @@ function ST.sessionLines()
 	L[#L + 1] = strfmt("last_login_at=%s last_logout_at=%s", val(S.loginAt), val(S.logoutAt))
 	L[#L + 1] = strfmt("event_seq=%d queued=%d dropped=%d", S.seq, #S.q, S.dropped)
 	L[#L + 1] = strfmt("uptime_s=%d", floor(U.now() - (S.startedAt or U.now())))
+	local tx = {}
+	for name, st in pairs(API.txstat or {}) do
+		if st.parts > 4 then tx[#tx + 1] = strfmt("%s=%dparts/%dpushes/%dheld", name, st.parts, st.pushes, st.held) end
+	end
+	table.sort(tx)
+	if #tx > 0 then L[#L + 1] = "big_sections: " .. tconcat(tx, " ") end
 	for _, e in ipairs(S.errors) do L[#L + 1] = "addon error: " .. clean(e) end
 	return L
 end

@@ -2,6 +2,8 @@
 // Window capture (ScreenCaptureKit / screencapture -l) reads the game window's own backing store, so a
 // window laid on top of the game hides the strip on screen without hiding it from the bridge.
 //   stdin lines: "x y w h capW"  (pixels in the captured game window; capW = captured width in pixels)
+//                "R <base64>"    one row of RGB pixels taken just below the strip; stretched over the mask so it blends into the
+//                                scene instead of showing as a black bar (black until the first row arrives)
 // Exits when stdin closes (the bridge died).
 import AppKit
 import CoreGraphics
@@ -18,6 +20,22 @@ win.ignoresMouseEvents = true
 win.level = .screenSaver
 win.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
 win.isReleasedWhenClosed = false
+let content = NSView(frame: win.contentRect(forFrameRect: win.frame))
+content.wantsLayer = true
+content.layer?.backgroundColor = NSColor.black.cgColor
+content.layer?.contentsGravity = .resize
+content.layer?.magnificationFilter = .linear
+content.layer?.minificationFilter = .linear
+win.contentView = content
+var pendingRow: CGImage? = nil
+
+func rowImage(_ b64: String) -> CGImage? {
+    guard let d = Data(base64Encoded: b64), d.count >= 6, d.count % 3 == 0 else { return nil }
+    let n = d.count / 3
+    guard let provider = CGDataProvider(data: d as CFData) else { return nil }
+    return CGImage(width: n, height: 1, bitsPerComponent: 8, bitsPerPixel: 24, bytesPerRow: d.count, space: CGColorSpaceCreateDeviceRGB(),
+                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue), provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+}
 
 func gameBounds() -> CGRect? {
     guard let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else { return nil }
@@ -35,7 +53,8 @@ func gameBounds() -> CGRect? {
 }
 
 func place() {
-    lock.lock(); let r = req; lock.unlock()
+    lock.lock(); let r = req; let row = pendingRow; pendingRow = nil; lock.unlock()
+    if let row = row { content.layer?.contents = row }
     guard let q = r, let g = gameBounds(), q.capW > 0, g.width > 0 else { win.orderOut(nil); return }
     let scale = q.capW / g.width
     let primaryH = NSScreen.screens.first?.frame.height ?? 0
@@ -47,6 +66,10 @@ func place() {
 
 let reader = Thread {
     while let line = readLine() {
+        if line.hasPrefix("R ") {
+            if let img = rowImage(String(line.dropFirst(2))) { lock.lock(); pendingRow = img; lock.unlock() }
+            continue
+        }
         let n = line.split(separator: " ").compactMap { Double($0) }
         if n.count == 5 {
             lock.lock(); req = Req(x: n[0], y: n[1], w: n[2], h: n[3], capW: n[4]); lock.unlock()

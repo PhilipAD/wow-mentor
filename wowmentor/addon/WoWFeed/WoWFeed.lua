@@ -163,6 +163,7 @@ local function drawCells(vals)
 	cellState.n = n
 end
 local pending, order, queued = {}, {}, {}
+local txstat = {}      -- section -> { pushes, parts, restarts }: why a big section may be slow to arrive
 local evq = {}
 local msgId = 0
 -- Structured events (Coach.lua) ride in their own message type "evj" (JSON array). The provider is registered through
@@ -195,6 +196,15 @@ local function emit(section, lines)
 		end
 	end
 	parts[#parts+1] = tconcat(cur, "\n")
+	local st = txstat[section] or { pushes = 0, parts = 0, held = 0 }
+	txstat[section] = st
+	st.pushes, st.parts = st.pushes + 1, #parts
+	local cur0 = pending[section]
+	if cur0 and cur0.i > 0 and cur0.i < #cur0.parts then
+		-- a multi-part section is half sent: finish it, then send the newest version (restarting it on every change could starve it forever)
+		cur0.nextParts = parts; st.held = st.held + 1
+		return
+	end
 	seq = seq + 1
 	pending[section] = { parts = parts, i = 0, sid = seq }
 	if not queued[section] then queued[section] = true; order[#order+1] = section end
@@ -225,6 +235,12 @@ local function nextMessage()
 		end
 	end
 	lastWasEvj = false
+	for _, p in pairs(pending) do
+		if p.nextParts and p.i >= #p.parts then
+			seq = seq + 1
+			p.parts, p.nextParts, p.i, p.sid = p.nextParts, nil, 0, seq
+		end
+	end
 	local sec
 	if turn % 2 == 0 and pending[FASTSEC] and pending[FASTSEC].i < #pending[FASTSEC].parts then sec = FASTSEC
 	else
@@ -1041,6 +1057,7 @@ WoWFeed_API = {
 	position = playerMapPos,          -- mapID, x, y (fractions 0..1 or nil), mapInfo
 	spellbook = spellbook,            -- { { name, items = { { name, id, sub, rank, passive } } } }
 	maxpay = function() return MAXPAY end,
+	txstat = txstat,
 	nextMessage = nextMessage,        -- exposed for tests and for the coach
 	setEvjProvider = function(fn) evjProvider = fn end,
 }

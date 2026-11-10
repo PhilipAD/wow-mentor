@@ -532,17 +532,38 @@ def frames():
         yield im
         time.sleep(max(0, 0.2 - (time.time() - t0)))
 
-mask = {"proc": None, "sent": None}
-def update_mask(h, W):
+mask = {"proc": None, "sent": None, "row_at": 0.0}
+def mask_row(px, y, W, H):
+    """One row of the scene just below the strip, as base64 RGB every 4th pixel, so the mask can copy it and vanish into the picture."""
+    if y >= H or not hasattr(px, "row"): return None
+    import base64
+    row = px.row(y)
+    n = len(row) // 16
+    if n < 2: return None
+    out = bytearray(3 * n)
+    out[0::3], out[1::3], out[2::3] = row[2:16 * n:16], row[1:16 * n:16], row[0:16 * n:16]
+    return base64.b64encode(bytes(out))
+
+def update_mask(h, W, px=None, H=0):
     """Tell the overlay helper where the strip is so it can paint over it on screen (window capture ignores overlays)."""
     MASK = CFG.get("mask_path")
     if not MASK or not os.path.exists(MASK): return
     msg = "%d %d %d %d %d\n" % (0, max(0, h[2] - 1), W, 2 * CH * h[0] + 2, W)
-    if mask["sent"] == msg and mask["proc"] and mask["proc"].poll() is None: return
+    alive = mask["proc"] and mask["proc"].poll() is None
+    now = time.time()
+    row = None
+    if px is not None and now - mask["row_at"] >= 0.7:
+        try: row = mask_row(px, max(0, h[2] - 1) + 2 * CH * h[0] + 2, W, H)
+        except Exception: row = None
+    if mask["sent"] == msg and alive and row is None: return
     try:
-        if not mask["proc"] or mask["proc"].poll() is not None:
+        if not alive:
             mask["proc"] = subprocess.Popen([MASK], stdin=subprocess.PIPE)
-        mask["proc"].stdin.write(msg.encode()); mask["proc"].stdin.flush(); mask["sent"] = msg
+        if mask["sent"] != msg or not alive:
+            mask["proc"].stdin.write(msg.encode()); mask["sent"] = msg
+        if row:
+            mask["proc"].stdin.write(b"R " + row + b"\n"); mask["row_at"] = now
+        mask["proc"].stdin.flush()
     except Exception as e:
         print("mask error:", e, flush=True); mask["proc"] = None
 
@@ -563,7 +584,7 @@ def tail():
             if hint:
                 try: measure_bars(px, W, H, hint)
                 except Exception: pass
-                update_mask(hint, W)
+                update_mask(hint, W, px, H)
             if res:
                 last_ok = time.time()
                 if res[0] != last_id:
