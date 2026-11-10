@@ -844,7 +844,7 @@ Add a fresh `?t=<random number>` to every fetch (the edge caches otherwise). Sec
   TALENTS and TALENTS_TRAITS, COOLDOWNS, AURAS, GROUP, NEARBY, PVP (honor, rank, kills, battleground state).
 - OFFLINE SAVEDVARIABLES (bank, mail, quest journey from other addons; refreshed only on /reload or logout).
 - UI_STATE: what your overlay currently shows and what the player did with it. RECENT EVENTS: chat, loot, casts, zone changes.
-- SESSION_STATE (from the Mac helper): state = in_world | loading | afk | logged_out | game_closed, foreground, last_login_at, last_logout_at,
+- SESSION_STATE (from the bridge): state = in_world | loading | afk | logged_out | game_closed, foreground, last_login_at, last_logout_at,
   uploader_alive_at. EVENTS_TAIL: the last 20 structured events (see 2b). Check SESSION_STATE before anything urgent.
 - Newer addon versions add: ACTIONBARS (what is on each bar, `known_not_on_bar`, `lower_rank_on_bar`), PET, TARGET, FIGHTS (last 5 fights),
   DEATHS (last 5 deaths), ITEMS (bag items with bind type; BoE green+ marked KEEP FOR AH), REWARDS (quest reward choices while the window is open),
@@ -924,21 +924,21 @@ The player can type `/coach <question>` in game: it arrives as a `coach_question
 prints "Sent to your coach". Answer with `wowui coach "answer" --answer <question id>` (op coach_answer): it is a normal coach message that also closes the question.
 Check `wowui questions` on every cycle; an unanswered question is the player waiting on you.
 
-Events. The addon cannot use the network, so its events travel through the screen strip to the Mac helper, which stores them on the server in order.
+Events. The addon cannot use the network, so its events travel through the screen strip to the bridge, which stores them on the server in order.
     wowui events [--since N] [--types death,fight] [--limit 100] [--follow]       HTTP: GET {base}/events?since=<eid>&types=a,b&limit=100&t=<n>
     GET {feed_root}/events?since=<eid>      (read-only twin on the feed token, for agents without the overlay secret)
 Reply: {{"events":[{{"eid","t","received_at","boot","type","data"}}], "next": <eid>, "last_eid", "oldest_eid", "gap"?, "reset"?}}. Pass `next` as `since` on the following call; `gap` means events
 were dropped from the 500-event buffer before you read them (re-read the feed); `reset` means the server was reset and `next` restarts your cursor. Without `since` you get the newest events.
 Types: login, logout, level_up, death, death_released, quest_complete, quest_turned_in, spell_learned, item_equipped, item_looted (BoE green+ marked boe_keep), zone_changed,
 window_open (merchant | trainer | quest_reward | loot, with choices[]), bags_full, durability_critical, rule_fired, coach_question, ack, fight (casts, wasted casts,
-duplicate DoTs, damage, kills), npc_seen, buff_missing, lower_rank_on_bar; from the Mac helper: game_started, game_closed, state_changed, foreground_changed.
+duplicate DoTs, damage, kills), npc_seen, buff_missing, lower_rank_on_bar; from the bridge: game_started, game_closed, state_changed, foreground_changed.
 `wowui npcs [--name x]` lists NPCs the player met with map/x/y (use it for waypoints to a trainer or vendor). `wowui session` = SESSION_STATE as JSON.
 Sensible loop: `wowui session` (is the player there?) then `wowui events --since <cursor>`, react (explain a death, suggest a reward choice, praise a fight), then `wowui questions`.
-Webhook (set by the player on their Mac with `wowmentor webhook set <url> [--secret S]`): the Mac helper also POSTs batched events to that URL: {{"v":1,"sent_at","session":{{state,foreground,
+Webhook (set by the player on their computer with `wowmentor webhook set <url> [--secret S]`): the bridge also POSTs batched events to that URL: {{"v":1,"sent_at","session":{{state,foreground,
 last_login_at,last_logout_at,uploader_alive_at}},"events":[...],"next":<eid>}}, at most one POST per 20 s (3 s after an urgent event: death, logout, game_closed, bags_full, durability_critical, coach_question),
 with header X-WoWMentor-Signature: sha256=<HMAC-SHA256 of the raw body> when a secret is set. Use it to wake yourself; the events endpoint is the source of truth (use `next`/eid to de-duplicate).
 Limits that are not bugs: combat-log events are restricted on this client, so fights and the killer are reconstructed best-effort; health and power are `unknown` in combat; the addon has no network access;
-logout events may never arrive (the Mac helper then infers logged_out from silence after 20 to 90 seconds). The addon never equips or previews items and never plays for the player.
+logout events may never arrive (the bridge then infers logged_out from silence after 20 to 90 seconds). The addon never equips or previews items and never plays for the player.
 Level and XP: they are in the feed (SUMMARY KV) for your own reasoning, but never show the player's level or XP in the overlay (no bars, counters, "level N" text in panels, toasts, rules or
 coach messages). Say what to do ("visit the trainer", "new quest area available") instead of showing the number.
 
@@ -981,7 +981,7 @@ that play the game for them; you advise, they act. Do not state anything as fact
 
 TUG_SECTION = """## 3b. Edit the leveling guide live (Guidelime)
 The player follows a leveling guide in the Guidelime addon (for example a TUGs pack). You can read, search and edit every guide file. Edits are
-validated, written to the player's files by their Mac with a backup, and the overlay then shows "Guide changed: type /reload"
+validated, written to the player's files by their computer with a backup, and the overlay then shows "Guide changed: type /reload"
 until they reload (the game only reads guide files at /reload; you cannot avoid that, so batch your edits).
     wowui tug list [--filter x]            wowui tug show <guide> [--from N --to M]      wowui tug search "text" [--guide x]
     wowui tug route [--start guide]        wowui tug status                             wowui tug history <guide>

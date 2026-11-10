@@ -1,6 +1,6 @@
-<h1 align="center">WoW Mentor</h1>
-<p align="center"><b>An AI coach that sees your WoW game and puts advice right on your screen.</b><br>
-Mac + WoW Forever. You play, it watches and helps.</p>
+<h1 align="center">WoW Mentor for Windows and Mac</h1>
+<p align="center"><b>An AI coach that sees your WoW Forever game and puts advice right on your screen.</b><br>
+Windows 10/11 or macOS, same setup, same features. You play, it watches and helps.</p>
 
 <p align="center"><img src="assets/how-it-works.svg" alt="How WoW Mentor works" width="860"></p>
 
@@ -18,24 +18,48 @@ Mac + WoW Forever. You play, it watches and helps.</p>
 
 <p align="center"><img src="assets/setup-steps.svg" alt="Setup in four steps" width="860"></p>
 
-**1. Install.** Open Terminal and paste:
+Same four steps on both. Pick your column. First, make sure WoW Forever is installed and you have started it once, and that you have an internet connection. No account needed.
+
+**1. Install.** One line, no admin needed.
+
+| Windows | Mac |
+| --- | --- |
+| Press the Windows key, type `PowerShell`, press Enter (a normal window, not "as administrator"). Paste the line below and press Enter. | Press Cmd+Space, type `Terminal`, press Return. Paste the line below and press Return. |
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.ps1 | iex
+```
+
+**Mac (Terminal):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh | bash
 ```
 
-**2. Allow screen reading.** System Settings > Privacy & Security > Screen & System Audio Recording > add and turn on **WoW Mentor Bridge**.
+On Windows, if Python is missing it explains and offers to install it with winget (it asks first). Prefer to read the script before it runs, or skip PowerShell and double-click `Install-WoWMentor.cmd` from the ZIP? See [WINDOWS](docs/WINDOWS.md#install-it-the-careful-way).
 
-**3. Restart WoW** (Cmd+Q, relaunch, log in). Needed once.
+**2. Let it see the game window.**
 
-**4. Check it, then hand it to your AI:**
+| Windows | Mac |
+| --- | --- |
+| Nothing to allow, there is no prompt. In WoW, go to Options > Graphics and set the display mode to **Windowed** or **Windowed (Fullscreen)**, keep its window uncovered, then run `wowmentor restart` in a new PowerShell window. Real exclusive fullscreen can't be read. | System Settings > Privacy & Security > Screen & System Audio Recording > click **+**, open the **Applications** folder inside your home folder (not the main one), pick **WoW Mentor Bridge**, turn it on. Then run `wowmentor restart` in Terminal. |
+
+**3. Restart WoW once.**
+
+| Windows | Mac |
+| --- | --- |
+| Close WoW completely, relaunch, log in. | Cmd+Q, relaunch, log in. |
+
+**4. Check it, then hand it to your AI.** On Windows, open a new PowerShell window first so the commands are found. Same commands on Mac and Windows:
 
 ```bash
 wowmentor doctor
 wowmentor links
 ```
 
-Copy the text `links` prints and paste it to your AI. Treat it like a password.
+Copy the text `links` prints and paste it to your AI (Claude Code, Codex, or a chatbot; see [AGENT](docs/AGENT.md)). Treat it like a password.
 
 Stuck? `wowmentor doctor` tells you what to fix. More: [QUICKSTART](docs/QUICKSTART.md), [TROUBLESHOOTING](docs/TROUBLESHOOTING.md), [FAQ](docs/FAQ.md).
 
@@ -44,35 +68,66 @@ Stuck? `wowmentor doctor` tells you what to fix. More: [QUICKSTART](docs/QUICKST
 Paste one of these. Swap anything in `<ANGLE BRACKETS>` for what your agent tells you.
 
 <details>
-<summary><b>Prompt 1: an agent on your Mac (Claude Code, Codex, ...) installs it for you</b></summary>
+<summary><b>Prompt 1: an agent on your Windows PC or Mac (Claude Code, Codex, ...) installs it for you</b></summary>
 
 ```text
-Set up WoW Mentor on this Mac for me. Repo: https://github.com/PhilipAD/wow-mentor
+Set up WoW Mentor on this computer for me. Repo: https://github.com/PhilipAD/wow-mentor
 
 Rules: never print my private links or secrets in chat (write <LINK> instead), never post them anywhere, don't
 touch my WoW character data, and don't send keys or clicks to the game. Stop and ask me when a step needs my hands.
 
-1. Check this is macOS and `python3 --version` is 3.9 or newer. Then find WoW: run
-   ls "/Applications/World of Warcraft" and look for a folder named _forever_ (the WoW Forever client).
+0. Find out which OS this is: macOS (`uname -s` says Darwin) or Windows (PowerShell). Follow the matching branch in
+   every step below (A = macOS, B = Windows). Any other OS: tell me WoW Mentor does not support it and stop.
+
+1. Check Python is 3.9 or newer, then find WoW.
+   A (macOS): `python3 --version`. Then run ls "/Applications/World of Warcraft" and look for a folder named
+      _forever_ (the WoW Forever client).
+   B (Windows): `py -3 --version` (the "python" that opens the Microsoft Store does not count; if there is no
+      Python, step 2 says what to do and I decide). Then run
+      Get-ChildItem "${env:ProgramFiles(x86)}\World of Warcraft","$env:ProgramFiles\World of Warcraft" -Directory -Filter "_*_" -ErrorAction SilentlyContinue
+      and look for _forever_ (also check D:\Games\World of Warcraft and similar if nothing is there).
    No _forever_ folder? Ask me where WoW Forever is installed; if it is not installed, tell me to install it
    first and wait. Remember the full path to its _forever_ folder.
-2. Download the installer: curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh -o /tmp/wm-install.sh
-   Read it and tell me in 3 lines what it does. Then run: bash /tmp/wm-install.sh
-   (if _forever_ was not in the default place, add: --wow-dir "<path>/_forever_" after the file name, as in
-   bash /tmp/wm-install.sh --wow-dir "<path>/_forever_"). It can take a few minutes. If macOS asks to install the
-   Command Line Tools, tell me, wait, then run it again. Success means its output includes "Almost done".
-3. Run: export PATH="$HOME/.local/bin:$PATH"   (use this in every later command so wowmentor and wowui are found)
-4. Open the Screen Recording settings for me:
-   open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-   Tell me exactly: click +, press Cmd+Shift+G, paste ~/Applications, pick "WoW Mentor Bridge", switch it on.
-   Wait for my OK.
-5. Ask me to fully quit WoW (Cmd+Q), start it, and log in to a character. Wait for my OK.
+
+2. Download the installer, read it, then run it. It can take a few minutes.
+   A: curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh -o /tmp/wm-install.sh
+      Read it and tell me in 3 lines what it does. Then run: bash /tmp/wm-install.sh
+      (if _forever_ was not in the default place, add: --wow-dir "<path>/_forever_" after the file name, as in
+      bash /tmp/wm-install.sh --wow-dir "<path>/_forever_"). If macOS asks to install the Command Line Tools,
+      tell me, wait, then run it again.
+   B: Invoke-WebRequest https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.ps1 -OutFile "$env:TEMP\wm-install.ps1"
+      Read it and tell me in 3 lines what it does. If _forever_ was not in the default place, first run
+      $env:WOWMENTOR_SETUP_ARGS = '--wow-dir "<path>\_forever_"'
+      Then run: Get-Content -Raw "$env:TEMP\wm-install.ps1" | Invoke-Expression
+      (that avoids the script-execution policy without changing any setting). If it says Python is missing, ask me
+      whether to run the winget command it shows (winget install --id Python.Python.3.12 -e --scope user); only
+      with my yes, run it, then run the installer again. Never run anything as administrator. If it says it cannot
+      write to the WoW folder (C:\Program Files), show me its next steps and wait.
+   Success means its output includes "Almost done".
+
+3. Make the commands findable in this shell.
+   A: export PATH="$HOME/.local/bin:$PATH"   (use this in every later command so wowmentor and wowui are found)
+   B: $env:Path += ";$env:LOCALAPPDATA\WoWMentor\bin"   (the installer already saved it for new windows)
+
+4. Screen permission.
+   A: Open the Screen Recording settings for me:
+      open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+      Tell me exactly: click +, press Cmd+Shift+G, paste ~/Applications, pick "WoW Mentor Bridge", switch it on.
+      Wait for my OK.
+   B: Nothing to allow on Windows. Ask me to set WoW to Windowed or Windowed (Fullscreen) in its graphics
+      settings and to keep the WoW window visible (not minimized, not covered). Wait for my OK.
+
+5. Ask me to fully quit WoW (A: Cmd+Q. B: close it completely, check Task Manager if unsure), start it, and log in
+   to a character. Wait for my OK.
+
 6. Run `wowmentor doctor`. For every red item run the fix command it shows (usually wowmentor start or
    wowmentor restart), then run doctor again. Yellow items marked optional (like Guidelime) can stay: mention them
    in your report. Give up after 3 rounds and ask me.
+
 7. Run `wowmentor links`. Run the curl command it prints after "Read your operating skill first" (do not echo
-   the link) and follow that skill: run `wowui brief`, then put a short 3-line plan on my screen with the wowui
-   command the skill shows.
+   the link; in Windows PowerShell write curl.exe, because plain curl is a different command there) and follow
+   that skill: run `wowui brief`, then put a short 3-line plan on my screen with the wowui command the skill shows.
+
 8. Finish with a 5-line report: what passed, what I still need to do, and offer to run `wowmentor profile` so I can
    tell the mentor my goals.
 
@@ -86,7 +141,7 @@ links to the internet, wait for a clear yes, then run `wowmentor share on` and t
 <details>
 <summary><b>Prompt 2: a remote bot (Grok, a web chatbot, ...) becomes your live coach</b></summary>
 
-First on your Mac: `wowmentor share on`, then `wowmentor links`. Copy the three links into the placeholders below.
+First on your computer: `wowmentor share on`, then `wowmentor links`. Copy the three links into the placeholders below.
 
 ```text
 You are my live World of Warcraft coach. Read everything below before you reply.
@@ -133,14 +188,14 @@ How to work:
 ## How it works (30 seconds)
 
 1. A small **addon** draws a hairline strip of coloured squares at the top edge of the WoW window. That is your game data, written as colours.
-2. A **bridge** on your Mac reads those pixels (read-only), turns them back into text, and hides the strip from your own eyes.
+2. A **bridge** on your computer reads those pixels (read-only), turns them back into text, and hides the strip from your own eyes.
 3. A **local server** shares that text with your AI and takes its advice back to the game.
 
 Why pixels? WoW does not let addons write files or open connections while you play, so the screen is the one live way out. Details: [HOW-IT-WORKS](docs/HOW-IT-WORKS.md).
 
 ## Privacy and safety
 
-- Nothing leaves your Mac until you run `wowmentor share on`, set a webhook, or give your links to an AI.
+- Nothing leaves your computer until you run `wowmentor share on`, set a webhook, or give your links to an AI.
 - Your links hold long random secrets. Anyone with a link can read your game or draw on your screen. `wowmentor rotate-secrets` makes new ones.
 - No screenshots are saved. Other players' chat is left out unless you turn it on.
 - It cannot cast, move, target or press keys. It only shows things.
@@ -149,7 +204,8 @@ More: [PRIVACY](docs/PRIVACY.md), [SECURITY](SECURITY.md).
 
 ## Good to know
 
-- macOS and the **WoW Forever** client only.
+- Windows 10 and 11 (the strip-hiding overlay needs version 2004 or newer), or macOS, with the **WoW Forever** client only. Linux is not supported.
+- On Windows, WoW must be in Windowed or Windowed (Fullscreen) mode. Details and limits: [WINDOWS](docs/WINDOWS.md).
 - One WoW restart after the first install.
 - The game hides some numbers in combat (exact health and mana), and things like auction prices and other players' gear.
 - Overlay updates can take a few seconds to show up. Guide edits need `/reload`.
@@ -159,7 +215,8 @@ More: [PRIVACY](docs/PRIVACY.md), [SECURITY](SECURITY.md).
 
 | | |
 | --- | --- |
-| [QUICKSTART](docs/QUICKSTART.md) | Slow, step by step install |
+| [QUICKSTART](docs/QUICKSTART.md) | Slow, step by step install (Mac and Windows) |
+| [WINDOWS](docs/WINDOWS.md) | Windows requirements, where files live, uninstall |
 | [FAQ](docs/FAQ.md) / [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) | Quick answers and fixes |
 | [AGENT](docs/AGENT.md) | Connecting Claude Code, Codex or a bot |
 | [RULES](docs/RULES.md) | Instant in-game rules and webhooks |

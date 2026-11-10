@@ -329,7 +329,7 @@ wowmentor webhook set https://example.com/hooks/wow --bearer -    # sends  Autho
 wowmentor webhook set https://example.com/hooks/wow --auth "Basic abc123"   # any other Authorization value
 ```
 
-Notes: `--secret -` reads the secret from standard input so it does not end up in your shell history; you can also set `WOWMENTOR_WEBHOOK_SECRET`. Leave `--secret` out to keep the one already stored; `--no-secret` removes it. The running bridge notices a change within a few seconds. The URL must be `http://` or `https://`; use `https://` unless the receiver is on your own Mac. The URL path may itself be a secret, so it is never printed or logged (only `scheme://host`).
+Notes: `--secret -` reads the secret from standard input so it does not end up in your shell history; you can also set `WOWMENTOR_WEBHOOK_SECRET`. Leave `--secret` out to keep the one already stored; `--no-secret` removes it. The running bridge notices a change within a few seconds. The URL must be `http://` or `https://`; use `https://` unless the receiver is on your own computer. The URL path may itself be a secret, so it is never printed or logged (only `scheme://host`).
 
 ### What is sent
 
@@ -387,7 +387,7 @@ EXPECTED="sha256=$(openssl dgst -sha256 -hmac "$WOWMENTOR_WEBHOOK_SECRET" -r bod
 
 (The shell comparison is not constant time; use it for scripts and testing, and use the Python form in a real receiver.)
 
-A tiny receiver for testing on your own Mac:
+A tiny receiver for testing on your own computer:
 
 ```python
 import hashlib, hmac, http.server, json, os
@@ -418,6 +418,6 @@ The feed has matching sections: `RULES` (rules loaded, last fire time, recent fi
 - One request carries at most 100 ops; more is rejected with a 400 (nothing is silently dropped). A repeated `opId` with different ops is a 409.
 - A rule only works while the game is running with your character in the world; rules are delivered through the overlay document, so a change takes a few seconds to arrive. A `/reload` re-applies the newest document.
 - Rule state (cooldowns, "once") lives in game memory for the session and starts over after a `/reload` or relog.
-- Events that happen while the bridge or the Mac is off are lost.
+- Events that happen while the bridge or your computer is off are lost.
 - The in-game queue of unsent events holds 200; the server keeps the newest 500; the webhook queue holds 500.
 - The game hides many numbers in combat and in instances. Rules that need them stay quiet instead of guessing.

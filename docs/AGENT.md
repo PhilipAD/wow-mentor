@@ -7,7 +7,7 @@
 - **A live text snapshot of your game** (the "feed"), refreshed about once a second: where you are, quests, bags, gear, professions, cooldowns, buffs and more. See [FEED.md](FEED.md).
 - **A way to draw on your screen**: panels with checklists, progress bars, notes, waypoints (map pins), toasts, chat lines and sounds. The commands are in a small program called `wowui`.
 - **Instant rules** that run inside the game (for example "warn me when my bags are almost full") and **events** that tell the AI what happened between its checks. See [RULES.md](RULES.md).
-- **A persistent memory** on your Mac (`wowui memory`), so the AI can pick up where it left off after its own context resets, and `wowui brief` to read it all back in one go.
+- **A persistent memory** on your computer (`wowui memory`), so the AI can pick up where it left off after its own context resets, and `wowui brief` to read it all back in one go.
 - **Optional guide editing** for Guidelime guides (`wowui tug ...`), always with a backup.
 
 What it cannot do: press keys, click, move, target, cast, loot or accept quests. The game does not allow addons to do those things, and WoW Mentor does not try.
@@ -16,10 +16,10 @@ What it cannot do: press keys, click, move, target, cast, loot or accept quests.
 
 | | Local | Shared |
 | --- | --- | --- |
-| For | An AI that runs **on your Mac** and can run commands: Claude Code, Codex CLI and similar | An AI on a **website**, on **another computer**, or in the cloud |
+| For | An AI that runs **on your computer** (Mac or Windows) and can run commands: Claude Code, Codex CLI and similar | An AI on a **website**, on **another computer**, or in the cloud |
 | Links look like | `http://127.0.0.1:8095/...` | `https://<random words>.trycloudflare.com/...` |
 | Setup | Nothing extra | `wowmentor share on` |
-| What leaves your Mac | Nothing, except whatever the AI itself sends to its own provider | Your links become reachable from the internet to anyone who has them |
+| What leaves your computer | Nothing, except whatever the AI itself sends to its own provider | Your links become reachable from the internet to anyone who has them |
 
 If you are unsure, start with local. Read [PRIVACY.md](PRIVACY.md) before turning on sharing.
 
@@ -35,14 +35,14 @@ The paste text (this is what `wowmentor links` prints; the long number is your p
 You are my live World of Warcraft mentor. Read your operating skill first, then follow it:
   curl -s "http://127.0.0.1:8095/ui/<secret>/skill?t=$RANDOM"
 Install the wowui command as the skill says. You can see my game (live text feed), draw plans and checklists on my screen, and edit my leveling guide. After any context reset run `wowui brief` first. Start by reading my game feed and putting a short plan on my screen.
-(These links only work on this Mac, which is right for AI tools running on this Mac such as Claude Code or Codex. Run `wowmentor share on` to get links that work from anywhere.)
+(These links only work on this computer, which is right for AI tools running on this computer such as Claude Code or Codex. Run `wowmentor share on` to get links that work from anywhere.)
 ```
 
 The AI fetches the skill page, a long set of instructions that includes your own profile, then installs `wowui` and starts. You do not need to explain anything else. The instructions already tell it how to behave: short plans, a few next steps, unobtrusive panels, no level or XP on screen.
 
 Notes for local agents:
 
-- `wowmentor setup` already put `wowui` in `~/.local/bin` (a link to `~/.wowmentor/app/wowui`). On the same Mac `wowui` reads your WoW Mentor config by itself, so you do not need to set any address. If your agent's shell does not have `~/.local/bin` on its path, tell it to run `~/.wowmentor/app/wowui`.
+- `wowmentor setup` already put `wowui` on your path. On a Mac it is in `~/.local/bin` (a link to `~/.wowmentor/app/wowui`); if your agent's shell does not have that folder on its path, tell it to run `~/.wowmentor/app/wowui`. On Windows the installer puts `wowmentor.cmd` and `wowui.cmd` in `%LOCALAPPDATA%\WoWMentor\bin` (added to your user PATH, so a **new** PowerShell window finds them); if the agent's shell does not, tell it to run `& "$env:LOCALAPPDATA\WoWMentor\bin\wowui.cmd"`. On the same computer `wowui` reads your WoW Mentor config by itself, so you do not need to set any address.
 - To read the game feed from the command line: `wowui feed`. Or fetch the feed link with `curl`.
 - First command after any reset: `wowui brief`.
 - To see what is on the player's screen and whether the game has received it: `wowui state`.
@@ -50,7 +50,7 @@ Notes for local agents:
 
 ### Shared (AI elsewhere)
 
-1. Run `wowmentor share on`. The first time it may offer to install Cloudflare's free `cloudflared` tool with Homebrew.
+1. Run `wowmentor share on`. The first time it may offer to install Cloudflare's free `cloudflared` tool with Homebrew on a Mac. On Windows it tells you to run `winget install --id Cloudflare.cloudflared` and open a new PowerShell window.
 2. Run `wowmentor links` again. The links now start with `https://...trycloudflare.com`.
 3. Paste the new text to your AI.
 
@@ -124,7 +124,7 @@ Checking the feed every few seconds costs tokens and reacts late. Better:
 
 ## Running the server somewhere else (advanced)
 
-`wowmentor server-url set <address>` makes the bridge on your Mac push the snapshot to a server running on another machine, and `wowmentor setup` then installs no local server. The other server must use the same three secrets as this Mac's `config.json`. This is an advanced option that is not documented further here; read [PRIVACY.md](PRIVACY.md) first, because your game data then travels over the network.
+`wowmentor server-url set <address>` makes the bridge on your computer push the snapshot to a server running on another machine, and `wowmentor setup` then installs no local server. The other server must use the same three secrets as this computer's `config.json`. This is an advanced option that is not documented further here; read [PRIVACY.md](PRIVACY.md) first, because your game data then travels over the network.
 
 ## Making the mentor yours
 
@@ -133,6 +133,6 @@ Run `wowmentor profile` and fill in the text file: your character, goals, playst
 ## If the AI says it cannot connect
 
 - `wowmentor doctor`: is the server running?
-- Local links only work from programs on your Mac. For anything else use `wowmentor share on`.
+- Local links only work from programs on your computer. For anything else use `wowmentor share on`.
 - After `wowmentor rotate-secrets` the old links are dead. Run `wowmentor links` and paste again.
 - See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

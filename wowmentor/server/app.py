@@ -396,6 +396,13 @@ def configure(cfg, data_path=None):
     _idem.clear()
 
 
+def bind_options(platform):
+    """(allow_reuse_address, exclusive_option) for the listening socket: Windows -> (False, SO_EXCLUSIVEADDRUSE); elsewhere -> (True, None)."""
+    if platform == "win32":
+        return False, getattr(socket, "SO_EXCLUSIVEADDRUSE", -5)       # -5 is ~SO_REUSEADDR, the Winsock value
+    return True, None
+
+
 class BoundedServer(ThreadingHTTPServer):
     """ThreadingHTTPServer with a cap on simultaneous connections: past MAX_CONNECTIONS a new connection is closed immediately, so a
     flood of idle sockets cannot grow the thread count without limit."""
@@ -405,6 +412,16 @@ class BoundedServer(ThreadingHTTPServer):
     def __init__(self, *a, **kw):
         self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
         ThreadingHTTPServer.__init__(self, *a, **kw)
+
+    def server_bind(self):
+        """On Windows SO_REUSEADDR (which HTTPServer turns on) lets ANY local process bind the same port and steal or share our
+        traffic, so there it is switched off and SO_EXCLUSIVEADDRUSE is set instead. POSIX keeps its behaviour unchanged.
+        https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse"""
+        reuse, exclusive = bind_options(sys.platform)
+        self.allow_reuse_address = reuse
+        if exclusive is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, exclusive, 1)
+        ThreadingHTTPServer.server_bind(self)
 
     def process_request(self, request, client_address):
         if not self._slots.acquire(False):

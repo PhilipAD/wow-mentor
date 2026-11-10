@@ -5,7 +5,7 @@
 ## The big picture
 
 ```text
- ┌──────────────────────────── your Mac ────────────────────────────────────────┐
+ ┌──────────────────────────── your computer ───────────────────────────────────┐
  │                                                                               │
  │   WoW Forever client                                                          │
  │   ┌───────────────────────────┐                                               │
@@ -29,7 +29,7 @@
  │                                                                  ▲            │
  └──────────────────────────────────────────────────────────────────┼────────────┘
                                                                     │
-        AI on this Mac (Claude Code, Codex...) talks to 127.0.0.1 directly
+        AI on this computer (Claude Code, Codex...) talks to 127.0.0.1 directly
         AI elsewhere: optional free Cloudflare tunnel ("wowmentor share on")
         Optional: bridge also forwards events to a webhook URL that you set
 ```
@@ -38,9 +38,9 @@ Everything on the left of the line is on your computer. Nothing is sent anywhere
 
 ## Why a pixel strip?
 
-A World of Warcraft addon runs in a sandbox. It cannot open a network connection, run programs or write files whenever it likes. (Its normal saved settings file is only written when you log out or `/reload`.) The Forever client uses the modern addon rules, which are even stricter in combat. So the addon has no direct way to tell a program on your Mac what is going on in the game while you play.
+A World of Warcraft addon runs in a sandbox. It cannot open a network connection, run programs or write files whenever it likes. (Its normal saved settings file is only written when you log out or `/reload`.) The Forever client uses the modern addon rules, which are even stricter in combat. So the addon has no direct way to tell a program on your computer what is going on in the game while you play.
 
-The one thing an addon can do freely is draw on screen. So the addon draws its data as a strip of colours, and a separate program on your Mac reads the strip. This idea comes from the open source project wow-ai (see [NOTICE](../NOTICE)).
+The one thing an addon can do freely is draw on screen. So the addon draws its data as a strip of colours, and a separate program on your computer reads the strip. This idea comes from the open source project wow-ai (see [NOTICE](../NOTICE)).
 
 ### The strip in detail
 
@@ -55,7 +55,7 @@ The one thing an addon can do freely is draw on screen. So the addon draws its d
 
 ### The bridge reads it
 
-The bridge asks macOS for a picture of the **World of Warcraft window only** (not your whole screen), about five times a second, with the CoreGraphics window capture call. It copies only the top 220 rows into memory, looks for the white anchor and magic bytes, and decodes. Nothing is written to disk and no picture is kept. This is why macOS asks for the Screen Recording permission.
+On a **Mac** the bridge asks macOS for a picture of the **World of Warcraft window only** (not your whole screen), about five times a second, with the CoreGraphics window capture call. This is why macOS asks for the Screen Recording permission. On **Windows** the bridge copies the strip of screen where the top edge of the WoW window is (a screen-DC BitBlt, about ten times a second), which is why WoW must be Windowed or Windowed (Fullscreen) and uncovered; there is no permission prompt. Either way it copies only the top 220 rows into memory, looks for the white anchor and magic bytes, and decodes. Nothing is written to disk and no picture is kept.
 
 Because the picture comes from the window itself, things laid over the game on your screen (like the small black bar that hides the strip) do not get into the captured picture. And the bridge never sends keys or mouse clicks to the game.
 
@@ -63,14 +63,14 @@ Because the picture comes from the window itself, things laid over the game on y
 
 | Process | Started by | Job |
 | --- | --- | --- |
-| **server** | `launchd` (label `com.wowmentor.server`), runs `python3 -m wowmentor server` | A small HTTP server using only Python's standard library. Binds to `127.0.0.1` only. Stores the newest snapshot, the overlay document, rules, coach inbox, memory notes and the guide cache. |
-| **bridge** | `launchd` (label `com.wowmentor.bridge`), through the little app `~/Applications/WoW Mentor Bridge.app` which just launches Python | Captures and decodes the strip, pushes the snapshot, delivers overlay updates, applies guide edits, and (new) forwards events to your webhook. Runs several threads. |
-| **mask helper** (`wowmask`) | The bridge, if it was built | A tiny borderless black window that covers the strip on your screen. Ignores the mouse. |
-| **tunnel** | `launchd` (label `com.wowmentor.tunnel`), only after `wowmentor share on` | Runs Cloudflare's `cloudflared` to give you a temporary public address that leads to your server. |
+| **server** | Mac: `launchd` (label `com.wowmentor.server`). Windows: the sign-in supervisor. Either way it runs `python3 -m wowmentor server` | A small HTTP server using only Python's standard library. Binds to `127.0.0.1` only. Stores the newest snapshot, the overlay document, rules, coach inbox, memory notes and the guide cache. |
+| **bridge** | Mac: `launchd` (label `com.wowmentor.bridge`), through the little app `~/Applications/WoW Mentor Bridge.app` which just launches Python. Windows: the same sign-in supervisor | Captures and decodes the strip, pushes the snapshot, delivers overlay updates, applies guide edits, and (new) forwards events to your webhook. Runs several threads. |
+| **mask helper** | The bridge (on a Mac this is `wowmask`, if it was built) | A tiny borderless window that covers the strip on your screen. Ignores the mouse and keyboard. |
+| **tunnel** | Mac: `launchd` (label `com.wowmentor.tunnel`). Windows: the supervisor. Only after `wowmentor share on` | Runs Cloudflare's `cloudflared` to give you a temporary public address that leads to your server. |
 
-The services start at login and are restarted if they stop (`KeepAlive`). `wowmentor stop` and `wowmentor start` control them. Logs are in `~/Library/Logs/WoWMentor/`.
+The services start when you sign in and are restarted if they stop. On a Mac that is `launchd` (`KeepAlive`). On Windows one per-user entry named `WoWMentor` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` starts a small supervisor that restarts the server and the bridge. `wowmentor stop` and `wowmentor start` control them. Logs: `~/Library/Logs/WoWMentor/` on a Mac, `%LOCALAPPDATA%\WoWMentor\logs` on Windows. `wowmentor logs` prints the last lines.
 
-Files WoW Mentor writes: your config and secrets (`~/.config/wowmentor/config.json`, mode 600), your profile (`profile.md`), saved state (`data/`), guide backups (`data/guide-backups/`), the addon and slot folders in your WoW `Interface/AddOns`, the launcher app in `~/Applications`, and the `launchd` plists in `~/Library/LaunchAgents`. It never touches your characters or the `WTF` folder (it only reads a few other addons' saved data, see [PRIVACY.md](PRIVACY.md)).
+Files WoW Mentor writes: your config and secrets (`config.json`, readable by your account only; `~/.config/wowmentor` on a Mac, `%APPDATA%\WoWMentor` on Windows), your profile (`profile.md`), saved state (`data/`), guide backups (`data/guide-backups/`), the addon and slot folders in your WoW `Interface/AddOns`, and the start-at-login setup (on a Mac the launcher app in `~/Applications` and the `launchd` plists in `~/Library/LaunchAgents`; on Windows the `Run` entry above and the program in `%LOCALAPPDATA%\WoWMentor\app`). It never touches your characters or the `WTF` folder (it only reads a few other addons' saved data, see [PRIVACY.md](PRIVACY.md)).
 
 ## How the AI sees your game
 
@@ -107,7 +107,7 @@ New in 1.0.0. The bridge works out whether you are playing and adds it to the fe
 | `logged_out` | The window exists but the strip is gone (more than 20 seconds after a logout event, or more than 90 seconds in any case). |
 | `game_closed` | No WoW window. |
 
-Also reported: when you last logged in and out, whether WoW is the front window (`foreground`: true, false or unknown), when the bridge itself last checked in (so your AI can tell "game quiet" from "my Mac helper is down"), and how long since the game last updated. The addon cannot find out by itself if it is in the foreground (see [FOREVER-API.md](FOREVER-API.md)), so the bridge asks macOS.
+Also reported: when you last logged in and out, whether WoW is the front window (`foreground`: true, false or unknown), when the bridge itself last checked in (so your AI can tell "game quiet" from "my helper is down"), and how long since the game last updated. The addon cannot find out by itself if it is in the foreground (see [FOREVER-API.md](FOREVER-API.md)), so the bridge asks the operating system (macOS or Windows).
 
 ## What WoW Mentor does not do
 

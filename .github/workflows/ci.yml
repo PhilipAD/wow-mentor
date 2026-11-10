@@ -100,6 +100,34 @@ jobs:
       - name: install.sh end to end with a fake WoW folder (no launchd, no build)
         run: bash scripts/test_install.sh
 
+  windows:
+    name: Windows (Python ${{ matrix.python }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12"]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Full discovery. It includes the tests that only run on real Windows (capture, overlay mask, autostart),
+      # which skip with a reason when the runner has no interactive desktop.
+      - name: Python tests (including the Windows-only ones)
+        run: python -W error::ResourceWarning -m unittest discover -s tests -t . -v
+      # The Lua tests are skipped here on purpose: they run on Ubuntu with real Lua 5.1 (job "lua"), and the addon
+      # files are byte for byte the same on every OS (.gitattributes keeps them LF).
+      - name: install.ps1 end to end in Windows PowerShell 5.1 (temporary folders, fake WoW, no services)
+        shell: powershell
+        run: .\scripts\test_install.ps1
+      - name: install.ps1 end to end in PowerShell 7
+        shell: pwsh
+        run: ./scripts/test_install.ps1
+
   package:
     name: Build and install the package
     runs-on: ubuntu-24.04

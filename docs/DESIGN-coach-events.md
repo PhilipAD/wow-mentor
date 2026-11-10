@@ -2,7 +2,7 @@
 
 Why: a remote coach that polls the feed every few minutes reacts late. Move instant reactions into the addon, push events
 out immediately, and expose state the coach could not see. This document is the contract between the addon, the bridge
-(the Mac helper that reads the screen strip), the server and the docs. Read it fully before changing anything.
+(the helper, on a Mac or Windows PC, that reads the screen strip), the server and the docs. Read it fully before changing anything.
 
 ## What the Forever client allows (decisions already made)
 
@@ -102,7 +102,7 @@ All values the game hides are written as `unknown`. Level and XP stay out of the
 * Overlay ops already implemented in `uidoc.py`: `rule`, `rule_remove`, `rules_clear`, `coach`; `ops` accepts `opId` (idempotent
   retries) and `partial` (apply valid ops, return `rejected:[{index,op,errors}]`); responses include `applied_rev`.
 
-## Webhook (configured on the Mac: `wowmentor webhook set <url> [--secret S]`, stored in `config.json` as `webhook_url`, `webhook_secret`, optional `webhook_auth` sent as the `Authorization` header: `--bearer KEY` or `--auth VALUE`)
+## Webhook (configured on your computer: `wowmentor webhook set <url> [--secret S]`, stored in `config.json` as `webhook_url`, `webhook_secret`, optional `webhook_auth` sent as the `Authorization` header: `--bearer KEY` or `--auth VALUE`)
 
 POST `application/json`, header `X-WoWMentor-Signature: sha256=<hmac of body with the secret>` when a secret is set,
 `X-WoWMentor-Event-Count`. Debounce: at most one POST per 20 s, batching everything since the last push; the first event after

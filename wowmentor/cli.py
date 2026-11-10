@@ -1,7 +1,9 @@
-"""`wowmentor`: set up, check and run WoW Mentor. Standard library only, Python 3.9+, macOS."""
+"""`wowmentor`: set up, check and run WoW Mentor. Standard library only, Python 3.9+. OS specifics live in wowmentor.host."""
 import argparse, collections, os, re, shutil, subprocess, sys, time, urllib.parse, urllib.request
 
-from . import REPO, __version__, config as cfgmod, doctor, install_mac as mac
+from . import REPO, __version__, config as cfgmod, doctor, host as hostmod, install
+from .host.base import HostUnsupported, KINDS
+from .host.common import ensure_utf8_stdio
 from .bridge import localnet, webhook as whmod
 
 
@@ -19,7 +21,8 @@ def ask_yes(question, default=True, assume=False):
 def paste_prompt(cfg):
     public = bool(cfg.get("public_url"))
     base = cfgmod.ui_base(cfg, public=public)
-    where = "" if public else "\n(These links only work on this Mac, which is right for AI tools running on this Mac such as Claude Code or Codex. Run `wowmentor share on` to get links that work from anywhere.)"
+    me = hostmod.get().text["this_machine"]
+    where = "" if public else "\n(These links only work on %s, which is right for AI tools running on %s such as Claude Code or Codex. Run `wowmentor share on` to get links that work from anywhere.)" % (me, me)
     return (
         "You are my live World of Warcraft mentor. Read your operating skill first, then follow it:\n"
         '  curl -s "%s/skill?t=$RANDOM"\n'
@@ -30,17 +33,19 @@ def paste_prompt(cfg):
 
 # ---------------------------------------------------------------- commands
 def cmd_setup(a):
-    if sys.platform != "darwin":
-        say("WoW Mentor currently supports macOS only (it reads the game window with a macOS API). See docs/FAQ.md.")
+    h = hostmod.get()
+    ok, why = h.capture.available()
+    if not ok:
+        say("WoW Mentor cannot run on this system yet. %s See docs/FAQ.md." % why)
         return 1
     if sys.version_info < (3, 9):
-        say("Python 3.9 or newer is needed. Install the Xcode command line tools (`xcode-select --install`) and run again.")
+        say("Python 3.9 or newer is needed. %s" % h.text["python_help"])
         return 1
     say("WoW Mentor %s setup\n" % __version__)
     cfg = cfgmod.load()
     wow = a.wow_dir or cfg.get("wow_dir")
     if not wow or not os.path.isdir(os.path.join(wow, "Interface", "AddOns")):
-        found = mac.find_wow_dirs()
+        found = install.find_wow_dirs()
         if not found:
             say("I could not find World of Warcraft. Install it, start it once, then run this again.\n"
                 "If it lives somewhere unusual: wowmentor setup --wow-dir \"/path/to/World of Warcraft/_forever_\"")
@@ -54,40 +59,42 @@ def cmd_setup(a):
     cfgmod.ensure_secrets(cfg)
     cfgmod.save(cfg)
     if not os.path.exists(cfgmod.path("profile.md")):
-        with open(cfgmod.path("profile.md"), "w") as f:
+        with open(cfgmod.path("profile.md"), "w", encoding="utf-8", newline="\n") as f:
             f.write(cfgmod.PROFILE_TEMPLATE)
     say("1/5  Found WoW at %s" % wow)
 
-    mac.install_addon(wow)
-    new = mac.create_slots(wow)
-    say("2/5  Installed the addon (%d overlay slots %s)" % (mac.POOL + 1, "created" if new else "already there"))
+    install.install_addon(wow)
+    new = install.create_slots(wow)
+    say("2/5  Installed the addon (%d overlay slots %s)" % (install.POOL + 1, "created" if new else "already there"))
 
-    mask = None
-    app = None
+    helpers = None
     if not a.no_build:
-        mask = mac.build_mask()
-        app = mac.build_launcher()
-        say("3/5  Built the helpers: launcher %s, screen overlay %s" % ("ok" if app else "FAILED (needs Xcode tools: xcode-select --install)", "ok" if mask else "skipped"))
+        helpers = h.services.build_helpers(cfg)
+        say("3/5  Built the helpers: %s" % helpers["summary"] if helpers.get("summary") else "3/5  No helpers to build on this system")
     else:
         say("3/5  Skipped building helpers (--no-build)")
 
     remote = cfgmod.server_url(cfg)
-    if a.no_launchd:
-        say("4/5  Skipped starting services (--no-launchd)")
+    if a.no_services:
+        say("4/5  Skipped starting services (--no-services)")
     elif remote:
-        mac.write_plist("bridge", bridge_app=app)
-        ok2 = mac.start_agent("bridge")
+        h.services.install("bridge", cfg, helpers)
+        ok2 = h.services.start("bridge")
         say("4/5  Started the bridge (%s). No local server installed: server_url points at %s" % ("running" if ok2 else "check `wowmentor doctor`", whmod.mask_url(remote)))
     else:
-        mac.write_plist("server")
-        mac.write_plist("bridge", bridge_app=app)
-        ok1, ok2 = mac.start_agent("server"), mac.start_agent("bridge")
+        h.services.install("server", cfg, helpers)
+        h.services.install("bridge", cfg, helpers)
+        ok1, ok2 = h.services.start("server"), h.services.start("bridge")
         say("4/5  Started the server and the bridge (%s)" % ("running" if ok1 and ok2 else "check `wowmentor doctor`"))
 
-    say("5/5  One permission is needed: opening System Settings > Privacy & Security > Screen & System Audio Recording.")
-    say("     Click +, choose  %s  (in your Applications folder inside your home folder), turn it on." % (mac.APP_NAME if app else "WoW Mentor Bridge"))
-    if not a.no_launchd:
-        mac.open_screen_recording_settings()
+    app_name = ((helpers or {}).get("launcher") and os.path.basename(helpers["launcher"])) or "WoW Mentor Bridge"
+    if h.text["permission_lines"]:
+        for line in h.text["permission_lines"]:
+            say(line % {"app": app_name})
+        if not a.no_services:
+            h.shell.open_privacy_settings()
+    else:
+        say("5/5  No extra permission is needed on %s." % h.text["os_name"])
     say("\nAlmost done:")
     say("  - Fully quit World of Warcraft and start it again (the game only discovers the new addon files at launch).")
     say("  - Then run:  wowmentor doctor     (it checks everything and tells you what to fix)")
@@ -103,7 +110,7 @@ def cmd_links(a):
         return 1
     say("Your private links (anyone with a link can read your game feed or control your overlay: do not post them).\n")
     if cfgmod.server_url(cfg):
-        say("Server (server_url):     %s   (runs elsewhere; the bridge on this Mac pushes to it)" % whmod.mask_url(cfgmod.server_url(cfg)))
+        say("Server (server_url):     %s   (runs elsewhere; the bridge on %s pushes to it)" % (whmod.mask_url(cfgmod.server_url(cfg)), hostmod.get().text["this_machine"]))
     say("Game feed (read only):   %s?t=1" % cfgmod.feed_url(cfg, public=bool(cfg.get("public_url"))))
     say("Overlay and guide API:   %s" % cfgmod.ui_base(cfg, public=bool(cfg.get("public_url"))))
     say("Agent briefing page:     %s/skill" % cfgmod.ui_base(cfg, public=bool(cfg.get("public_url"))))
@@ -112,18 +119,15 @@ def cmd_links(a):
     if code != 200:
         say("\nHeads up: the server is not answering yet, so these links will not work until it does. Run: wowmentor start   (then: wowmentor doctor)")
     if not cfg.get("public_url") and not cfgmod.server_url(cfg):
-        say("\nThese work on this Mac only. Using an AI that runs somewhere else (a website or another computer)? Run:  wowmentor share on")
+        say("\nThese work on %s only. Using an AI that runs somewhere else (a website or another computer)? Run:  wowmentor share on" % hostmod.get().text["this_machine"])
     say("\nPaste this to your AI agent:\n")
     say("----------------------------------------------------------------")
     p = paste_prompt(cfg)
     say(p)
     say("----------------------------------------------------------------")
     if a.copy:
-        try:
-            subprocess.run(["pbcopy"], input=p.encode(), check=True)
+        if hostmod.get().shell.copy_to_clipboard(p):
             say("(copied to your clipboard)")
-        except Exception:
-            pass
     return 0
 
 
@@ -149,23 +153,24 @@ def _status_line(cfg):
 def cmd_status(a):
     cfg = cfgmod.load()
     where = (" (remote %s)" % whmod.mask_url(cfgmod.server_url(cfg))) if cfgmod.server_url(cfg) else ""
-    say("server: %s%s   bridge: %s   share: %s" % (_status_line(cfg), where, "running" if mac.agent_running("bridge") else "not running",
+    say("server: %s%s   bridge: %s   share: %s" % (_status_line(cfg), where, "running" if hostmod.get().services.is_running("bridge") else "not running",
                                                 cfg.get("public_url") or "off"))
     return 0
 
 
 def cmd_start(a):
+    sv = hostmod.get().services
     for k in (("bridge",) if cfgmod.server_url(cfgmod.load()) else ("server", "bridge")):      # a remote server is not ours to start
-        mac.start_agent(k)
-    if os.path.exists(mac.plist_path("tunnel")):
-        mac.start_agent("tunnel")
+        sv.start(k)
+    if sv.is_installed("tunnel"):
+        sv.start("tunnel")
     say("started")
     return 0
 
 
 def cmd_stop(a):
     for k in ("bridge", "server", "tunnel"):
-        mac.stop_agent(k)
+        hostmod.get().services.stop(k)
     say("stopped (they start again at your next login, or run `wowmentor start`)")
     return 0
 
@@ -178,14 +183,15 @@ def cmd_restart(a):
 
 def cmd_logs(a):
     d = cfgmod.log_dir()
-    if not any(os.path.exists(os.path.join(d, k + ".log")) for k in ("server", "bridge", "tunnel")):
+    sv = hostmod.get().services
+    if not any(os.path.exists(sv.log_path(k)) for k in KINDS):
         say("No log files yet in %s. They appear once the services have started (run `wowmentor setup`, or `wowmentor start`)." % d)
         return 0
-    for k in ("server", "bridge", "tunnel"):
-        p = os.path.join(d, k + ".log")
+    for k in KINDS:
+        p = sv.log_path(k)
         if os.path.exists(p):
             say("== %s ==" % p)
-            with open(p, errors="replace") as f:
+            with open(p, encoding="utf-8", errors="replace") as f:
                 say("".join(collections.deque(f, maxlen=max(1, a.lines))))          # the tail only: logs can be large
     return 0
 
@@ -194,11 +200,11 @@ def cmd_profile(a):
     p = cfgmod.path("profile.md")
     if not os.path.exists(p):
         os.makedirs(cfgmod.home(), exist_ok=True)
-        with open(p, "w") as f:
+        with open(p, "w", encoding="utf-8", newline="\n") as f:
             f.write(cfgmod.PROFILE_TEMPLATE)
     say("Your profile file: %s\nEdit it, save, and your mentor uses it the next time it fetches its skill page." % p)
-    if sys.platform == "darwin" and not a.no_open:
-        subprocess.run(["open", "-t", p])
+    if not a.no_open:
+        hostmod.get().shell.open_text_file(p)
     return 0
 
 
@@ -212,7 +218,8 @@ def cmd_rotate(a):
 
 
 def find_cloudflared(cfg):
-    for c in (cfg.get("cloudflared"), shutil.which("cloudflared"), "/opt/homebrew/bin/cloudflared", "/usr/local/bin/cloudflared"):
+    extra = [os.path.join(d, "cloudflared") for d in hostmod.get().locations.extra_bin_dirs()]
+    for c in [cfg.get("cloudflared"), shutil.which("cloudflared")] + extra:
         if c and os.path.exists(c):
             return c
     return None
@@ -224,27 +231,30 @@ def cmd_share(a):
         say("share is %s" % (cfg.get("public_url") or "off"))
         return 0
     if a.state == "off":
-        mac.stop_agent("tunnel")
-        mac.remove_plist("tunnel")
+        hostmod.get().services.remove("tunnel")
         cfg["public_url"] = None
         cfgmod.save(cfg)
-        say("Sharing is off. Your links work on this Mac only.")
+        say("Sharing is off. Your links work on %s only." % hostmod.get().text["this_machine"])
         return 0
     if cfgmod.server_url(cfg):
-        say("server_url is set, so the server does not run on this Mac and there is nothing here to share. Use the links of that server (`wowmentor links`).")
+        say("server_url is set, so the server does not run on %s and there is nothing here to share. Use the links of that server (`wowmentor links`)." % hostmod.get().text["this_machine"])
         return 1
     cf = find_cloudflared(cfg)
     if not cf:
-        if shutil.which("brew") and ask_yes("cloudflared (Cloudflare's free tunnel tool) is needed. Install it with Homebrew now?", True, a.yes):
+        pm = hostmod.get().text["package_manager"]
+        if pm == "brew" and shutil.which("brew") and ask_yes("cloudflared (Cloudflare's free tunnel tool) is needed. Install it with Homebrew now?", True, a.yes):
             subprocess.run(["brew", "install", "cloudflared"])
             cf = find_cloudflared(cfg)
+        elif pm == "winget" and shutil.which("winget") and ask_yes("cloudflared (Cloudflare's free tunnel tool) is needed. Install it with winget now?", True, a.yes):
+            subprocess.run(["winget", "install", "--id", "Cloudflare.cloudflared", "-e"])
+            cf = find_cloudflared(cfg)
         if not cf:
-            say("Install cloudflared first:  brew install cloudflared   (or see https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)")
+            say(hostmod.get().text["cloudflared_hint"])
             return 1
     cfg["cloudflared"] = cf
     cfgmod.save(cfg)
-    mac.write_plist("tunnel")
-    mac.start_agent("tunnel")
+    hostmod.get().services.install("tunnel", cfg)
+    hostmod.get().services.start("tunnel")
     say("Starting the tunnel...")
     for _ in range(40):
         time.sleep(1)
@@ -349,7 +359,7 @@ def whmod_session(s, now):
 def cmd_server_url(a):
     cfg = cfgmod.load()
     if a.action == "status":
-        say("server_url: %s" % (whmod.mask_url(cfgmod.server_url(cfg)) if cfgmod.server_url(cfg) else "not set (the server runs on this Mac, port %s)" % cfg["port"]))
+        say("server_url: %s" % (whmod.mask_url(cfgmod.server_url(cfg)) if cfgmod.server_url(cfg) else "not set (the server runs on %s, port %s)" % (hostmod.get().text["this_machine"], cfg["port"])))
         return 0
     if a.action == "off":
         cfg["server_url"] = None
@@ -365,7 +375,7 @@ def cmd_server_url(a):
     if cfg["server_url"].startswith("http://") and not (host in ("localhost", "127.0.0.1", "::1") or host.startswith(("10.", "192.168.", "172."))):
         say("Warning: plain http:// sends your secrets unencrypted across the internet. Use https:// (or a private network such as a VPN or an ssh tunnel).")
     say("server_url set to %s. The bridge now pushes there; `wowmentor setup` will not install a local server. Run `wowmentor restart` to apply." % whmod.mask_url(cfg["server_url"]))
-    say("The remote server must run the same secrets (read_token, write_secret, ui_secret) as this Mac's config.json.")
+    say("The remote server must run the same secrets (read_token, write_secret, ui_secret) as %s's config.json." % hostmod.get().text["this_machine"])
     return 0
 
 
@@ -396,11 +406,10 @@ def cmd_uninstall(a):
     if not ask_yes("Remove WoW Mentor (services, helper app, and the addon with its slots from your AddOns folder)?", True, a.yes):
         return 1
     for k in ("bridge", "server", "tunnel"):
-        mac.stop_agent(k)
-        mac.remove_plist(k)
-    shutil.rmtree(mac.app_path(), ignore_errors=True)
+        hostmod.get().services.remove(k)
+    hostmod.get().services.remove_helpers()
     if cfg.get("wow_dir"):
-        say("Removed %d addon folders." % mac.remove_addon(cfg["wow_dir"]))
+        say("Removed %d addon folders." % install.remove_addon(cfg["wow_dir"]))
     if a.purge:
         purge_home()
         say("Removed your config, secrets and saved data.")
@@ -411,7 +420,7 @@ def cmd_uninstall(a):
 
 
 def cmd_update(a):
-    root = mac.PKG_ROOT
+    root = install.PKG_ROOT
     if os.path.isdir(os.path.join(root, ".git")):
         r = subprocess.run(["git", "-C", root, "pull", "--ff-only"])
         if r.returncode != 0:
@@ -419,7 +428,7 @@ def cmd_update(a):
     else:
         say("Run the installer again to update:\n  curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | bash" % REPO)
         return 0
-    return cmd_setup(argparse.Namespace(wow_dir=None, no_build=False, no_launchd=False))
+    return cmd_setup(argparse.Namespace(wow_dir=None, no_build=False, no_services=False))
 
 
 def cmd_server(a):
@@ -441,7 +450,7 @@ def cmd_tunnel(a):
     if not cf:
         say("cloudflared not found")
         return 1
-    proc = subprocess.Popen([cf, "tunnel", "--url", cfgmod.local_url(cfg), "--no-autoupdate"], stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([cf, "tunnel", "--url", cfgmod.local_url(cfg), "--no-autoupdate"], stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     pat = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
     try:
         for line in proc.stderr:
@@ -459,6 +468,7 @@ def cmd_tunnel(a):
 
 
 def main(argv=None):
+    ensure_utf8_stdio()
     ap = argparse.ArgumentParser(prog="wowmentor", description="Set up and run WoW Mentor: your AI agent sees your game and mentors you with an on-screen overlay.")
     ap.add_argument("--version", action="version", version="wowmentor " + __version__)
     sub = ap.add_subparsers(dest="cmd", metavar="command")
@@ -472,9 +482,9 @@ def main(argv=None):
         return p
 
     p = add("setup", cmd_setup, "install everything (safe to run again)")
-    p.add_argument("--wow-dir", help='e.g. "/Applications/World of Warcraft/_forever_"')
+    p.add_argument("--wow-dir", help='e.g. "%s"' % hostmod.get().text["example_wow_path"])
     p.add_argument("--no-build", action="store_true", help="skip compiling the helper app (testing)")
-    p.add_argument("--no-launchd", action="store_true", help="do not start background services (testing)")
+    p.add_argument("--no-services", "--no-launchd", dest="no_services", action="store_true", help="do not start background services (testing; --no-launchd is the old name)")
     p = add("doctor", cmd_doctor, "check everything and say what to fix"); p.add_argument("-v", "--verbose", action="store_true")
     add("status", cmd_status, "one-line state of the services")
     p = add("links", cmd_links, "show your private links and the text to paste to your AI"); p.add_argument("--copy", action="store_true", help="copy the paste text to the clipboard")
@@ -510,7 +520,11 @@ def main(argv=None):
     if not a.cmd:
         ap.print_help()
         return 0
-    return a.fn(a) or 0
+    try:
+        return a.fn(a) or 0
+    except HostUnsupported as e:
+        say(str(e))
+        return 1
 
 
 if __name__ == "__main__":
