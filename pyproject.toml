@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "wowmentor"
 dynamic = ["version"]
-description = "Let an AI agent see your World of Warcraft game and mentor you with an on-screen overlay (macOS)."
+description = "Let an AI agent see your World of Warcraft game and mentor you with an on-screen overlay (macOS and Windows)."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -13,6 +13,8 @@ license-files = ["LICENSE", "LICENSE-wow-ai", "NOTICE"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
     "Environment :: Console",
     "Topic :: Games/Entertainment",
 ]

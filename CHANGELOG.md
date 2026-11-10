@@ -2,6 +2,16 @@
 
 **What this is for:** what changed in each release. **Who it is for:** players deciding whether to update, and contributors. The format is based on Keep a Changelog; version numbers follow Semantic Versioning.
 
+## Unreleased
+
+### Windows support
+
+- Windows 10 (2004 or newer) and 11 now work. Install with one PowerShell line (`install.ps1`) or by double-clicking `Install-WoWMentor.cmd`. No admin needed.
+- The bridge reads the top rows of the WoW window itself (no permission prompt). WoW must be in Windowed or Windowed (Fullscreen) mode.
+- The strip-hiding bar is a click-through window that is left out of screen capture, so it never feeds back into what the bridge reads.
+- Starts at sign-in through a per-user Run entry. Settings in `%APPDATA%\WoWMentor`, logs in `%LOCALAPPDATA%\WoWMentor\logs`. Details: `docs/WINDOWS.md`.
+- Internals: macOS-only code moved behind a small per-OS layer (`wowmentor/host`). CI now also runs the full test suite on Windows.
+
 ## 1.0.0 (first public release)
 
 The first release. Everything below is new.
