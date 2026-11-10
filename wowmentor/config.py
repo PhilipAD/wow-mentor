@@ -14,6 +14,7 @@ DEFAULTS = {
     "server_url": None,          # optional: a server running elsewhere (http(s)://host[:port]); the bridge pushes there and no local server is installed
     "webhook_url": None,         # `wowmentor webhook set <url>`: the bridge POSTs batched game events here
     "webhook_secret": None,      # optional: signs each webhook body (X-WoWMentor-Signature: sha256=<hmac>)
+    "webhook_auth": None,        # optional: sent as the Authorization header of every webhook POST (`wowmentor webhook set <url> --bearer KEY`)
 }
 
 

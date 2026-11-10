@@ -102,7 +102,7 @@ All values the game hides are written as `unknown`. Level and XP stay out of the
 * Overlay ops already implemented in `uidoc.py`: `rule`, `rule_remove`, `rules_clear`, `coach`; `ops` accepts `opId` (idempotent
   retries) and `partial` (apply valid ops, return `rejected:[{index,op,errors}]`); responses include `applied_rev`.
 
-## Webhook (configured on the Mac: `wowmentor webhook set <url> [--secret S]`, stored in `config.json` as `webhook_url`, `webhook_secret`)
+## Webhook (configured on the Mac: `wowmentor webhook set <url> [--secret S]`, stored in `config.json` as `webhook_url`, `webhook_secret`, optional `webhook_auth` sent as the `Authorization` header: `--bearer KEY` or `--auth VALUE`)
 
 POST `application/json`, header `X-WoWMentor-Signature: sha256=<hmac of body with the secret>` when a secret is set,
 `X-WoWMentor-Event-Count`. Debounce: at most one POST per 20 s, batching everything since the last push; the first event after

@@ -714,7 +714,7 @@ def config_watch():
                 seen = m
                 c = cfgmod.peek(strict=True)
                 if c is not None:                 # a half-edited or corrupt file keeps the current webhook settings
-                    sender.configure(c.get("webhook_url"), c.get("webhook_secret"))
+                    sender.configure(c.get("webhook_url"), c.get("webhook_secret"), c.get("webhook_auth"))
         except Exception:
             pass
         time.sleep(3)
@@ -743,7 +743,7 @@ def run(cfg):
     api = Api(CFG["ui_base"])
     sender.log = log
     sender.session_fn = lambda: presmod.webhook_session(session_snapshot())
-    sender.configure(cfg.get("webhook_url"), cfg.get("webhook_secret"))
+    sender.configure(cfg.get("webhook_url"), cfg.get("webhook_secret"), cfg.get("webhook_auth"))
     pipe.post, pipe.on_stored, pipe.log = api.post, sender.enqueue, log
     def start(name, fn, *args):
         threading.Thread(target=supervise, args=(name, lambda: fn(*args), log), name=name, daemon=True).start()

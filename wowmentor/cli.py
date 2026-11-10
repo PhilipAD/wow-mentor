@@ -276,14 +276,28 @@ def cmd_webhook(a):
             cfg["webhook_secret"] = None
         elif secret is not None:
             cfg["webhook_secret"] = secret or None
+        token = a.bearer
+        if token == "-":
+            token = sys.stdin.readline().strip()
+        elif token is None and os.environ.get("WOWMENTOR_WEBHOOK_BEARER"):
+            token = os.environ["WOWMENTOR_WEBHOOK_BEARER"]
+        auth = whmod.bearer(token) if token else a.auth
+        if auth and not whmod.valid_auth(auth):
+            say("That key or Authorization value has characters that cannot go in an HTTP header (use printable ASCII, no line breaks).")
+            return 1
+        if a.no_auth:
+            cfg["webhook_auth"] = None
+        elif auth:
+            cfg["webhook_auth"] = auth
         cfgmod.save(cfg)
-        say("Webhook set: %s  (%s)" % (whmod.mask_url(a.url), "signed with your secret" if cfg.get("webhook_secret") else "not signed: add --secret to sign requests"))
+        say("Webhook set: %s  (%s%s)" % (whmod.mask_url(a.url), "signed with your secret" if cfg.get("webhook_secret") else "not signed: add --secret to sign requests",
+                                         ", Authorization header sent" if cfg.get("webhook_auth") else ""))
         if a.url.lower().startswith("http://") and (urllib.parse.urlsplit(a.url).hostname or "") not in ("localhost", "127.0.0.1", "::1"):
             say("Note: http:// is not encrypted; use https:// if the events should stay private.")
         say("The running bridge picks this up within a few seconds (no restart). Check it with: wowmentor webhook test")
         return 0
     if a.action == "off":
-        cfg["webhook_url"] = cfg["webhook_secret"] = None
+        cfg["webhook_url"] = cfg["webhook_secret"] = cfg["webhook_auth"] = None
         cfgmod.save(cfg)
         say("Webhook is off.")
         return 0
@@ -292,7 +306,7 @@ def cmd_webhook(a):
         if not url:
             say("Webhook: off  (set one with: wowmentor webhook set <url> [--secret S])")
             return 0
-        say("Webhook: %s  (%s)" % (whmod.mask_url(url), "signed" if cfg.get("webhook_secret") else "not signed"))
+        say("Webhook: %s  (%s%s)" % (whmod.mask_url(url), "signed" if cfg.get("webhook_secret") else "not signed", ", Authorization header" if cfg.get("webhook_auth") else ""))
         s = _session(cfg)
         w = (s or {}).get("webhook") or {}
         if not s or not s.get("known"):
@@ -310,7 +324,7 @@ def cmd_webhook(a):
     now = time.time()
     ev = {"eid": 0, "t": int(now), "type": "webhook_test", "data": {"message": "Test event from `wowmentor webhook test`"}}
     sess = whmod_session(_session(cfg), now)
-    status, err = whmod.send_once(url, cfg.get("webhook_secret"), [ev], sess, now)
+    status, err = whmod.send_once(url, cfg.get("webhook_secret"), [ev], sess, now, auth=cfg.get("webhook_auth"))
     if status is None:
         say("Could not reach %s (%s)." % (whmod.mask_url(url), err))
         return 1
@@ -468,6 +482,9 @@ def main(argv=None):
     q = wsub.add_parser("set", help="set the URL (and optionally a signing secret)"); q.set_defaults(fn=cmd_webhook); q.add_argument("url")
     q.add_argument("--secret", help="HMAC-SHA256 signing secret ('-' reads it from stdin; or set $WOWMENTOR_WEBHOOK_SECRET); kept if you omit it")
     q.add_argument("--no-secret", action="store_true", help="remove the secret")
+    q.add_argument("--bearer", help="send 'Authorization: Bearer <KEY>' with every POST ('-' reads it from stdin; or set $WOWMENTOR_WEBHOOK_BEARER); kept if you omit it")
+    q.add_argument("--auth", help="send this exact Authorization header value instead (for example 'Basic abc123')")
+    q.add_argument("--no-auth", action="store_true", help="stop sending an Authorization header")
     for nm, hp in (("off", "turn the webhook off"), ("status", "show where events go and whether deliveries work"), ("test", "send a sample event and report the response code")):
         q = wsub.add_parser(nm, help=hp); q.set_defaults(fn=cmd_webhook)
     sp = sub.add_parser("server-url", help="use a server that runs elsewhere (set <url> | off | status)", description="Point the bridge at a server running on another machine; setup then installs no local server.")

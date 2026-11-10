@@ -109,7 +109,7 @@ Checking the feed every few seconds costs tokens and reacts late. Better:
 
 - Put the reflexes in the game as rules (see [RULES.md](RULES.md)). They fire instantly with no AI involved.
 - Ask for events: `GET <overlay link>/events?since=<last eid>` (or `GET <feed token link>/events?since=` for a read-only token) returns what happened since your last look, each with an increasing number (`eid`), and a `next` value to ask for next time.
-- Or set a webhook so events are pushed to you: `wowmentor webhook set <url> --secret -`. See [RULES.md](RULES.md) for the payload, the signature check and the event list.
+- Or set a webhook so events are pushed to you: `wowmentor webhook set <url> --secret -` (add `--bearer <key>` if the receiver wants an `Authorization: Bearer` header). See [RULES.md](RULES.md) for the payload, the signature check and the event list.
 - Use `coach` messages to answer the player's `/coach <question>` command in game.
 
 ## Behaving well (also for people writing prompts)

@@ -7,7 +7,8 @@ event into a WebhookSender, which sends JSON (see docs/DESIGN-coach-events.md, "
    "events":[{"eid","t","type","data"}...],"next":<last eid in this batch>}
 
 Headers: Content-Type: application/json, X-WoWMentor-Event-Count: <n>, and, when a secret is set,
-X-WoWMentor-Signature: sha256=<hex HMAC-SHA256 of the exact request body>.
+X-WoWMentor-Signature: sha256=<hex HMAC-SHA256 of the exact request body>. For receivers that want a plain key instead (or as well), `--bearer KEY`
+adds `Authorization: Bearer KEY` to every POST (`--auth "Scheme value"` sends any other Authorization value).
 
 Timing: at most one POST per DEBOUNCE_S (20 s) carrying everything queued since the last one. The first event after a quiet
 period is sent after at most DEBOUNCE_S; an urgent event (death, logout, ...) shortens the wait to URGENT_S (3 s), and no two POSTs are
@@ -15,7 +16,7 @@ ever closer than URGENT_S. A failed POST is retried after 5, 20, then every 60 s
 newest QUEUE_CAP events). Nothing here ever blocks the capture loop: enqueue() only appends under a lock, and the HTTP call runs on
 the sender's own thread.
 
-Safety: the secret and the full URL (a webhook URL is often itself a secret) are never logged or printed; only scheme://host is.
+Safety: the secret, the Authorization value and the full URL (a webhook URL is often itself a secret) are never logged or printed; only scheme://host is.
 Redirects are not followed, so the configured host cannot bounce the request (and the body) to another address.
 """
 import hashlib, hmac, json, threading, time, urllib.error, urllib.parse, urllib.request
@@ -54,6 +55,15 @@ def mask_url(url):
         return "%s://%s%s/..." % (p.scheme, host, port)
     except ValueError:
         return "(invalid url)"
+
+
+def valid_auth(v):
+    """An Authorization header value: printable ASCII only (CR/LF would split the header), no leading/trailing space."""
+    return isinstance(v, str) and 0 < len(v) <= 1024 and v == v.strip() and all(32 <= ord(c) <= 126 for c in v)
+
+
+def bearer(token):
+    return "Bearer " + token
 
 
 def sign(secret, body):
@@ -96,12 +106,14 @@ def build_body(events, session, now):
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("ascii")
 
 
-def send_once(url, secret, events, session, now=None, post=http_post, timeout=TIMEOUT_S):
+def send_once(url, secret, events, session, now=None, post=http_post, timeout=TIMEOUT_S, auth=None):
     """One synchronous delivery (used by `wowmentor webhook test`). Returns (status or None, error class name or None)."""
     body = build_body(events, session, time.time() if now is None else now)
     headers = {"Content-Type": "application/json", HEADER_COUNT: str(len(events)), "User-Agent": "wowmentor-webhook/1"}
     if secret:
         headers[HEADER_SIG] = sign(secret, body)
+    if valid_auth(auth):
+        headers["Authorization"] = auth
     try:
         return post(url, body, headers, timeout), None
     except Exception as e:                    # never include str(e): urllib messages can carry the URL
@@ -109,12 +121,12 @@ def send_once(url, secret, events, session, now=None, post=http_post, timeout=TI
 
 
 class WebhookSender(object):
-    def __init__(self, url=None, secret=None, session_fn=None, clock=time.time, post=http_post, log=print):
+    def __init__(self, url=None, secret=None, session_fn=None, clock=time.time, post=http_post, log=print, auth=None):
         self.lock = threading.Lock()
         self.wake = threading.Event()
         self.clock, self.post, self.log = clock, post, log
         self.session_fn = session_fn or (lambda: {})
-        self.url, self.secret = None, None
+        self.url, self.secret, self.auth = None, None, None
         self.q = []
         self.due = None                 # earliest time the next POST may go out
         self.block_until = 0.0          # backoff after a failure
@@ -122,10 +134,10 @@ class WebhookSender(object):
         self.fails = 0
         self.stats = {"sent_events": 0, "posts": 0, "failures": 0, "dropped": 0, "last_status": None, "last_error": None,
                       "last_ok_at": None, "last_attempt_at": None}
-        self.configure(url, secret)
+        self.configure(url, secret, auth)
 
     # ---------------------------------------------------------------- configuration and input
-    def configure(self, url, secret):
+    def configure(self, url, secret, auth=None):
         """Change the target live (the bridge calls this when config.json changes). A different URL starts empty with a clean retry
         state: events queued for the old endpoint are dropped, not replayed to the new one."""
         url = url if valid_url(url) else None
@@ -133,7 +145,7 @@ class WebhookSender(object):
             if url != self.url:
                 self.fails, self.block_until = 0, 0.0
                 self.q, self.due = [], None
-            self.url, self.secret = url, (secret or None)
+            self.url, self.secret, self.auth = url, (secret or None), (auth if valid_auth(auth) else None)
         self.wake.set()
 
     def enqueue(self, events):
@@ -183,7 +195,7 @@ class WebhookSender(object):
             if not (self.q and self.url) or self.due is None or now < self.due:
                 return False
             batch = self.q[:BATCH_MAX]
-            url, secret = self.url, self.secret
+            url, secret, auth = self.url, self.secret, self.auth
         try:
             session = self.session_fn() or {}
         except Exception:
@@ -192,6 +204,8 @@ class WebhookSender(object):
         headers = {"Content-Type": "application/json", HEADER_COUNT: str(len(batch)), "User-Agent": "wowmentor-webhook/1"}
         if secret:
             headers[HEADER_SIG] = sign(secret, body)
+        if auth:
+            headers["Authorization"] = auth
         status, err = None, None
         try:
             status = self.post(url, body, headers, TIMEOUT_S)
@@ -243,6 +257,6 @@ class WebhookSender(object):
         """For `wowmentor webhook status` / doctor / the session object: never contains the URL path or the secret."""
         with self.lock:
             s = dict(self.stats)
-            s.update(configured=bool(self.url), host=mask_url(self.url) if self.url else None, signed=bool(self.secret), queued=len(self.q),
+            s.update(configured=bool(self.url), host=mask_url(self.url) if self.url else None, signed=bool(self.secret), authorized=bool(self.auth), queued=len(self.q),
                      failing=self.fails > 0, next_attempt_at=int(self.due) if (self.due and self.q) else None)
             return s

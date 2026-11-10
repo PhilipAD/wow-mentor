@@ -323,6 +323,10 @@ wowmentor webhook set https://example.com/hooks/wow --secret -    # then type th
 wowmentor webhook test       # sends a sample event, tells you the HTTP status
 wowmentor webhook status     # where events go, how many were delivered, whether it is failing
 wowmentor webhook off        # stop sending
+
+# If the receiver wants a plain key in an Authorization header instead of (or as well as) the signature:
+wowmentor webhook set https://example.com/hooks/wow --bearer -    # sends  Authorization: Bearer <key>  with every POST
+wowmentor webhook set https://example.com/hooks/wow --auth "Basic abc123"   # any other Authorization value
 ```
 
 Notes: `--secret -` reads the secret from standard input so it does not end up in your shell history; you can also set `WOWMENTOR_WEBHOOK_SECRET`. Leave `--secret` out to keep the one already stored; `--no-secret` removes it. The running bridge notices a change within a few seconds. The URL must be `http://` or `https://`; use `https://` unless the receiver is on your own Mac. The URL path may itself be a secret, so it is never printed or logged (only `scheme://host`).
