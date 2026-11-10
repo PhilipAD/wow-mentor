@@ -1,6 +1,6 @@
-<h1 align="center">WoW Mentor</h1>
-<p align="center"><b>An AI coach that sees your WoW game and puts advice right on your screen.</b><br>
-Mac or Windows, with WoW Forever. You play, it watches and helps.</p>
+<h1 align="center">WoW Mentor for Windows and Mac</h1>
+<p align="center"><b>An AI coach that sees your WoW Forever game and puts advice right on your screen.</b><br>
+Windows 10/11 or macOS, same setup, same features. You play, it watches and helps.</p>
 
 <p align="center"><img src="assets/how-it-works.svg" alt="How WoW Mentor works" width="860"></p>
 
@@ -18,37 +18,48 @@ Mac or Windows, with WoW Forever. You play, it watches and helps.</p>
 
 <p align="center"><img src="assets/setup-steps.svg" alt="Setup in four steps" width="860"></p>
 
+Same four steps on both. Pick your column. First, make sure WoW Forever is installed and you have started it once, and that you have an internet connection. No account needed.
+
 **1. Install.** One line, no admin needed.
 
-- **Mac:** open Terminal and paste:
+| Windows | Mac |
+| --- | --- |
+| Press the Windows key, type `PowerShell`, press Enter (a normal window, not "as administrator"). Paste the line below and press Enter. | Press Cmd+Space, type `Terminal`, press Return. Paste the line below and press Return. |
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh | bash
-```
-
-- **Windows:** open PowerShell (a normal window) and paste:
+**Windows (PowerShell):**
 
 ```powershell
 irm https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.ps1 | iex
 ```
 
-If Python is missing on Windows it explains and offers to install it with winget (it asks first). Prefer to read the script before it runs? See [WINDOWS](docs/WINDOWS.md#install-it-the-careful-way).
+**Mac (Terminal):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh | bash
+```
+
+On Windows, if Python is missing it explains and offers to install it with winget (it asks first). Prefer to read the script before it runs, or skip PowerShell and double-click `Install-WoWMentor.cmd` from the ZIP? See [WINDOWS](docs/WINDOWS.md#install-it-the-careful-way).
 
 **2. Let it see the game window.**
 
-- **Mac:** System Settings > Privacy & Security > Screen & System Audio Recording > add and turn on **WoW Mentor Bridge**.
-- **Windows:** nothing to allow, there is no prompt. Set WoW to **Windowed** or **Windowed (Fullscreen)** and keep its window uncovered. Real exclusive fullscreen can't be read.
+| Windows | Mac |
+| --- | --- |
+| Nothing to allow, there is no prompt. In WoW, go to Options > Graphics and set the display mode to **Windowed** or **Windowed (Fullscreen)**, keep its window uncovered, then run `wowmentor restart` in a new PowerShell window. Real exclusive fullscreen can't be read. | System Settings > Privacy & Security > Screen & System Audio Recording > click **+**, open the **Applications** folder inside your home folder (not the main one), pick **WoW Mentor Bridge**, turn it on. Then run `wowmentor restart` in Terminal. |
 
-**3. Restart WoW** (Mac: Cmd+Q, relaunch, log in. Windows: close it completely, relaunch, log in). Needed once.
+**3. Restart WoW once.**
 
-**4. Check it, then hand it to your AI** (on Windows, open a new PowerShell window first so the commands are found):
+| Windows | Mac |
+| --- | --- |
+| Close WoW completely, relaunch, log in. | Cmd+Q, relaunch, log in. |
+
+**4. Check it, then hand it to your AI.** On Windows, open a new PowerShell window first so the commands are found. Same commands on Mac and Windows:
 
 ```bash
 wowmentor doctor
 wowmentor links
 ```
 
-Copy the text `links` prints and paste it to your AI. Treat it like a password.
+Copy the text `links` prints and paste it to your AI (Claude Code, Codex, or a chatbot; see [AGENT](docs/AGENT.md)). Treat it like a password.
 
 Stuck? `wowmentor doctor` tells you what to fix. More: [QUICKSTART](docs/QUICKSTART.md), [TROUBLESHOOTING](docs/TROUBLESHOOTING.md), [FAQ](docs/FAQ.md).
 
@@ -57,7 +68,7 @@ Stuck? `wowmentor doctor` tells you what to fix. More: [QUICKSTART](docs/QUICKST
 Paste one of these. Swap anything in `<ANGLE BRACKETS>` for what your agent tells you.
 
 <details>
-<summary><b>Prompt 1: an agent on your Mac or Windows PC (Claude Code, Codex, ...) installs it for you</b></summary>
+<summary><b>Prompt 1: an agent on your Windows PC or Mac (Claude Code, Codex, ...) installs it for you</b></summary>
 
 ```text
 Set up WoW Mentor on this computer for me. Repo: https://github.com/PhilipAD/wow-mentor
@@ -193,7 +204,7 @@ More: [PRIVACY](docs/PRIVACY.md), [SECURITY](SECURITY.md).
 
 ## Good to know
 
-- macOS, or Windows 10 (version 2004 or newer) and 11, with the **WoW Forever** client only. Linux is not supported.
+- Windows 10 and 11 (the strip-hiding overlay needs version 2004 or newer), or macOS, with the **WoW Forever** client only. Linux is not supported.
 - On Windows, WoW must be in Windowed or Windowed (Fullscreen) mode. Details and limits: [WINDOWS](docs/WINDOWS.md).
 - One WoW restart after the first install.
 - The game hides some numbers in combat (exact health and mana), and things like auction prices and other players' gear.

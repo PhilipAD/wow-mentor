@@ -2,12 +2,12 @@
 
 **What this is for:** the slow, hand-held install. Every step says what to do, what you should see, and what to do if you do not see it. **Who it is for:** anyone who has never used Terminal or PowerShell. If you already know your way around, the short version is in the [README](../README.md).
 
-You will need about 10 minutes, a Mac or a Windows PC (Windows 10 version 2004 or newer, or Windows 11), the WoW Forever client already installed (start it once so its folders exist), and an AI tool.
+You will need about 10 minutes, a Mac or a Windows PC (Windows 10 or Windows 11), the WoW Forever client already installed (start it once so its folders exist), and an AI tool.
 
 ## Before you start
 
 1. Make sure World of Warcraft Forever is installed and you have started it at least once.
-2. Know which AI tool you will use. Claude Code and Codex run on your Mac and are the easiest. A website chat assistant needs one extra step (see [AGENT.md](AGENT.md)).
+2. Know which AI tool you will use. Claude Code and Codex run on your computer (Mac or Windows) and are the easiest. A website chat assistant needs one extra step (see [AGENT.md](AGENT.md)).
 3. You do not need an account anywhere to install WoW Mentor. It downloads from GitHub.
 
 There are two ways to install. Pick one. Every step below says **Mac** or **Windows** where they differ. Windows-only details (where files live, uninstall, limits) are in [WINDOWS.md](WINDOWS.md).
@@ -78,7 +78,7 @@ On Windows, open a new PowerShell window and run this, with your own path (in Ba
 wowmentor setup --wow-dir "D:\Games\World of Warcraft\_forever_"
 ```
 
-**If step 3 says `launcher FAILED`:** the Command Line Tools are missing or incomplete. Run `xcode-select --install`, wait, then run the install line again.
+**Mac: if step 3 says `launcher FAILED`:** the Command Line Tools are missing or incomplete. Run `xcode-select --install`, wait, then run the install line again.
 
 ### A3. Skip to "Give it permission to read the screen" below (on Windows there is nothing to allow, but read that section).
 
@@ -115,13 +115,15 @@ wowmentor restart
 
 You should see `stopped (they start again at your next login, or run `wowmentor start`)` and then `started`.
 
-**If `wowmentor` says `command not found`:** your Terminal does not know the shortcut yet. Use the long form instead, anywhere you see `wowmentor`:
+**Mac: if `wowmentor` says `command not found`:** your Terminal does not know the shortcut yet. Use the long form instead, anywhere you see `wowmentor`:
 
 ```bash
 ~/.wowmentor/app/wowmentor.sh restart
 ```
 
 (To fix it permanently, the installer printed a tip: add `export PATH="$HOME/.local/bin:$PATH"` to a file called `.zshrc` in your home folder and open a new Terminal window.)
+
+**Windows: if `wowmentor` says it is not recognized:** the installer added the short commands to your PATH, but a PowerShell window that was already open does not know yet. Close it and open a new PowerShell window.
 
 ## Restart World of Warcraft once
 
@@ -137,7 +139,7 @@ Why a restart: the game only notices new addon folders when it starts. The insta
 wowmentor doctor
 ```
 
-When everything is good it looks like this (yours will differ a little; the "Overlay" lines appear only once the game is running with your character):
+When everything is good it looks like this (this is the Mac version; on Windows the paths look like `C:\Users\you\AppData\Roaming\WoWMentor` and `C:\Program Files (x86)\World of Warcraft\_forever_`, and everything else is the same. Yours will differ a little; the "Overlay" lines appear only once the game is running with your character):
 
 ```text
 WoW Mentor 1.0.0

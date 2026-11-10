@@ -34,7 +34,7 @@ If the game says the addon is out of date after a patch, tick "Load out of date 
 Windows 10 version 2004 (May 2020) or newer, and Windows 11. The piece that hides the data strip from your own eyes needs 2004 or newer; the reading itself does not. Windows on ARM is not tested.
 
 **Intel or Apple Silicon Mac?**
-The code uses only Python's standard library and Apple's compilers, so both should work. It is not verified on Intel.
+The code uses only Python's standard library and Apple's compilers, so both should work. It is not verified on Intel. (On Windows there is nothing to compile.)
 
 **Which AI tools work?**
 Any that can run commands (Claude Code, Codex CLI and similar) or fetch web addresses. See [AGENT.md](AGENT.md). We have not tested every product.

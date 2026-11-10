@@ -120,7 +120,7 @@ uploader_alive_at=1794266045 (21:14:05)
 seconds_since_last_game_update=1
 ```
 
-`state` is one of `in_world`, `loading`, `afk`, `logged_out`, `game_closed`. `foreground` is `true`, `false` or `unknown`. `uploader_alive_at` is when the Mac helper last checked in, independent of the game: if it is old, the helper is down, not the game. Times are seconds since 1970 plus the local time. See [HOW-IT-WORKS.md](HOW-IT-WORKS.md#presence).
+`state` is one of `in_world`, `loading`, `afk`, `logged_out`, `game_closed`. `foreground` is `true`, `false` or `unknown`. `uploader_alive_at` is when the helper last checked in, independent of the game: if it is old, the helper is down, not the game. Times are seconds since 1970 plus the local time. See [HOW-IT-WORKS.md](HOW-IT-WORKS.md#presence).
 
 ### EVENTS_TAIL (new)
 

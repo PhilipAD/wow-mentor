@@ -63,14 +63,14 @@ Because the picture comes from the window itself, things laid over the game on y
 
 | Process | Started by | Job |
 | --- | --- | --- |
-| **server** | `launchd` (label `com.wowmentor.server`), runs `python3 -m wowmentor server` | A small HTTP server using only Python's standard library. Binds to `127.0.0.1` only. Stores the newest snapshot, the overlay document, rules, coach inbox, memory notes and the guide cache. |
-| **bridge** | `launchd` (label `com.wowmentor.bridge`), through the little app `~/Applications/WoW Mentor Bridge.app` which just launches Python | Captures and decodes the strip, pushes the snapshot, delivers overlay updates, applies guide edits, and (new) forwards events to your webhook. Runs several threads. |
-| **mask helper** (`wowmask`) | The bridge, if it was built | A tiny borderless black window that covers the strip on your screen. Ignores the mouse. |
-| **tunnel** | `launchd` (label `com.wowmentor.tunnel`), only after `wowmentor share on` | Runs Cloudflare's `cloudflared` to give you a temporary public address that leads to your server. |
+| **server** | Mac: `launchd` (label `com.wowmentor.server`). Windows: the sign-in supervisor. Either way it runs `python3 -m wowmentor server` | A small HTTP server using only Python's standard library. Binds to `127.0.0.1` only. Stores the newest snapshot, the overlay document, rules, coach inbox, memory notes and the guide cache. |
+| **bridge** | Mac: `launchd` (label `com.wowmentor.bridge`), through the little app `~/Applications/WoW Mentor Bridge.app` which just launches Python. Windows: the same sign-in supervisor | Captures and decodes the strip, pushes the snapshot, delivers overlay updates, applies guide edits, and (new) forwards events to your webhook. Runs several threads. |
+| **mask helper** | The bridge (on a Mac this is `wowmask`, if it was built) | A tiny borderless window that covers the strip on your screen. Ignores the mouse and keyboard. |
+| **tunnel** | Mac: `launchd` (label `com.wowmentor.tunnel`). Windows: the supervisor. Only after `wowmentor share on` | Runs Cloudflare's `cloudflared` to give you a temporary public address that leads to your server. |
 
-The services start at login and are restarted if they stop (`KeepAlive`). `wowmentor stop` and `wowmentor start` control them. Logs are in `~/Library/Logs/WoWMentor/`.
+The services start when you sign in and are restarted if they stop. On a Mac that is `launchd` (`KeepAlive`). On Windows one per-user entry named `WoWMentor` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` starts a small supervisor that restarts the server and the bridge. `wowmentor stop` and `wowmentor start` control them. Logs: `~/Library/Logs/WoWMentor/` on a Mac, `%LOCALAPPDATA%\WoWMentor\logs` on Windows. `wowmentor logs` prints the last lines.
 
-Files WoW Mentor writes: your config and secrets (`~/.config/wowmentor/config.json`, mode 600), your profile (`profile.md`), saved state (`data/`), guide backups (`data/guide-backups/`), the addon and slot folders in your WoW `Interface/AddOns`, the launcher app in `~/Applications`, and the `launchd` plists in `~/Library/LaunchAgents`. It never touches your characters or the `WTF` folder (it only reads a few other addons' saved data, see [PRIVACY.md](PRIVACY.md)).
+Files WoW Mentor writes: your config and secrets (`config.json`, readable by your account only; `~/.config/wowmentor` on a Mac, `%APPDATA%\WoWMentor` on Windows), your profile (`profile.md`), saved state (`data/`), guide backups (`data/guide-backups/`), the addon and slot folders in your WoW `Interface/AddOns`, and the start-at-login setup (on a Mac the launcher app in `~/Applications` and the `launchd` plists in `~/Library/LaunchAgents`; on Windows the `Run` entry above and the program in `%LOCALAPPDATA%\WoWMentor\app`). It never touches your characters or the `WTF` folder (it only reads a few other addons' saved data, see [PRIVACY.md](PRIVACY.md)).
 
 ## How the AI sees your game
 

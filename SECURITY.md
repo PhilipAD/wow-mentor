@@ -9,7 +9,7 @@ Please **do not open a public issue** for a security problem.
 1. Use GitHub's private reporting: on the repository page click **Security**, then **Report a vulnerability**. (This needs the maintainers to have private vulnerability reporting switched on for the repository.)
 2. If you cannot see that option, open a public issue that says only "I have a security report, please enable a private way to send it" and **no details**. A maintainer will reply with a private channel.
 
-Include: what you found, the version (`wowmentor --version`), your macOS version, the steps to reproduce, and what an attacker could do. Never include real links, tokens or secrets from a real installation.
+Include: what you found, the version (`wowmentor --version`), your operating system (macOS or Windows) and its version, the steps to reproduce, and what an attacker could do. Never include real links, tokens or secrets from a real installation.
 
 What to expect: this is a volunteer project. We will acknowledge a report as soon as we can, work with you on a fix, credit you if you want, and publish the fix and a note in the [CHANGELOG](CHANGELOG.md). We do not offer a bug bounty and make no promises about timing.
 
@@ -18,9 +18,9 @@ Supported versions: the latest release only.
 ## What is in scope
 
 - The server, bridge, CLI, installer and addon in this repository.
-- Anything that lets someone read data they should not, change your overlay, rules or guide files without a valid secret, write outside the intended folders, run code on your Mac, or send input to the game.
+- Anything that lets someone read data they should not, change your overlay, rules or guide files without a valid secret, write outside the intended folders, run code on your computer, or send input to the game.
 
-Out of scope: problems in the game itself, in macOS, in Cloudflare, in your AI tool or in Guidelime; attacks that need access to your Mac user account (they can already read your config file); and anything that needs you to post your secret links publicly.
+Out of scope: problems in the game itself, in macOS or Windows, in Cloudflare, in your AI tool or in Guidelime; attacks that need access to your user account on the computer (they can already read your config file); and anything that needs you to post your secret links publicly.
 
 ## Threat model
 
@@ -28,7 +28,7 @@ Out of scope: problems in the game itself, in macOS, in Cloudflare, in your AI t
 
 - Your game data: the feed contains personal information such as your character, location, gear, friends list and guild message (see [docs/PRIVACY.md](docs/PRIVACY.md)).
 - Control of your overlay, your rules, your AI's notes, and your Guidelime guide files.
-- Your Mac: WoW Mentor should not give anyone a way to run code on it.
+- Your computer: WoW Mentor should not give anyone a way to run code on it.
 
 ### Who we worry about
 
@@ -49,13 +49,13 @@ Out of scope: problems in the game itself, in macOS, in Cloudflare, in your AI t
 - Writes through GET (`/ops?b=<base64>`) exist because some tunnels and proxies block POST bodies. This means a write is a plain link. It still needs the secret.
 - A wrong secret gets the same 404 as any unknown address.
 
-**The server binds to `127.0.0.1` only.** Other computers on your network cannot connect to it. Programs and users on your own Mac can, but they still need a secret, and the config file that holds the secrets is mode 600 (only your user can read it). The server does not check the `Host` header, so a DNS-rebinding attack from a web page could reach it; it still has to guess the secret, so this does not give it access. The only unauthenticated paths are `/` (a one-line message) and `/healthz`.
+**The server binds to `127.0.0.1` only.** Other computers on your network cannot connect to it. Programs and users on your own computer can, but they still need a secret, and the config file that holds the secrets is private to your user (mode 600 on a Mac; on Windows the file is locked down to your user with `icacls`, and your user profile's own permissions are the fallback). The server does not check the `Host` header, so a DNS-rebinding attack from a web page could reach it; it still has to guess the secret, so this does not give it access. The only unauthenticated paths are `/` (a one-line message) and `/healthz`.
 
 **What `wowmentor share on` exposes.** It runs Cloudflare's `cloudflared` quick tunnel to your local port. This puts the **whole server** on a public address. The protection is the secret path, nothing else: no password, no IP allow-list, and (unless you add one) no rate limit. Cloudflare terminates the encrypted connection, so it can see the traffic. With the read link anyone can read your game feed; with the overlay link anyone can also change your overlay and rules, read and change your AI's notes, and queue edits to your Guidelime guide files. The write secret is not printed in any link but it is accepted on the same public address. Leave sharing off unless you need it, and turn it off afterwards.
 
 **The webhook secret.** If you set `wowmentor webhook set <url> --secret -` (the `-` reads the secret from standard input so it stays out of your shell history), each message is signed with HMAC-SHA256 of the raw body and sent in `X-WoWMentor-Signature: sha256=<hex>`. Your receiver must verify it with a constant-time comparison. The signature does not on its own stop a captured message from being replayed; a receiver should also check `sent_at` and ignore event numbers (`eid`) it has already seen. The secret lives in `config.json`, and `rotate-secrets` does not change it. Use an `https://` address you control. The URL is never printed in full or logged, redirects are not followed, and the bridge treats only a 2xx answer as delivered. See [docs/RULES.md](docs/RULES.md).
 
-**No input injection.** WoW Mentor never sends keystrokes, mouse clicks or commands to the game, and does not use the Accessibility or Input Monitoring permissions. The bridge only reads a window picture. The addon uses ordinary (non-secure) frames and none of the protected functions, which the game would refuse to run from an addon anyway. The overlay cannot cast, target, move or use items.
+**No input injection.** WoW Mentor never sends keystrokes, mouse clicks or commands to the game, and does not use the macOS Accessibility or Input Monitoring permissions (Windows has no such prompt, and the bridge sends no input there either). The bridge only reads a window picture. The addon uses ordinary (non-secure) frames and none of the protected functions, which the game would refuse to run from an addon anyway. The overlay cannot cast, target, move or use items.
 
 **No code injection through the overlay.** The overlay reaches the game as a Lua file (`Inbox.lua`) in a slot addon folder. The bridge wraps the already-validated JSON in a Lua long string whose delimiter is chosen so the data cannot contain it, and the addon parses it with its own JSON reader. The server validates every field, caps sizes (60,000 bytes per document) and rejects unknown fields. So someone with the overlay link can change what is drawn, but not run Lua code in your game.
 
@@ -67,20 +67,20 @@ Out of scope: problems in the game itself, in macOS, in Cloudflare, in your AI t
 
 **Prompt injection.** The feed contains text written by other people (names, guild message, chat if you enabled it, item and quest names). An AI that treats that text as instructions could be manipulated into drawing misleading things, or into leaking your links. The skill page tells agents to treat the feed as data, but we cannot make an AI obey. Keep chat filtering on.
 
-**Supply chain.** WoW Mentor has no third-party dependencies (Python standard library only). The installer is a shell script you pipe into `bash`, which runs whatever is in the repository's `main` branch at that moment. If that worries you, read `install.sh` first, or pin a release: `curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/<tag>/install.sh | WOWMENTOR_REF=<tag> bash`. The only automated dependency updates are for GitHub Actions in CI. The installer also compiles two tiny helper programs (a Swift one and a C one) from files in the repository using Apple's tools.
+**Supply chain.** WoW Mentor has no third-party dependencies (Python standard library only). The installer is a script you pipe into your shell (`install.sh` into `bash` on a Mac, `install.ps1` into PowerShell on Windows), and it runs whatever is in the repository's `main` branch at that moment. If that worries you, read the script first, or pin a release. Mac: `curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/<tag>/install.sh | WOWMENTOR_REF=<tag> bash`. Windows: set `$env:WOWMENTOR_REF = '<tag>'` in PowerShell, then run the `install.ps1` line from the [Windows guide](docs/WINDOWS.md). The only automated dependency updates are for GitHub Actions in CI. On a Mac the installer also compiles two tiny helper programs (a Swift one and a C one) from files in the repository using Apple's tools. On Windows nothing is compiled.
 
 ### Known limits
 
-- Secrets are stored in plain text in `~/.config/wowmentor/config.json` (mode 600) and are included in backups of your home folder.
+- Secrets are stored in plain text in `config.json` and are included in backups of your user folder. On a Mac it is `~/.config/wowmentor/config.json` (mode 600). On Windows it is `%APPDATA%\WoWMentor\config.json`.
 - The local server speaks plain HTTP on loopback.
 - There is no per-IP rate limiting.
-- A process running as your Mac user can read the config and use WoW Mentor like you can.
+- A process running as your user on the computer can read the config and use WoW Mentor like you can.
 - We have not had an independent security review.
 
 
 ## Hardening details
 
 * The server allows at most 64 simultaneous connections and times idle sockets out after 20 seconds.
-* `config.json` (your secrets) is created with owner-only permissions (0600) and written atomically.
+* `config.json` (your secrets) is created with owner-only permissions (0600 on a Mac, an owner-only `icacls` setting on Windows) and written atomically.
 * A request may carry at most 100 overlay ops; request bodies are capped; JSON nesting is bounded.
 * Plain `http://` for a remote `server_url` sends secrets unencrypted: `wowmentor server-url set` warns about it. Prefer https or a private network.

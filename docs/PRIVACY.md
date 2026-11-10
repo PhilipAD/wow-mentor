@@ -14,7 +14,7 @@
 
 | Source | What is read | Where it goes |
 | --- | --- | --- |
-| The WoW window picture (Mac: needs Screen Recording permission; Windows: no prompt) | Only the top 220 rows are copied into memory, to find and decode the data strip. Nothing is saved to disk. On a Mac it is the picture of the **WoW window only**. On Windows it is a copy of the **screen area where the top of the WoW window is**, so anything drawn over that area (another window) would be in it for that instant; it is decoded in memory and thrown away. | Decoded into text in memory |
+| The WoW window picture (Mac: needs the Screen Recording permission; Windows: no prompt, the game must be Windowed or Windowed (Fullscreen)) | Only the top 220 rows are copied into memory, to find and decode the data strip. Nothing is saved to disk. On a Mac it is the picture of the **WoW window only**. On Windows it is a copy of the **screen area where the top of the WoW window is**, so anything drawn over that area (another window) would be in it for that instant; it is decoded in memory and thrown away. Neither one sends any key or click to the game. | Decoded into text in memory |
 | The WoWFeed addon (data strip) | Game data, listed below | The local server, as text |
 | Other addons' saved data on disk | Read-only: `BagBrother`, `Questie` and `Guidelime` saved variables, if you have them (files under `WTF/Account/*/SavedVariables/`) | Into the feed, section `OFFLINE SAVEDVARIABLES` |
 | Guidelime guide files | Every guide file in addon folders named `Guidelime_*` | Cached on the local server so your AI can read them; edits are written back with a backup |
@@ -41,7 +41,7 @@ This runs Cloudflare's free `cloudflared` quick tunnel. It gives your local serv
 - **Anyone who has your link can use it.** There is no password besides the long random part of the address. Anyone on the internet who learns the address can read your game feed (with the read link) or change your overlay, rules and guide files (with the overlay link). The address also appears in the AI's conversation, in the AI provider's logs and, if you paste it into a browser, in your browser history.
 - The server's front page (`/`) and `/healthz` answer anyone who finds the tunnel address, without a secret.
 - The address changes whenever the tunnel restarts. Run `wowmentor share off` when you are done.
-- If you do not have `cloudflared`, `wowmentor share on` offers to install it with Homebrew, which downloads it from the internet.
+- If you do not have `cloudflared`: on a Mac, `wowmentor share on` offers to install it with Homebrew, which downloads it from the internet. On Windows it tells you to install it yourself (`winget install --id Cloudflare.cloudflared`, scoop, or a download from Cloudflare) and installs nothing on its own.
 
 Agents that can only fetch web addresses write to your overlay with `GET .../ops?b=<base64 of the JSON>`, so the content of what they draw is part of the web address, and can end up in the logs of the tunnel, the AI provider and your browser history.
 
@@ -67,7 +67,7 @@ The bridge then sends in-game events (deaths, level ups, quest changes, bag and 
 
 ### That is all
 
-Nothing else makes a connection to the internet: not the addon (the game does not allow addons to open network connections), not the bridge (apart from the webhook and a `server-url` you set), and not the server. The installer downloads from GitHub, `wowmentor update` may use `git pull`, `share on` talks to Cloudflare (and may run `brew install cloudflared` on a Mac, or tell you to run `winget install --id Cloudflare.cloudflared` on Windows), and on a Mac the two helper programs are compiled on your computer from files in the repository (on Windows nothing is compiled: the helpers are Python files in the same folder). To check for yourself, search the code for `urlopen`: all other uses are local.
+Nothing else makes a connection to the internet: not the addon (the game does not allow addons to open network connections), not the bridge (apart from the webhook and a `server-url` you set), and not the server. The installer downloads from GitHub (on Windows it may also offer to run `winget` to install Python, and only if you say yes), `wowmentor update` may use `git pull`, `share on` talks to Cloudflare (and on a Mac may run `brew install cloudflared` if you say yes; on Windows it only tells you to run `winget install --id Cloudflare.cloudflared` yourself), and the helper programs stay on your computer: on a Mac the two helpers are compiled from files in the repository, and on Windows nothing is compiled because the helpers are Python files in the same folder. To check for yourself, search the code for `urlopen`: all other uses are local.
 
 ## Chat filtering (default: on)
 
@@ -75,7 +75,7 @@ The addon records chat events so your AI can see recent activity. By default the
 
 Not dropped, because they are game messages and not other players talking: system messages, loot, money, skill-ups, XP, reputation and honor lines. System messages can contain other players' names (for example "so-and-so has joined the party").
 
-To turn chat **on**, edit the config file `~/.config/wowmentor/config.json`, set `"include_chat": true`, save, and run `wowmentor restart`. Set it back to `false` to turn it off again. Think before you do: other players did not agree to be read by your AI. Chat is also a way for someone to try to give your AI instructions.
+To turn chat **on**, edit the config file (Mac: `~/.config/wowmentor/config.json`, Windows: `%APPDATA%\WoWMentor\config.json`), set `"include_chat": true`, save, and run `wowmentor restart`. Set it back to `false` to turn it off again. Think before you do: other players did not agree to be read by your AI. Chat is also a way for someone to try to give your AI instructions.
 
 ## Your secrets
 
@@ -104,17 +104,19 @@ Even with the overlay link nobody can press keys or control your character; the 
 
 ## Where your data is stored
 
-| Path | What |
-| --- | --- |
-| `~/.config/wowmentor/config.json` | Settings and secrets |
-| `~/.config/wowmentor/profile.md` | Your profile text |
-| `~/.config/wowmentor/data/` | Overlay document and rules, the AI's memory notes, guide cache and edit history, events (new), `guide-backups/` |
-| `~/Library/Logs/WoWMentor/` | Logs of the server, bridge and tunnel (request paths are not logged) |
-| Your WoW `Interface/AddOns` folder | The addon and slot folders, nothing personal |
+| What | Mac | Windows |
+| --- | --- | --- |
+| Settings and secrets | `~/.config/wowmentor/config.json` | `%APPDATA%\WoWMentor\config.json` |
+| Your profile text | `~/.config/wowmentor/profile.md` | `%APPDATA%\WoWMentor\profile.md` |
+| Overlay document and rules, the AI's memory notes, guide cache and edit history, events, `guide-backups/` | `~/.config/wowmentor/data/` | `%APPDATA%\WoWMentor\data\` |
+| Logs of the server, bridge and tunnel (request paths are not logged) | `~/Library/Logs/WoWMentor/` | `%LOCALAPPDATA%\WoWMentor\logs` |
+| The program and its commands | `~/.wowmentor/app` | `%LOCALAPPDATA%\WoWMentor\app` and `%LOCALAPPDATA%\WoWMentor\bin` |
+| Start at login | launchd entries for the server and the bridge | one `WoWMentor` entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
+| Your WoW `Interface/AddOns` folder | The addon and slot folders, nothing personal | The addon and slot folders, nothing personal |
 
 The feed snapshot itself is held in memory by the server and is not written to disk.
 
-To delete everything WoW Mentor stored about you: `wowmentor uninstall --purge`. That removes the services, helper app, addon folders, config, secrets and saved data. It never deletes your guide files (the backups of any guide the AI edited are deleted with `--purge`, so restore any guide you want first, or copy `data/guide-backups`).
+To delete everything WoW Mentor stored about you: `wowmentor uninstall --purge`. That removes the services (on Windows also the start-at-sign-in entry), helper app, addon folders, config, secrets and saved data. It never deletes your guide files (the backups of any guide the AI edited are deleted with `--purge`, so restore any guide you want first, or copy `data/guide-backups`).
 
 ## Questions
 

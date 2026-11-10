@@ -4,7 +4,7 @@
 
 ## What you need
 
-- Windows 10 version 2004 (May 2020) or newer, or Windows 11.
+- Windows 10 or Windows 11. The overlay that hides the strip needs Windows 10 version 2004 (May 2020, build 19041) or newer.
 - The **WoW Forever** client, started at least once so its folders exist.
 - Python 3.9 or newer. The installer looks for it, and if it is missing it offers to install it for you (see below). It never installs anything without asking.
 - No admin rights, no account, no extra downloads. Everything stays in your own user folders.
@@ -126,5 +126,5 @@ Restart WoW afterwards so it forgets the removed addon folders.
 - Windowed or Windowed (Fullscreen) only, and the top edge of the game window must be visible. See above.
 - It runs while you are signed in. Signing out or restarting stops it; it starts again at your next sign-in.
 - `wowmentor share on` needs `cloudflared`. If it is missing, the command tells you to run `winget install --id Cloudflare.cloudflared` and open a new PowerShell window. Read [PRIVACY](PRIVACY.md) before using it.
-- Only one Windows account at a time is supported, and Windows on ARM and very old Windows 10 builds are not tested.
-- This is an early Windows release. If something is off, run `wowmentor doctor`, read [TROUBLESHOOTING](TROUBLESHOOTING.md), and please open an issue with the doctor output (remove any links first).
+- On Windows 10 builds older than 2004 (19041) the overlay cannot hide the strip, so it stays visible. Everything else works.
+- If something is off, run `wowmentor doctor`, read [TROUBLESHOOTING](TROUBLESHOOTING.md), and please open an issue with the doctor output (remove any links first).

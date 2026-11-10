@@ -8,7 +8,10 @@ Start here, always:
 wowmentor doctor
 ```
 
-Fix the red crosses first, from the top. A fix for one often clears the ones below it. Under each warning or cross, doctor prints a line starting with `->` that says what to do. If `wowmentor` says `command not found`, use `~/.wowmentor/app/wowmentor.sh` in its place (or `./wowmentor.sh` from your unzipped folder). On Windows, open a **new** PowerShell window (the installer only changes the PATH for windows opened after it), or run `& "$env:LOCALAPPDATA\WoWMentor\bin\wowmentor.cmd" doctor`; from an unzipped folder use `.\wowmentor.cmd`.
+Fix the red crosses first, from the top. A fix for one often clears the ones below it. Under each warning or cross, doctor prints a line starting with `->` that says what to do. If `wowmentor` says `command not found` (or is not recognized):
+
+- **Mac:** use `~/.wowmentor/app/wowmentor.sh` in its place (or `./wowmentor.sh` from your unzipped folder).
+- **Windows:** open a **new** PowerShell window (the installer only changes the PATH for windows opened after it), or run `& "$env:LOCALAPPDATA\WoWMentor\bin\wowmentor.cmd" doctor`. From an unzipped folder use `.\wowmentor.cmd`.
 
 Log files live in `~/Library/Logs/WoWMentor/` on a Mac and in `%LOCALAPPDATA%\WoWMentor\logs` on Windows (`server.log`, `bridge.log`, and `tunnel.log` if you use share). `wowmentor logs` prints the last lines of each. Add `-n 100` for more.
 
@@ -21,18 +24,18 @@ Status icons: a green tick means fine, a warning sign means "works but look at t
 | This is not a Mac / This is not Windows | You ran it on an unsupported system (Linux, or a Mac installer on Windows or the other way round). | Mac and Windows are supported. See [FAQ](FAQ.md); on Windows use the PowerShell line from the [README](../README.md). |
 | Python X.Y (red) | Python is older than 3.9. | Mac: run `xcode-select --install`, wait for it to finish, run the installer again. Windows: install Python 3.9 or newer (`winget install --id Python.Python.3.12 -e --scope user`, or from python.org), open a new PowerShell window, run the installer again. |
 | Not set up yet | No config file exists. | Run the install line from the [README](../README.md), or `wowmentor setup`. |
-| WoW folder not found (path) | The saved WoW location is missing or has no `Interface/AddOns` folder. | Run `wowmentor setup --wow-dir "/Applications/World of Warcraft/_forever_"` with your own path (Windows: `--wow-dir "D:\Games\World of Warcraft\_forever_"`). Start the game once so the folder exists. |
+| WoW folder not found (path) | The saved WoW location is missing or has no `Interface/AddOns` folder. | Run `wowmentor setup --wow-dir` with your own path. Mac: `--wow-dir "/Applications/World of Warcraft/_forever_"`. Windows: `--wow-dir "D:\Games\World of Warcraft\_forever_"`. Start the game once so the folder exists. |
 | Addon is not installed | The `WoWFeed` folder is not in your AddOns folder. | Run `wowmentor setup`, then restart WoW. |
 | Addon is out of date (a, newest b) | You updated WoW Mentor but the game still has the old addon files. | Run `wowmentor setup`, then type `/reload` in the game. |
-| Overlay slots: N of 1001 | The empty "slot" folders are missing. Fewer than 1001 means setup did not finish or something deleted them. | Run `wowmentor setup`, then fully quit and restart WoW. See [Slots](#slots-and-the-restart). |
+| Overlay slots: N of 1001 | The empty "slot" folders are missing. Fewer than 1001 means setup did not finish or something deleted them. | Run `wowmentor setup`, then fully quit and restart WoW (a `/reload` is not enough). See [Slots](#slots-and-the-restart). |
 | Server is not running | The local server is down. | Run `wowmentor start`. If it fails again run `wowmentor logs`. |
-| Bridge is not running | The screen reader is down. | Run `wowmentor start`. See also [Permission](#screen-recording-permission). |
+| Bridge is not running | The screen reader is down. | Run `wowmentor start`. See also [Mac permission](#screen-recording-permission) or [Windows capture](#windows-the-feed-is-stale-or-capture-fails). |
 | WoW is not running | No process named "World of Warcraft" was found. | Start the game and log in to a character. |
-| Screen capture works, but the data strip is not visible | The bridge can see the game window but not the strip. | Log in to a character (the login screen has no strip), wait 10 seconds, type `/reload`. If it stays, see [Colored dots](#i-see-colored-dots) and `wowmentor logs`. |
-| Cannot capture the game window | Mac: macOS is blocking screen capture. Windows: WoW is not visible as a normal window. | Mac: see [Permission](#screen-recording-permission). Windows: see [Windows capture](#windows-the-feed-is-stale-or-capture-fails). |
-| Could not test screen capture (reason) | The doctor itself failed to try. | Run `wowmentor logs`. Usually the permission again. |
+| Screen capture works, but the data strip is not visible | The bridge can see the game window but not the strip. | Log in to a character (the login screen has no strip), wait 10 seconds, type `/reload`. On Windows also check that WoW is Windowed or Windowed (Fullscreen) and nothing covers its top edge. If it stays, see [Colored dots](#i-see-colored-dots) and `wowmentor logs`. |
+| Cannot capture the game window | Mac: macOS is blocking screen capture. Windows: WoW is not in a readable window mode, or is covered or minimized. | Mac: see [Permission](#screen-recording-permission). Windows: see [Windows capture](#windows-the-feed-is-stale-or-capture-fails). |
+| Could not test screen capture (reason) | The doctor itself failed to try. | Run `wowmentor logs`. Mac: usually the permission again. Windows: usually the window mode or something covering the top edge. |
 | Feed not readable | The server did not answer the feed request. | Run `wowmentor restart`. |
-| Feed is stale (the game is closed, minimised or on a login screen) | The newest data is older than 15 seconds. | Log in to a character and keep the game window visible for a few seconds. A minimised window is not captured reliably. |
+| Feed is stale (the game is closed, minimised or on a login screen) | The newest data is older than 15 seconds. | Log in to a character and keep the game window visible for a few seconds. A minimised window is not captured (Mac: not reliably; Windows: not at all). |
 | Live feed is flowing | Good. | Nothing. |
 | Overlay slots not detected in the game | The feed is live but the addon does not report using any slot. | Fully quit and restart WoW once, then `/reload`. |
 | Overlay is connected (slot X of 1000 used this session) | Good. Each overlay update uses up one slot until the next `/reload`. | Nothing. |
@@ -65,7 +68,7 @@ If a message is not in these tables, run `wowmentor logs` and open an issue with
 
 ## Screen Recording permission
 
-(Mac only. Windows has no such permission: see the next section.)
+(Mac section. Windows has no such permission and no prompt: its matching section is the next one, [Windows: the feed is stale or capture fails](#windows-the-feed-is-stale-or-capture-fails).)
 
 Symptoms: "Cannot capture the game window", "could not capture the game window (Screen Recording permission?)" in the bridge log, or the doctor says the feed is stale although the game is running.
 
@@ -78,7 +81,9 @@ If there is no "WoW Mentor Bridge" in `~/Applications`, the helper could not be 
 
 ## Windows: the feed is stale or capture fails
 
-Symptoms on Windows: "Cannot capture the game window", "Feed is stale" while the game is running, or a capture that works but never sees the strip. There is nothing to allow in Windows settings. Check these, in order:
+(Windows section. The Mac one is [Screen Recording permission](#screen-recording-permission) above.)
+
+Symptoms on Windows: "Cannot capture the game window", "Feed is stale" while the game is running, or a capture that works but never sees the strip. There is nothing to allow in Windows settings and no prompt will ever appear. Check these, in order:
 
 1. In WoW, **Options > Graphics**, set the display mode to **Windowed** or **Windowed (Fullscreen)**. Exclusive fullscreen cannot be read. Then run `wowmentor restart`.
 2. Make sure the top edge of the WoW window is on screen and **not covered** by another window (a browser, Discord, a window on your second monitor dragged across). The strip is read from the screen, so whatever is on top is what gets read.
@@ -87,21 +92,65 @@ Symptoms on Windows: "Cannot capture the game window", "Feed is stale" while the
 5. Remote desktop, a locked screen, or a monitor that is switched off give Windows no real picture to read. Use the PC at its own screen, or keep the session unlocked.
 6. Still stuck? Run `wowmentor logs` and `wowmentor doctor -v`, then open an issue.
 
-More about Windows: [WINDOWS.md](WINDOWS.md).
+### Windows: WoW is in exclusive fullscreen
+
+If WoW is set to real (exclusive) fullscreen, the game draws straight to the monitor. Windows then has nothing on the desktop for WoW Mentor to read, so the feed stays stale or the capture fails. Switch to **Windowed (Fullscreen)**. It looks the same as fullscreen and keeps your frame rate. After changing it, run `wowmentor restart` and wait 10 seconds.
+
+### Windows: the colored dots are showing
+
+See the Windows steps under [I see colored dots](#i-see-colored-dots).
+
+### Windows: it does not start after sign-in
+
+WoW Mentor starts at sign-in through one per-user entry named `WoWMentor` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. It starts a small supervisor that restarts the server and the bridge if they stop. No admin rights are involved.
+
+1. Run `wowmentor doctor`. If the server or the bridge is not running, run `wowmentor start`.
+2. If it only fails after a restart or sign-in, open **Task Manager**, then the **Startup apps** tab (Windows 10: **Startup**). Look for an entry that mentions WoW Mentor or Python. If it is switched off, switch it on. Some cleanup tools and security tools switch such entries off.
+3. Run `wowmentor setup` again. That puts the start-at-sign-in entry back.
+4. It runs only while you are signed in. Signing out or restarting stops it, and it starts again at your next sign-in.
+
+### Windows: `wowmentor share on` cannot find cloudflared
+
+`share on` needs Cloudflare's free `cloudflared` tool. On Windows it does not install it for you. It looks on your PATH, in `%LOCALAPPDATA%\Microsoft\WinGet\Links` and in `C:\Program Files\cloudflared`. Pick one:
+
+- **winget:** `winget install --id Cloudflare.cloudflared`, then open a **new** PowerShell window and run `wowmentor share on` again.
+- **scoop:** if you already use scoop, `scoop install cloudflared`, then open a new PowerShell window.
+- **By hand:** download `cloudflared` for Windows from [Cloudflare's downloads page](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) and put `cloudflared.exe` in a folder on your PATH, or in `C:\Program Files\cloudflared`. Then open a new PowerShell window.
+
+Then check `wowmentor logs` (the `tunnel.log` file) if it still fails.
+
+### Windows: where are my files?
+
+| What | Where |
+| --- | --- |
+| The program | `%LOCALAPPDATA%\WoWMentor\app` |
+| The `wowmentor` and `wowui` commands | `%LOCALAPPDATA%\WoWMentor\bin` |
+| Settings, links, `profile.md`, saved data | `%APPDATA%\WoWMentor` |
+| Logs | `%LOCALAPPDATA%\WoWMentor\logs` |
+
+Paste any of those into the File Explorer address bar to open it. More about Windows: [WINDOWS.md](WINDOWS.md).
 
 ## I see colored dots
 
 You are seeing the data strip. It is a thin row of tiny coloured squares along the very top edge of the game window (each square is about 3 pixels wide, the whole strip is only a few pixels tall, and a white square comes first). It is harmless.
 
-Why it can show: a tiny black bar normally covers it on your screen. That bar is built by the installer only if Apple's Command Line Tools (the Swift compiler) are installed, and it is started by the bridge when the bridge sees the strip.
+Why it can show: a tiny bar normally covers it on your screen. The bridge starts that bar when it sees the strip. Your screen shows the bar; the reader still sees the strip underneath, so nothing else changes.
 
-Fixes, in order:
+**Mac.** The bar is a small helper that the installer builds only if Apple's Command Line Tools (the Swift compiler) are installed. Fixes, in order:
 
 1. Run `xcode-select --install` if you never did, then run the installer again.
 2. Check the bridge is running: `wowmentor doctor`.
 3. Check the bar exists: `ls ~/.config/wowmentor/bin/wowmask`. If that file is missing the bar was not built (step 1).
 4. Run `wowmentor restart`.
-5. Hiding it does not change anything else: the bridge reads the game window's own picture, which still contains the strip even when something is laid over it on screen.
+
+**Windows.** Nothing needs to be built; the bar is part of the bridge. It needs Windows 10 version 2004 (build 19041) or newer, or Windows 11. Fixes, in order:
+
+1. Press the Windows key + R, type `winver`, press Enter, and check you are on version 2004 or newer. On older builds the reading still works but the strip stays visible.
+2. Check the bridge is running: `wowmentor doctor`. If not, run `wowmentor start`.
+3. Run `wowmentor restart`, then wait about 10 seconds with a character logged in. The bar appears once the bridge sees the strip.
+4. Keep WoW in **Windowed** or **Windowed (Fullscreen)** mode.
+
+Hiding it does not change anything else: the reader still gets the strip even when something is laid over it on screen.
 
 Still there? It does not hurt anything. You can also put a UI element over the top edge of the game.
 
@@ -124,7 +173,7 @@ The overlay is delivered through 1001 pre-made, empty "load on demand" addons na
 | Message you see | What it means | Fix |
 | --- | --- | --- |
 | Doctor: `Overlay slots: N of 1001` | Folders are missing on disk. | `wowmentor setup`, then fully quit and restart WoW. |
-| Doctor: `Overlay slots not detected in the game` | The folders exist but the running game does not know them (you did not restart after setup). | Fully quit and restart WoW (Command and Q), not just `/reload`. |
+| Doctor: `Overlay slots not detected in the game` | The folders exist but the running game does not know them (you did not restart after setup). | Fully quit and restart WoW, not just `/reload`. Mac: Command and Q. Windows: close the game completely (Escape menu, then Exit Game) and check it is gone from Task Manager. |
 | `/wfui dump` in the game lists an error mentioning "slot pool used up" | The game has used all slots it knows about. | `/reload`. If it keeps happening soon after a reload, restart WoW. |
 | Toast "Overlay inbox is 85% used" | Slots are running low. | `/reload` when convenient (not in combat). |
 
@@ -135,7 +184,7 @@ The doctor line "Guidelime guide packs: none found" means WoW Mentor did not fin
 Fixes:
 
 1. Install a guide pack that supports Forever, using your usual addon manager. WoW Mentor does not ship Guidelime or any pack (see [NOTICE](../NOTICE)).
-2. Check the folder name: look in `/Applications/World of Warcraft/_forever_/Interface/AddOns/` (your path may differ) for a folder starting with `Guidelime_`. Case does not matter.
+2. Check the folder name: look in your AddOns folder for a folder starting with `Guidelime_`. Case does not matter. Mac: `/Applications/World of Warcraft/_forever_/Interface/AddOns/`. Windows: for example `C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns\`. Your path may differ.
 3. Check the pack really contains guides: the bridge looks for `.lua` files that call `registerGuide(` near the top.
 4. Run `wowmentor restart` so the bridge rescans.
 
@@ -145,7 +194,7 @@ If you do not use Guidelime you can ignore this warning. Everything else works.
 
 You may see a banner in the game: **Guide changed: type /reload**. It appears after your AI edited a Guidelime guide file. The game only reads guide files when the interface loads, so type `/reload` in the chat box when you are out of combat. The banner goes away on its own after the game reloads. Your guide progress is stored by step position, so ask your AI to prefer edits in place over inserting steps earlier than where you are.
 
-If an edit went wrong, your AI can restore the original (`wowui tug restore <guide> orig`). Backups are in `~/.config/wowmentor/data/guide-backups`.
+If an edit went wrong, your AI can restore the original (`wowui tug restore <guide> orig`). Backups are in `~/.config/wowmentor/data/guide-backups` on a Mac and in `%APPDATA%\WoWMentor\data\guide-backups` on Windows.
 
 Other `/reload` prompts: after `wowmentor setup` updates the addon ("Addon is out of date"), and when the slot pool is nearly used up (see above). Do not reload in the middle of a fight.
 
@@ -157,7 +206,7 @@ Other `/reload` prompts: after `wowmentor setup` updates the addon ("Addon is ou
 
 **The AI says it cannot reach the links.** Links with `127.0.0.1` only work for programs on your computer. For a website or another computer run `wowmentor share on`, then `wowmentor links` again and paste the new text. If you ran `rotate-secrets`, old links stop working.
 
-**`wowmentor share on` fails.** It needs Cloudflare's free `cloudflared` tool. Install Homebrew from https://brew.sh then `brew install cloudflared`, or let `wowmentor share on` offer to do it for you. Then check `wowmentor logs`.
+**`wowmentor share on` fails.** It needs Cloudflare's free `cloudflared` tool. Mac: install Homebrew from https://brew.sh then `brew install cloudflared`, or let `wowmentor share on` offer to do it for you. Windows: `winget install --id Cloudflare.cloudflared` (or scoop, or by hand), then open a new PowerShell window; see [the Windows steps](#windows-wowmentor-share-on-cannot-find-cloudflared). Then check `wowmentor logs`.
 
 **The public link stopped working.** The free tunnel address changes whenever the tunnel restarts (for example after a reboot). Run `wowmentor links` for the new one and give it to your AI again.
 

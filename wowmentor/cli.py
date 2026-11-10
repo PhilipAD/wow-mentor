@@ -245,6 +245,9 @@ def cmd_share(a):
         if pm == "brew" and shutil.which("brew") and ask_yes("cloudflared (Cloudflare's free tunnel tool) is needed. Install it with Homebrew now?", True, a.yes):
             subprocess.run(["brew", "install", "cloudflared"])
             cf = find_cloudflared(cfg)
+        elif pm == "winget" and shutil.which("winget") and ask_yes("cloudflared (Cloudflare's free tunnel tool) is needed. Install it with winget now?", True, a.yes):
+            subprocess.run(["winget", "install", "--id", "Cloudflare.cloudflared", "-e"])
+            cf = find_cloudflared(cfg)
         if not cf:
             say(hostmod.get().text["cloudflared_hint"])
             return 1
