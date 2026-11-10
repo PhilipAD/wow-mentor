@@ -210,7 +210,9 @@ function U.itemStats(link)
 	local out, n = {}, 0
 	for k, v in pairs(t) do
 		if type(k) == "string" and type(v) == "number" and not secret(v) then
-			out[(k:gsub("^ITEM_MOD_", ""):gsub("_SHORT$", ""):gsub("_NAME$", ""))] = v; n = n + 1
+			local name = k:gsub("^ITEM_MOD_", ""):gsub("_SHORT$", ""):gsub("_NAME$", "")
+			if name == "RESISTANCE0" then name = "ARMOR" end          -- the game files armor under resistance 0
+			out[name] = v; n = n + 1
 		end
 	end
 	if n == 0 then return nil end

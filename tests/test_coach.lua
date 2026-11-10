@@ -112,7 +112,7 @@ local linenLink = "|cffffffff|Hitem:1003::::::::|h[Linen Scrap]|h|r"
 w.itemDB[1001] = { name = "Green Cap", link = capLink, quality = 2, ilvl = 12, minLevel = 5, type = "Armor", sub = "Cloth", equipLoc = "INVTYPE_HEAD", price = 80, classID = 4, bindType = 2 }
 w.itemDB[1002] = { name = "Fine Dagger", link = daggerLink, quality = 2, ilvl = 14, type = "Weapon", sub = "Daggers", equipLoc = "INVTYPE_WEAPONMAINHAND", price = 120, classID = 2, bindType = 2 }
 w.itemDB[1003] = { name = "Linen Scrap", link = linenLink, quality = 1, type = "Miscellaneous", sub = "Junk", price = 3, classID = 15, bindType = 0 }
-w.itemStats[1001] = { ITEM_MOD_STAMINA_SHORT = 3, ITEM_MOD_INTELLECT_SHORT = 2 }
+w.itemStats[1001] = { ITEM_MOD_STAMINA_SHORT = 3, ITEM_MOD_INTELLECT_SHORT = 2, RESISTANCE0_NAME = 28 }
 w.equipped[1] = capLink; w.bound.eq1 = true
 W.fire("PLAYER_EQUIPMENT_CHANGED", 1, true)
 e = find(pump(), "item_equipped")
@@ -254,6 +254,7 @@ local c1 = e.data.choices[1]
 check(c1.index == 1 and c1.name == "Green Cap" and c1.quality == 2 and c1.equip_slot == "INVTYPE_HEAD" and c1.armor_type == "Cloth" and c1.bind == "equip" and c1.price == 80
 	and c1.stats and c1.stats.STAMINA == 3 and c1.stats.INTELLECT == 2 and c1.link == capLink, "reward choice carries stats, slot, armor type, bind and price")
 steps(2); pump()
+check(secText.rewards and secText.rewards:find("ARMOR=28", 1, true) and not secText.rewards:find("RESISTANCE0", 1, true), "armor is labelled ARMOR, not RESISTANCE0")
 check(secText.rewards and secText.rewards:find("choice 1: Green Cap") and secText.rewards:find("choice 2: Fine Dagger") and secText.rewards:find("STAMINA=3"), "REWARDS section while the window is open: " .. tostring(secText.rewards))
 W.fire("QUEST_FINISHED"); steps(2); pump()
 check(secText.rewards:find("no quest reward window open"), "REWARDS section clears on close")
