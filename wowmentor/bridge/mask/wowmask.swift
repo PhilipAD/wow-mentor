@@ -27,7 +27,6 @@ content.layer?.contentsGravity = .resize
 content.layer?.magnificationFilter = .linear
 content.layer?.minificationFilter = .linear
 win.contentView = content
-var pendingRow: CGImage? = nil
 
 func rowImage(_ b64: String) -> CGImage? {
     guard let d = Data(base64Encoded: b64), d.count >= 6, d.count % 3 == 0 else { return nil }
@@ -53,8 +52,7 @@ func gameBounds() -> CGRect? {
 }
 
 func place() {
-    lock.lock(); let r = req; let row = pendingRow; pendingRow = nil; lock.unlock()
-    if let row = row { content.layer?.contents = row }
+    lock.lock(); let r = req; lock.unlock()
     guard let q = r, let g = gameBounds(), q.capW > 0, g.width > 0 else { win.orderOut(nil); return }
     let scale = q.capW / g.width
     let primaryH = NSScreen.screens.first?.frame.height ?? 0
@@ -67,7 +65,9 @@ func place() {
 let reader = Thread {
     while let line = readLine() {
         if line.hasPrefix("R ") {
-            if let img = rowImage(String(line.dropFirst(2))) { lock.lock(); pendingRow = img; lock.unlock() }
+            if let img = rowImage(String(line.dropFirst(2))) {
+                DispatchQueue.main.async { CATransaction.begin(); CATransaction.setDisableActions(true); content.layer?.contents = img; CATransaction.commit() }
+            }
             continue
         }
         let n = line.split(separator: " ").compactMap { Double($0) }

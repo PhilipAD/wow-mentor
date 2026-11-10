@@ -530,7 +530,7 @@ def frames():
             if t0 - warned > 30: warned = t0; print("could not capture the game window (Screen Recording permission?)", flush=True)
             time.sleep(2); continue
         yield im
-        time.sleep(max(0, 0.2 - (time.time() - t0)))
+        time.sleep(max(0, 0.1 - (time.time() - t0)))
 
 mask = {"proc": None, "sent": None, "row_at": 0.0}
 def mask_row(px, y, W, H):
@@ -552,7 +552,7 @@ def update_mask(h, W, px=None, H=0):
     alive = mask["proc"] and mask["proc"].poll() is None
     now = time.time()
     row = None
-    if px is not None and now - mask["row_at"] >= 0.7:
+    if px is not None and now - mask["row_at"] >= 0.05:
         try: row = mask_row(px, max(0, h[2] - 1) + 2 * CH * h[0] + 2, W, H)
         except Exception: row = None
     if mask["sent"] == msg and alive and row is None: return
