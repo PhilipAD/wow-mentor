@@ -2,8 +2,10 @@
 // Window capture (ScreenCaptureKit / screencapture -l) reads the game window's own backing store, so a
 // window laid on top of the game hides the strip on screen without hiding it from the bridge.
 //   stdin lines: "x y w h capW"  (pixels in the captured game window; capW = captured width in pixels)
-//                "R <base64>"    one row of RGB pixels taken just below the strip; stretched over the mask so it blends into the
-//                                scene instead of showing as a black bar (black until the first row arrives)
+//                "R <base64>"    fallback only: one row of RGB pixels taken just below the strip, sent by the bridge
+// What the mask shows: the screen row directly below it, re-read 60 times a second (CGWindowListCreateImage of the windows underneath
+// the mask) and stretched over it, so it blends into the picture even while the camera pans. When the screen cannot be read from this
+// process (no Screen Recording permission) it falls back to the bridge's row, and to black before that arrives.
 // Exits when stdin closes (the bridge died).
 import AppKit
 import CoreGraphics
@@ -51,6 +53,29 @@ func gameBounds() -> CGRect? {
     return best
 }
 
+// CGWindowListCreateImage is marked unavailable in the macOS 15+ SDK but still ships in the system; look it up at run time
+// (the bridge does the same from Python). Options: kCGWindowListOptionOnScreenBelowWindow = 1 << 2, kCGWindowImageBestResolution = 1 << 3.
+typealias WindowImageFn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+let windowImage: WindowImageFn? = {
+    guard let h = dlopen(nil, RTLD_NOW), let sym = dlsym(h, "CGWindowListCreateImage") else { return nil }
+    return unsafeBitCast(sym, to: WindowImageFn.self)
+}()
+var liveOK = 0                     // frames in a row for which the live read worked
+func sampleBelow() {
+    let f = win.frame
+    guard win.isVisible, f.height > 0, f.width > 0 else { return }
+    let primaryH = NSScreen.screens.first?.frame.height ?? 0
+    let src = CGRect(x: f.minX, y: primaryH - f.maxY + f.height, width: f.width, height: 1)
+    guard let fn = windowImage, let img = fn(src, 1 << 2, UInt32(win.windowNumber), 1 << 3)?.takeRetainedValue(),
+          img.width > 1, img.height > 0 else {
+        if liveOK > 0 { FileHandle.standardError.write("wowmask: screen read failed, using the bridge's row\n".data(using: .utf8)!) }
+        liveOK = 0; return
+    }
+    if liveOK == 0 { FileHandle.standardError.write("wowmask: reading the screen directly\n".data(using: .utf8)!) }
+    liveOK = min(liveOK + 1, 1000)
+    CATransaction.begin(); CATransaction.setDisableActions(true); content.layer?.contents = img; CATransaction.commit()
+}
+
 func place() {
     lock.lock(); let r = req; lock.unlock()
     guard let q = r, let g = gameBounds(), q.capW > 0, g.width > 0 else { win.orderOut(nil); return }
@@ -66,7 +91,8 @@ let reader = Thread {
     while let line = readLine() {
         if line.hasPrefix("R ") {
             if let img = rowImage(String(line.dropFirst(2))) {
-                DispatchQueue.main.async { CATransaction.begin(); CATransaction.setDisableActions(true); content.layer?.contents = img; CATransaction.commit() }
+                DispatchQueue.main.async { if liveOK > 3 { return }
+                     CATransaction.begin(); CATransaction.setDisableActions(true); content.layer?.contents = img; CATransaction.commit() }
             }
             continue
         }
@@ -81,5 +107,7 @@ reader.start()
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in place() }
+Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in place() }
+let live = Timer(timeInterval: 1.0 / 60.0, repeats: true) { _ in sampleBelow() }
+RunLoop.main.add(live, forMode: .common)
 app.run()
