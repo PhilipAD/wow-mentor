@@ -211,6 +211,7 @@ local function emit(section, lines)
 end
 local FASTSEC = "fast"
 local turn = 0
+local stickySec
 local function nextMessage()
 	turn = turn + 1
 	if #evq > 0 then
@@ -244,15 +245,20 @@ local function nextMessage()
 	local sec
 	if turn % 2 == 0 and pending[FASTSEC] and pending[FASTSEC].i < #pending[FASTSEC].parts then sec = FASTSEC
 	else
-		for _ = 1, #order do
-			local s = table.remove(order, 1); order[#order+1] = s
-			local p = pending[s]
-			if p and p.i < #p.parts then sec = s; break end
+		local st = pending[stickySec or ""]
+		if st and st.i < #st.parts then sec = stickySec      -- finish a multi-part section back to back: the bridge drops one whose parts are far apart
+		else
+			for _ = 1, #order do
+				local s = table.remove(order, 1); order[#order+1] = s
+				local p = pending[s]
+				if p and p.i < #p.parts then sec = s; break end
+			end
 		end
 		if not sec and pending[FASTSEC] and pending[FASTSEC].i < #pending[FASTSEC].parts then sec = FASTSEC end
 	end
 	if not sec then return nil end
 	local p = pending[sec]; p.i = p.i + 1
+	stickySec = (sec ~= FASTSEC and p.i < #p.parts) and sec or nil
 	return strfmt("%s\31%d\31%d\31%d\31%s", sec, p.sid, p.i, #p.parts, p.parts[p.i])
 end
 local lastSend, heartbeat = 0, 0

@@ -39,7 +39,7 @@ def _filter_events(lines):
     return out
 
 MAX_PARTS = 64            # parts of one strip message (a 4 kB payload per part); more is garbage, not a message
-PARTIAL_TTL_S = 10.0      # a multi-part message whose remaining parts do not arrive within this is abandoned
+PARTIAL_TTL_S = 45.0      # a multi-part message whose remaining parts do not arrive within this is abandoned
 MAX_SECTIONS = 80         # distinct section names kept
 SEC_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 
