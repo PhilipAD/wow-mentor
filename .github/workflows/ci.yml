@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Python tests
+        run: python3 -W error::ResourceWarning -m unittest discover -s tests -t . -v
+
+  lua:
+    name: Lua tests (Lua 5.1) and syntax check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          lua5.1 -v
+          command -v luac5.1
+      - name: Generate the sample overlay documents the Lua tests read
+        run: python3 tests/make_sample.py
+      - name: Syntax check every addon file (luac5.1 -p)
+        run: |
+          set -e
+          for f in wowmentor/addon/WoWFeed/*.lua; do
+            echo "checking $f"
+            luac5.1 -p "$f"
+          done
+      - name: Lua tests
+        run: |
+          set -e
+          for t in tests/test_*.lua; do
+            echo "== $t"
+            lua5.1 "$t"
+          done
+
+  shell:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck --version
+          shellcheck install.sh "Install WoW Mentor.command" scripts/*.sh
+
+  docs:
+    name: Docs links and commands
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Markdown links, the commands the docs mention, and JSON examples
+        run: python3 .github/scripts/check_docs.py
+
+  install:
+    name: Installer test (macOS, temporary home folder)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install.sh end to end with a fake WoW folder (no launchd, no build)
+        run: bash scripts/test_install.sh
+
+  package:
+    name: Build and install the package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build
+          python -m build
+          ls -l dist
+      - name: Install the wheel and check the entry points and package data
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install dist/*.whl
+          /tmp/venv/bin/wowmentor --version
+          /tmp/venv/bin/wowui --help > /dev/null
+          /tmp/venv/bin/python -m wowmentor --version
+          /tmp/venv/bin/python - <<'PY'
+          import os, wowmentor.install_mac as m
+          assert os.path.exists(os.path.join(m.PKG, "addon", "WoWFeed", "WoWFeed.toc")), "addon missing from the wheel"
+          assert os.path.exists(os.path.join(m.PKG, "bridge", "mask", "wowmask.swift")), "swift source missing from the wheel"
+          PY
+      - name: The source archive carries the docs, installer and tests
+        run: |
+          tar tzf dist/*.tar.gz > /tmp/sdist.txt
+          for f in install.sh wowmentor.sh wowui docs/QUICKSTART.md tests/test_server.py CHANGELOG.md LICENSE; do
+            grep -q "/$f$" /tmp/sdist.txt || { echo "missing from sdist: $f"; exit 1; }
+          done

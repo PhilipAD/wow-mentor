@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+.DS_Store
+*.env
+.wowmentor-test/
+*.tar.gz
+*.whl
+.pytest_cache/
+*.log

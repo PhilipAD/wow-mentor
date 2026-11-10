@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest something new or a change.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Two things to know before you write it:
+
+        * WoW Mentor is **display-only**. It will not add anything that sends keys or clicks to the game, or that plays the game for you.
+        * The Forever client hides some information from addons, and forbids some actions. See [docs/FOREVER-API.md](https://github.com/PhilipAD/wow-mentor/blob/main/docs/FOREVER-API.md) to check whether your idea is possible.
+
+        **Never paste your private links or tokens.**
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the problem or the moment in the game where you wished it did something.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part is it about?
+      options:
+        - Installing or updating
+        - The in-game overlay
+        - Rules or events
+        - The data the AI sees (feed)
+        - Connecting an AI tool
+        - Guide editing (Guidelime)
+        - Documentation
+        - Support for another operating system
+        - Something else
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Can you help?
+      options:
+        - label: I would be willing to try a test version or help build this.

@@ -1,0 +1,46 @@
+name: Release
+
+# Push a tag such as v1.0.0 (it must match wowmentor/__init__.py __version__) and this builds the
+# source archive, sdist and wheel and attaches them to a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The tag must match the package version
+        run: |
+          version="$(python3 -c 'import re; print(re.search(r"__version__ = \"([^\"]+)\"", open("wowmentor/__init__.py").read()).group(1))')"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match the package version v${version}"
+            exit 1
+          fi
+          grep -q "^## \[\?${version}" CHANGELOG.md || { echo "CHANGELOG.md has no entry for ${version}"; exit 1; }
+      - name: Run the Python tests
+        run: python3 -W error::ResourceWarning -m unittest discover -s tests -t .
+      - name: Build sdist and wheel
+        run: |
+          python3 -m pip install build
+          python3 -m build
+      - name: Source tarball (what install.sh downloads, from this exact tag)
+        run: git archive --format=tar.gz --prefix="wow-mentor-${GITHUB_REF_NAME}/" -o "dist/wow-mentor-${GITHUB_REF_NAME}.tar.gz" "${GITHUB_REF_NAME}"
+      - name: Checksums
+        run: cd dist && shasum -a 256 * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "WoW Mentor ${GITHUB_REF_NAME}" \
+            --notes "See CHANGELOG.md for what changed. To install this exact version: curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}/install.sh | WOWMENTOR_REF=${GITHUB_REF_NAME} bash"

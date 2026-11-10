@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wowmentor"
+dynamic = ["version"]
+description = "Let an AI agent see your World of Warcraft game and mentor you with an on-screen overlay (macOS)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE", "LICENSE-wow-ai", "NOTICE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: MacOS :: MacOS X",
+    "Environment :: Console",
+    "Topic :: Games/Entertainment",
+]
+dependencies = []          # standard library only
+
+[project.urls]
+Homepage = "https://github.com/PhilipAD/wow-mentor"
+Issues = "https://github.com/PhilipAD/wow-mentor/issues"
+Changelog = "https://github.com/PhilipAD/wow-mentor/blob/main/CHANGELOG.md"
+
+[project.scripts]
+wowmentor = "wowmentor.cli:main"
+wowui = "wowmentor.agent.wowui:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { attr = "wowmentor.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["wowmentor*"]
+
+[tool.setuptools.package-data]
+wowmentor = ["addon/WoWFeed/*", "bridge/mask/*.swift"]

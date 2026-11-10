@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: WoW Feed
+## Notes: Part of WoW Mentor: draws a thin data strip and the mentor overlay. https://github.com/PhilipAD/wow-mentor
+## Author: WoW Mentor contributors
+## Version: 1.0.0
+## SavedVariables: WoWFeedDB
+
+Codec.lua
+JSON.lua
+WoWFeed.lua
+UI.lua
+Coach.lua
+CoachState.lua
+CoachRules.lua

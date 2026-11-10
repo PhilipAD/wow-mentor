@@ -1,0 +1,84 @@
+name: Bug report
+description: Something does not work the way the documentation says.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please read the [troubleshooting guide](https://github.com/PhilipAD/wow-mentor/blob/main/docs/TROUBLESHOOTING.md) first.
+
+        **Never paste your private links, tokens or secrets.** They look like `.../ui/` followed by a long random string, or `.../` followed by 48 letters and digits. Anyone who has them can read your game and change your overlay. Remove them from anything you paste. If you did paste one by mistake, run `wowmentor rotate-secrets`.
+
+        For a security problem, do not use this form. See SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `wowmentor doctor`
+      description: Run it in Terminal and paste everything it prints.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output of `wowmentor logs` (optional)
+      description: Remove anything private first.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: WoW Mentor version
+      description: Output of `wowmentor --version`.
+      placeholder: wowmentor 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac type
+      placeholder: macOS 15.1, Apple Silicon
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game client
+      description: Which WoW client folder do you use, and what does the game report as its version?
+      placeholder: WoW Forever, folder _forever_
+    validations:
+      required: true
+  - type: dropdown
+    id: ai
+    attributes:
+      label: Which AI tool are you using, if any?
+      options:
+        - None / not relevant
+        - Claude Code
+        - Codex CLI
+        - ChatGPT or another website chat
+        - Another command-line agent
+        - Something else
+  - type: dropdown
+    id: sharing
+    attributes:
+      label: Are you using `wowmentor share on` (the Cloudflare tunnel)?
+      options:
+        - "No"
+        - "Yes"
+        - Not sure
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I removed all private links, tokens and secrets from what I pasted.
+          required: true
+        - label: I ran `wowmentor doctor` and tried the fix it suggested.
+          required: true

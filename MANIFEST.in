@@ -1,0 +1,12 @@
+# What goes into the source archive (sdist) besides the package itself.
+include README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md NOTICE LICENSE LICENSE-wow-ai
+include install.sh wowmentor.sh wowui
+include *.command
+recursive-include docs *.md
+recursive-include scripts *.sh
+recursive-include tests *.py *.lua *.json
+recursive-include tests/fixtures *
+recursive-include .github *.yml *.md *.py
+graft wowmentor/addon
+graft wowmentor/bridge/mask
+prune .wowmentor-test

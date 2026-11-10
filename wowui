@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Run the agent CLI from a clone of the repo: ./wowui --help"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wowmentor.agent.wowui import main
+main()
