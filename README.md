@@ -1,111 +1,157 @@
-# WoW Mentor
+<h1 align="center">WoW Mentor</h1>
+<p align="center"><b>An AI coach that sees your WoW game and puts advice right on your screen.</b><br>
+Mac + WoW Forever. You play, it watches and helps.</p>
 
-**What it is for:** letting an AI assistant watch your World of Warcraft game and coach you with a small, see-through overlay on your screen. **Who it is for:** Mac players on the WoW Forever client who use an AI tool such as Claude Code or Codex. You do not need to be technical. If you can copy and paste, you can install it.
+<p align="center"><img src="assets/how-it-works.svg" alt="How WoW Mentor works" width="860"></p>
 
-WoW Mentor has three parts that run on your Mac:
+## What you get
 
-1. A small **addon** inside WoW draws a thin strip of coloured squares along the very top edge of the game window. The squares are your game data (position, quests, bags, gear and so on) written as colours.
-2. A **bridge** program reads that strip from the screen (read-only, nothing is ever sent to the game as clicks or keys), turns it back into text, and keeps a live text snapshot of your game.
-3. A tiny **local server** shows that snapshot to your AI tool, and lets the AI draw checklists, progress bars, waypoints, toasts and coach messages in your game. It also lets you set up instant "rules" that run inside the game (for example, warn me when my bags are almost full).
+- Your AI sees your game live: where you are, quests, bags, gear, bars, fights, deaths.
+- It draws small panels in your game: checklists, progress bars, map pins, coach messages.
+- Instant in-game rules, like "warn me when my bags are almost full".
+- It can read and edit your Guidelime guide (with backups).
+- It never presses a key, clicks, casts or moves for you. Display only.
 
-Your AI reads the snapshot, thinks about it, and puts a short plan on your screen. You still do all the playing.
+<p align="center"><img src="assets/overlay-mockup.svg" alt="What the overlay looks like (mock-up)" width="760"></p>
 
-## Quick start (about 5 minutes)
+## Setup
 
-Before you start: you need a Mac, the WoW Forever game installed and started at least once, and an AI tool (see "Supported AI tools" below).
+<p align="center"><img src="assets/setup-steps.svg" alt="Setup in four steps" width="860"></p>
 
-**Step 1. Install.** Open the Terminal app (press Command and Space, type `Terminal`, press Return), paste this line, press Return:
+**1. Install.** Open Terminal and paste:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh | bash
 ```
 
-It downloads WoW Mentor, finds your WoW folder, installs the addon, and starts two small background services. You will see lines numbered `1/5` to `5/5`, and System Settings opens at the end. If Terminal says Python is missing, click Install in the window macOS shows, wait, then paste the same line again. If it says it could not find World of Warcraft, start the game once and paste the line again. Still stuck? See [docs/QUICKSTART.md](docs/QUICKSTART.md#way-a-paste-one-line-into-terminal-recommended).
+**2. Allow screen reading.** System Settings > Privacy & Security > Screen & System Audio Recording > add and turn on **WoW Mentor Bridge**.
 
-Prefer not to use Terminal commands to install? [docs/QUICKSTART.md](docs/QUICKSTART.md) has a double-click way.
+**3. Restart WoW** (Cmd+Q, relaunch, log in). Needed once.
 
-**Step 2. Allow screen reading, then restart WoW once.**
-
-- In System Settings, go to Privacy & Security, then Screen & System Audio Recording. Click the plus button, add **WoW Mentor Bridge** (it is in the `Applications` folder inside your home folder), and turn it on.
-- Fully quit World of Warcraft (Command and Q) and start it again, then log in to a character. The restart is needed once so the game can see the files the installer added.
-
-**Step 3. Connect your AI.** In Terminal run:
+**4. Check it, then hand it to your AI:**
 
 ```bash
+wowmentor doctor
 wowmentor links
 ```
 
-If Terminal says `command not found`, run `~/.wowmentor/app/wowmentor.sh links` instead. Copy the text between the two dashed lines and paste it to your AI tool. That is it. (Treat that text like a password: it contains your private link.)
+Copy the text `links` prints and paste it to your AI. Treat it like a password.
 
-Want to check that everything works first? Run `wowmentor doctor`. It lists what is fine and what to fix. See [docs/QUICKSTART.md](docs/QUICKSTART.md) for the slow, step by step version with what you should see after each step.
+Stuck? `wowmentor doctor` tells you what to fix. More: [QUICKSTART](docs/QUICKSTART.md), [TROUBLESHOOTING](docs/TROUBLESHOOTING.md), [FAQ](docs/FAQ.md).
 
-## What you will see
+## Or let an AI do the setup
 
-- In Terminal, `wowmentor doctor` prints a short checklist. Green ticks are good. Each warning or cross has a line underneath telling you what to do.
-- In the game, after you log in, one chat line appears: `WoWFeed active (hairline strip, top edge)`.
-- At the very top edge of the game window there is a hairline strip of coloured squares. It is meant to be invisible: if you built the optional helper (the installer tries to), a thin black bar covers it on your screen. If you do see coloured dots, that is harmless, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
-- Once your AI starts, small panels appear in a corner of your game: a short list of next steps you can tick, maybe a progress bar, maybe a map pin. Mouse clicks pass through the panels, except that you can click a checklist item to tick it. Panels dim in combat and can fade when idle. Drag a panel by its title after typing `/wfui unlock`.
-- A built-in "Character" panel with your professions, skills, empty gear slots, durability and bags is drawn by the addon itself.
-- Level and XP are never shown on the overlay. The AI can still see them in the data.
+Paste one of these. Swap anything in `<ANGLE BRACKETS>` for what your agent tells you.
 
-## What you need
+<details>
+<summary><b>Prompt 1: an agent on your Mac (Claude Code, Codex, ...) installs it for you</b></summary>
 
-- A Mac. WoW Mentor reads the game window with a macOS feature, so Windows and Linux are not supported.
-- The **WoW Forever** client, installed in the usual place. The addon targets interface 16001. It is built for Forever only.
-- Python 3.9 or newer. If you do not have it, the installer tells macOS to offer Apple's free Command Line Tools. Click Install, wait, then paste the same install line again. Those tools also let the installer build the two small helpers (the launcher macOS lists under Screen Recording and the bar that hides the strip).
-- An AI tool that can run commands or fetch web addresses. See "Supported AI tools" below.
-- Optional: the **Guidelime** addon and a guide pack. If you have them, your AI can read and carefully edit your leveling guide, with a backup before every change. Not needed for anything else.
+```text
+Set up WoW Mentor on this Mac for me. Repo: https://github.com/PhilipAD/wow-mentor
 
-## Supported AI tools
+Rules: never print my private links or secrets back in chat, never post them anywhere, don't touch my WoW
+character data, and don't send keys or clicks to the game. Stop and ask me when a step needs my hands.
 
-The AI side is plain text over HTTP, so any agent that can either run shell commands or fetch URLs can work:
+1. Check: this is macOS, `python3 --version` is 3.9+, and WoW Forever is installed
+   (ls "/Applications/World of Warcraft"). If something is missing, tell me how to fix it and wait.
+2. Download https://raw.githubusercontent.com/PhilipAD/wow-mentor/main/install.sh, read it, tell me in 3 lines
+   what it does, then run it.
+3. Open the Screen Recording settings for me:
+   open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+   Ask me to turn on "WoW Mentor Bridge". Wait for my OK.
+4. Ask me to fully quit WoW (Cmd+Q), start it, and log in to a character. Wait for my OK.
+5. Run `wowmentor doctor` (if the command is not found, use ~/.wowmentor/app/wowmentor.sh doctor).
+   Fix every warning it explains, then run it again until it is clean.
+6. Run `wowmentor links`. Use the skill link in its output to read your operating skill, then put a short
+   plan on my screen with the wowui command. Do not paste my links back to me.
+7. Finish with a 5-line report: what passed, what I still need to do.
 
-- Agents that run commands on your Mac (Claude Code, Codex CLI and similar) are the easiest. They use the `wowui` command and the local links. See [docs/AGENT.md](docs/AGENT.md).
-- Chat assistants and agents on a website or another computer need `wowmentor share on`, which makes a free Cloudflare tunnel so they can reach your Mac. Read [docs/PRIVACY.md](docs/PRIVACY.md) before you turn this on.
+Only if I ask for a remote AI (a website or another computer) to coach me: explain that this exposes my
+links to the internet, wait for a clear yes, then run `wowmentor share on` and tell me to run
+`wowmentor links` for the new links.
+```
 
-The project has not been tested against every product. Tests cover the commands and the HTTP interface, not any specific AI service.
+</details>
 
-## Privacy and safety in short
+<details>
+<summary><b>Prompt 2: a remote bot (Grok, a web chatbot, ...) becomes your live coach</b></summary>
 
-- Nothing leaves your Mac until you run `wowmentor share on`, set a webhook, or hand your links to an AI tool. The server only listens on `127.0.0.1` (your own Mac).
-- Your links contain long random secrets. Anyone who has a link can read your game snapshot or change your overlay. Do not post them. `wowmentor rotate-secrets` makes new ones.
-- The snapshot is not a screenshot. The bridge copies only the top rows of the game window into memory to find the strip, and nothing is saved to disk.
-- Chat from other players (say, yell, whisper, party, raid, guild, channels) is left out of the snapshot unless you turn it on.
-- WoW Mentor cannot cast spells, move, target, accept quests or press keys for you. It only displays things and prints chat lines to you.
+First on your Mac: `wowmentor share on`, then `wowmentor links`. Copy the three links into the placeholders below.
 
-Details: [docs/PRIVACY.md](docs/PRIVACY.md) and [SECURITY.md](SECURITY.md).
+```text
+You are my live World of Warcraft coach. Read everything below before you reply.
 
-## More documentation
+My links (private, do not repeat them in chat):
+  SKILL  <SKILL_URL>      your operating manual: read it first, it is the source of truth for every command
+  FEED   <FEED_URL>       my live game as text (add ?t=<random number> to avoid caching)
+  EVENTS <EVENTS_URL>     what just happened: <EVENTS_URL>?since=<last seq>
 
-| If you want to... | Read |
+Set up, in this order:
+1. Read SKILL. If you can run shell commands, install the `wowui` command as it says, then run
+   `wowui brief` (and again after any context reset). If you cannot run commands, use the HTTP
+   endpoints it lists instead.
+2. Read FEED. Check SESSION_STATE first: if it is not in_world, tell me and wait. Never act on stale data.
+3. In one short message, tell me what you can see (zone, bars, bags, gear) and what you will help with.
+4. Put 3 to 5 in-game rules in place for the things you would otherwise nag me about (bags, durability,
+   missing buffs, lower-rank spells on my bars). Check the RULES section to confirm they loaded.
+5. Optional, instant mode: if you can be woken by a webhook, give me the URL, the key and how your
+   Authorization header starts, in a place I can copy. I will then run:
+     wowmentor webhook set <WEBHOOK_URL> --bearer -
+   (use --auth "<exact header value>" if it does not start with Bearer), then `wowmentor webhook test`.
+   If you cannot, keep polling EVENTS: it works without a webhook.
+
+How to work:
+- Poll EVENTS with ?since=<last seq>. React to deaths, fights, quest and loot events, window_open
+  (merchant, trainer, quest reward), lower_rank_on_bar, and my /coach questions. Answer those with
+  wowui coach "<answer>" --answer <question id>. No ack on a message means I have not seen it.
+- Talk to me with wowui coach "<text>" (add --toast if it is urgent). Keep panels small and at the edges.
+- Use ACTIONBARS, TARGET, FIGHTS, DEATHS, ITEMS (BoE green or better is marked KEEP FOR AH),
+  REWARDS and TRAINER. If a value says unknown, say so. Never invent data.
+- Overlay writes: always send an opId, use partial for batches, and read the reply for rejected ops.
+- Never show my level or XP on screen (you may use them to think).
+- You cannot and must not press keys, click, move, target, cast, loot, accept quests, or equip anything.
+  Advise only.
+```
+
+</details>
+
+## How it works (30 seconds)
+
+1. A small **addon** draws a hairline strip of coloured squares at the top edge of the WoW window. That is your game data, written as colours.
+2. A **bridge** on your Mac reads those pixels (read-only), turns them back into text, and hides the strip from your own eyes.
+3. A **local server** shares that text with your AI and takes its advice back to the game.
+
+Why pixels? WoW does not let addons write files or open connections while you play, so the screen is the one live way out. Details: [HOW-IT-WORKS](docs/HOW-IT-WORKS.md).
+
+## Privacy and safety
+
+- Nothing leaves your Mac until you run `wowmentor share on`, set a webhook, or give your links to an AI.
+- Your links hold long random secrets. Anyone with a link can read your game or draw on your screen. `wowmentor rotate-secrets` makes new ones.
+- No screenshots are saved. Other players' chat is left out unless you turn it on.
+- It cannot cast, move, target or press keys. It only shows things.
+
+More: [PRIVACY](docs/PRIVACY.md), [SECURITY](SECURITY.md).
+
+## Good to know
+
+- macOS and the **WoW Forever** client only.
+- One WoW restart after the first install.
+- The game hides some numbers in combat (exact health and mana), and things like auction prices and other players' gear.
+- Overlay updates can take a few seconds to show up. Guide edits need `/reload`.
+- Early release: if something is off, please [open an issue](https://github.com/PhilipAD/wow-mentor/issues).
+
+## Docs
+
+| | |
 | --- | --- |
-| Install slowly, with screenshots in words | [docs/QUICKSTART.md](docs/QUICKSTART.md) |
-| Quick answers | [docs/FAQ.md](docs/FAQ.md) |
-| Fix a problem or understand a doctor message | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
-| Understand how it works | [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) |
-| Connect Claude Code, Codex or another AI | [docs/AGENT.md](docs/AGENT.md) |
-| Know exactly what data goes where | [docs/PRIVACY.md](docs/PRIVACY.md) |
-| See every data section the AI gets | [docs/FEED.md](docs/FEED.md) |
-| Write instant in-game rules, use webhooks | [docs/RULES.md](docs/RULES.md) |
-| See what the Forever game client does and does not allow | [docs/FOREVER-API.md](docs/FOREVER-API.md) |
-| Report a security problem | [SECURITY.md](SECURITY.md) |
-| Help build it | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| See what changed | [CHANGELOG.md](CHANGELOG.md) |
-
-## Honest limits
-
-- **macOS only.** The screen reader uses a macOS API.
-- **Forever client only.** Other WoW versions are not tested and may not work.
-- **One restart of WoW is needed** after the first install. The game only discovers addon folders that exist when it starts. After that, updates to the overlay arrive while you play.
-- Guide edits (Guidelime) only take effect after you type `/reload` in the game.
-- The game hides some numbers from addons. In combat your exact health and mana are hidden, so they are estimated from the status bars. Some things (the exact killer in a fight, auction prices, other players' gear) are not available at all. See [docs/FOREVER-API.md](docs/FOREVER-API.md).
-- Overlay updates reach the game through a side door and can take a few seconds (up to about 30 in the worst case). The game must be running with your character logged in.
-- This is a first release. If something does not behave as the docs describe, please open an issue.
+| [QUICKSTART](docs/QUICKSTART.md) | Slow, step by step install |
+| [FAQ](docs/FAQ.md) / [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) | Quick answers and fixes |
+| [AGENT](docs/AGENT.md) | Connecting Claude Code, Codex or a bot |
+| [RULES](docs/RULES.md) | Instant in-game rules and webhooks |
+| [FEED](docs/FEED.md) | Every data section your AI gets |
+| [FOREVER-API](docs/FOREVER-API.md) | What the game does and does not allow |
+| [CONTRIBUTING](CONTRIBUTING.md) / [CHANGELOG](CHANGELOG.md) | Help build it, see what changed |
 
 ## Disclaimer
 
-WoW Mentor is an independent, unofficial project. It is **not affiliated with, endorsed by or approved by Blizzard Entertainment.** World of Warcraft is a trademark of Blizzard Entertainment, Inc.
-
-It is designed to be display-only: it reads the game window (screen capture, read-only), never sends keyboard or mouse input to the game, and does not automate gameplay. The addon only shows information and cannot take game actions.
-
-Blizzard has not reviewed or blessed external tools that read the screen, and their rules can change. **Use it at your own risk.** It is provided "as is", without warranty, under the [MIT License](LICENSE). See [NOTICE](NOTICE) for third-party credits.
+Independent, unofficial project. **Not affiliated with or endorsed by Blizzard Entertainment.** World of Warcraft is a trademark of Blizzard Entertainment, Inc. It only reads the game window and never sends keyboard or mouse input, but Blizzard has not reviewed tools like this and its rules can change. Use at your own risk. Provided "as is" under the [MIT License](LICENSE). Credits: [NOTICE](NOTICE).
