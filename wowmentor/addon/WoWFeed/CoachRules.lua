@@ -99,7 +99,7 @@ local function evalLeaf(c, ev)
 		-- how many of an item the player carries (bags only): soul shards, Healthstones, potions, bandages, reagents
 		local want = c.item or c.name
 		if not want then return nil, {} end
-		local n = U.num(try(GetItemCount, want))
+		local n = U.num(try((C_Item and C_Item.GetItemCount) or GetItemCount, want))
 		if n == nil then return nil, {} end
 		return n <= c.n, { count = n, name = c.name or tostring(c.item) }
 	elseif t == "hostiles_near_gte" then
