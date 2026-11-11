@@ -91,6 +91,26 @@ class ServerTests(unittest.TestCase):
         panels = [p["id"] for p in jhttp("%s/state?t=2" % s.ui)[1]["doc"]["panels"]]
         self.assertNotIn("tug-reload", panels)
 
+    def test_live_guide_apply_clears_the_reload_prompt(self):
+        s = self.s
+        text = "Guidelime.registerGuide(\r\n[[\r\n[GA Alliance]\r\n[NLive Guide]\r\nAccept: [QA1]\r\n]], \"Pack Group\")"
+        self.assertTrue(jhttp(s.ui + "/tug/file", {"name": "Zone/Live Guide", "text": text})[1]["ok"])
+        code, r = jhttp(s.ui + "/tug/ops", {"guide": "live", "ops": [{"op": "insert", "after_match": "Accept:", "text": "A tip"}]})
+        self.assertEqual(code, 200, r)
+        eid = r["queued"][0]["id"]
+        self.assertIn("tick_impact", r["queued"][0])
+        new_text = text.replace("Accept: [QA1]", "Accept: [QA1]\r\nA tip")
+        self.assertTrue(jhttp(s.ui + "/tug/applied", {"id": eid, "ok": True, "game_live": True, "boot": "100", "text": new_text})[1]["ok"])
+        doc = jhttp("%s/state?t=3" % s.ui)[1]["doc"]
+        self.assertEqual([g["id"] for g in doc["guide_live"]], [eid])
+        self.assertEqual(doc["guide_live"][0]["group"], "Pack Group")
+        self.assertIn("A tip", doc["guide_live"][0]["text"])
+        self.assertIn("tug-reload", [p["id"] for p in doc["panels"]])
+        self.assertTrue(jhttp(s.ui + "/tug/live", {"id": eid})[1]["ok"])
+        doc = jhttp("%s/state?t=4" % s.ui)[1]["doc"]
+        self.assertEqual(doc["guide_live"], [])
+        self.assertNotIn("tug-reload", [p["id"] for p in doc["panels"]])
+
 
 if __name__ == "__main__":
     unittest.main()

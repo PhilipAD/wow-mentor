@@ -16,6 +16,8 @@ MAX_ITEMS = 60
 MAX_TEXT = 800
 MAX_HISTORY = 10
 MAX_OPS = 100
+MAX_GUIDE_LIVE = 6               # guide files queued for live registration in the game (no /reload), cleared once the game confirms
+MAX_GUIDE_LIVE_BYTES = 40_000
 MAX_WATCH = 30                 # item ids the addon reports on in the ITEM_WATCH feed section
 
 ANCHORS = ("TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT")
@@ -412,11 +414,12 @@ class Doc:
         self.rules = list(d.get("rules", []))
         self.inbox = list(d.get("inbox", []))
         self.watch = [int(i) for i in d.get("watch", []) if isinstance(i, int)][:MAX_WATCH]
+        self.guide_live = [g for g in d.get("guide_live", []) if isinstance(g, dict)][:MAX_GUIDE_LIVE]
         self.updated = d.get("updated", time.time())
 
     def to_dict(self):
         return {"v": VERSION, "rev": self.rev, "updated": self.updated, "theme": self.theme, "panels": self.panels,
-                "waypoints": self.waypoints, "toasts": self.toasts, "actions": self.actions, "builtin": self.builtin, "rules": self.rules, "inbox": self.inbox, "watch": self.watch}
+                "waypoints": self.waypoints, "toasts": self.toasts, "actions": self.actions, "builtin": self.builtin, "rules": self.rules, "inbox": self.inbox, "watch": self.watch, "guide_live": self.guide_live}
 
     def wire(self):
         d = self.to_dict()
@@ -626,6 +629,29 @@ class Doc:
             errs.append("builtin: pass me=true|false (the built-in character panel: professions, skills, gear, talents)")
         if not errs:
             self.builtin.update(t)
+
+    def _op_guide_live(self, b, errs, warns):
+        """From the bridge, not the agent: a guide file that was just edited, for the addon to register with Guidelime in the running game."""
+        spec = {"id": _int(1, 10 ** 9), "name": _str, "group": _str, "text": _str}
+        g = {k: b[k] for k in spec if k in b}
+        for k in spec:
+            if k not in g:
+                errs.append("guide_live.%s: required" % k)
+                return
+        if not isinstance(g["id"], int) or not all(isinstance(g[k], str) for k in ("name", "group", "text")) or len(g["text"]) > MAX_GUIDE_LIVE_BYTES:
+            errs.append("guide_live: id (int), name, group and text (at most %d bytes) are required" % MAX_GUIDE_LIVE_BYTES)
+            return
+        keep = [x for x in self.guide_live if x.get("name") != g["name"]] + [g]
+        while len(keep) > MAX_GUIDE_LIVE or sum(len(x.get("text", "")) for x in keep) > MAX_GUIDE_LIVE_BYTES * 2:
+            keep.pop(0)
+        self.guide_live = keep
+
+    def _op_guide_live_clear(self, b, errs, warns):
+        upto = b.get("upto")
+        if not isinstance(upto, int):
+            errs.append("guide_live_clear.upto: an edit id")
+            return
+        self.guide_live = [x for x in self.guide_live if x.get("id", 0) > upto]
 
     def _op_watch(self, b, errs, warns):
         """Ask the addon to report item details and prices: name, quality, level, slot, stats, vendor and Auctionator prices, count owned."""

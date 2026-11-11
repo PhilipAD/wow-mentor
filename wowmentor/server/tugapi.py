@@ -219,6 +219,8 @@ class TugAPI:
             if not r["needed"]:
                 r.update(needed=True, edits=[], boot=body.get("boot"), since=time.time())
             r["edits"] = (r["edits"] + [line[:90]])[-6:]
+            r["last_edit_id"] = max(r.get("last_edit_id", 0), eid)
+            self._live(eid, entry["guide"], body.get("text"))
             # Wait until the agent has gone quiet (one prompt per batch of edits), but never longer than MAX_WAIT after the first edit:
             # a long revamp must not hide the prompt for the whole run. Raised even when the game is closed: the bridge clears it at the
             # first live boot, so a player who starts the game later is not left with a stale prompt.
@@ -227,6 +229,34 @@ class TugAPI:
             self._maybe_notice()
         else:
             self.overlay([{"op": "toast", "title": "Guide edit failed", "text": ("; ".join(entry["errors"])[:160] or "unknown error"), "level": "bad"}])
+        self.save()
+        return 200, {"ok": True}
+
+    def _live(self, eid, name, text):
+        """Hand the edited guide to the addon so Guidelime picks it up in the running game: no /reload. If the game does not confirm it
+        (older addon, Guidelime changed, game closed), the usual reload prompt appears after the quiet period."""
+        if os.environ.get("WOWMENTOR_LIVE_APPLY", "1") == "0" or not isinstance(text, str):
+            return
+        try:
+            pre, lines, suf, eol = tugdoc.split_file(text)
+            m = re.search(r',\s*"([^"]*)"\s*\)\s*$', suf)
+            if not m:
+                return
+            self.overlay([{"op": "guide_live", "id": eid, "name": name, "group": m.group(1), "text": eol.join(lines) + eol}])
+        except Exception:
+            return
+
+    def r_live(self, method, q, body):
+        """The bridge saw the addon confirm it registered edits up to `id`: nothing to reload."""
+        self.s["bridge_t"] = time.time()
+        eid = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(eid, int):
+            raise tugdoc.TugError(["id (an edit id) required"])
+        r = self.s["reload"]
+        self.overlay([{"op": "guide_live_clear", "upto": eid}])
+        if r.get("needed") and eid >= r.get("last_edit_id", 0):
+            r.update(needed=False, edits=[], since=0, notify_due=None, notified=False)
+            self.overlay([{"op": "remove", "panel": "tug-reload"}], panel_exists="tug-reload")
         self.save()
         return 200, {"ok": True}
 

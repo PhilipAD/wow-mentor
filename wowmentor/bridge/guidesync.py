@@ -87,6 +87,7 @@ class GuideSync(object):
         self.too_big = set()
         self.pending_reload = False
         self.boot_at_edit = None
+        self.live_acked = 0
         self.last_scan = 0.0
         self.files = {}
         self._rescan()
@@ -191,7 +192,20 @@ class GuideSync(object):
                 self.sent.pop(name, None)
                 self._call("applied", {"id": e["id"], "ok": False, "errors": ["bridge error: %r" % (err,)]})
 
+    def watch_live(self):
+        """The addon puts the id of the last guide edit it registered with Guidelime (no /reload needed) in the KV line: tell the server."""
+        kv = self.get_kv()
+        try:
+            gid = int((kv or {}).get("glive") or 0)
+        except (TypeError, ValueError):
+            return
+        if gid and gid != self.live_acked and self.game_age() is not None and self.game_age() < 15:
+            if self._call("live", {"id": gid}):
+                self.live_acked = gid
+                self.log("guide edits up to %d are live in the game (no reload needed)" % gid)
+
     def watch_reload(self):
+        self.watch_live()
         if not self.pending_reload:
             return
         kv = self.get_kv()

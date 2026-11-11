@@ -845,6 +845,56 @@ local function focusQuest(id)
 	return (pcall(function() C_SuperTrack.SetSuperTrackedQuestID(id) end))
 end
 
+-- Guide edits without /reload. The bridge writes the edited guide file to disk AND sends its text here; we register it with the running
+-- Guidelime (Guidelime.registerGuide is its public API) and then run the same refresh Guidelime runs when a player toggles a map option
+-- (re-parse the current guide, re-match ticks by step text, redraw). Everything is guarded: if Guidelime changes shape the edit stays on
+-- disk, nothing is acknowledged, and the server falls back to its "type /reload" prompt.
+local function limeOptionsFrame()
+	if S.limeContent and S.limeContent.options then return S.limeContent end
+	if not EnumerateFrames then return nil end
+	local f = EnumerateFrames()
+	while f do
+		local ok, o = pcall(function() return f.options end)
+		if ok and type(o) == "table" and o.showMapMarkersGOTO then S.limeContent = f; return f end
+		f = EnumerateFrames(f)
+	end
+	return nil
+end
+local function refreshLime()
+	local c = limeOptionsFrame()
+	local cb = c and c.options and c.options.showMapMarkersGOTO
+	local h = cb and cb.GetScript and cb:GetScript("OnClick")
+	if not h then return false end
+	h(cb)           -- Guidelime's handler stores the checkbox's current value again, then loadCurrentGuide(false), updateFromQuestLog, updateMainFrame
+	return true
+end
+function UI.applyGuideLive(list)
+	if not (Guidelime and Guidelime.registerGuide) then return end
+	S.gliveTried = S.gliveTried or {}
+	local pending = {}
+	for _, g in ipairs(list) do
+		if type(g) == "table" and type(g.id) == "number" and g.id > (DB.glive or 0) and not S.gliveTried[g.id] and type(g.text) == "string" and type(g.group) == "string" then
+			pending[#pending + 1] = g
+		end
+	end
+	if #pending == 0 then return end
+	table.sort(pending, function(a, b) return a.id < b.id end)
+	local maxid, registered = 0, 0
+	for _, g in ipairs(pending) do
+		S.gliveTried[g.id] = true
+		local ok, err = pcall(Guidelime.registerGuide, g.text, g.group)
+		if ok then registered = registered + 1; maxid = g.id
+		else S.gliveErr = tostring(err):sub(1, 90); lerr("guide live: " .. tostring(err)) end
+	end
+	if registered == 0 then return end
+	local ok, refreshed = pcall(refreshLime)
+	if ok and refreshed then
+		DB.glive = maxid; S.glive = maxid; S.gliveErr = nil; S.gliveAt = now()
+	else
+		S.gliveErr = "registered " .. registered .. " guide(s) but could not refresh Guidelime's current guide"
+	end
+end
+
 -- owner "rule" marks a waypoint created by a rule action: a new document revision does not sweep it away.
 local function setWaypoint(w, owner)
 	local sig = strfmt("%s:%s:%s:%s:%s:%s:%s", w.map, w.x, w.y, w.title or "", tostring(w.clear_yards or ""), tostring(w.task or ""), tostring(w.quest or ""))
@@ -1078,6 +1128,7 @@ local function applyDoc(doc)
 	end
 	S.rules = type(doc.rules) == "table" and doc.rules or {}
 	S.watch = type(doc.watch) == "table" and doc.watch or {}
+	if type(doc.guide_live) == "table" and #doc.guide_live > 0 then local okg, eg = pcall(UI.applyGuideLive, doc.guide_live); if not okg then lerr("guide live: " .. tostring(eg)) end end
 	S.inbox = type(doc.inbox) == "table" and doc.inbox or {}
 	S.docNow = nowEpoch
 	local coach = WoWFeedCoach
@@ -1183,7 +1234,7 @@ function UI.kvTokens()
 	local chat = 0
 	pcall(function() if ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow() then chat = 1 end end)
 	local combat = truthy(call(UnitAffectingCombat, "player")) and 1 or 0
-	local crit = { strfmt("uirev=%d", S.rev), strfmt("uiboot=%d", S.bootId), strfmt("chat=%d", chat), strfmt("combat=%d", combat) }
+	local crit = { strfmt("uirev=%d", S.rev), strfmt("uiboot=%d", S.bootId), strfmt("chat=%d", chat), strfmt("combat=%d", combat), strfmt("glive=%d", S.glive or DB.glive or 0) }
 	local extra = { strfmt("uislot=%d", S.slot), strfmt("uidoor=%d", S.door), "uidb=" .. tostring(S.doorMode), "uimeta=" .. tostring(S.metaMode) }
 	return crit, extra
 end
@@ -1196,6 +1247,7 @@ local function stateLines()
 	local L = {}
 	L[#L + 1] = strfmt("rev=%d docs_applied=%d slot=%d/%d mode=%s meta=%s (%d changes) last_load=%s", S.rev, S.docs, S.slot, S.poolMax, S.metaMode, tostring(S.meta), S.metaChanges, S.lastLoad)
 	L[#L + 1] = "doorbell selftest: " .. S.selftest
+	L[#L + 1] = strfmt("guide live updates (no /reload): last applied edit %s%s", tostring(S.glive or DB.glive or 0), S.gliveErr and (" | PROBLEM: " .. S.gliveErr) or "")
 	L[#L + 1] = strfmt("overlay: hidden=%s locked=%s edit=%s alpha=%.2f scale=%.2f", tostring(S.hidden), tostring(DB.locked), tostring(editMode or manualEdit), DB.alpha, DB.scale)
 	for _, spec in ipairs(BUILTINS) do
 		local bp = S.panels[spec.id]
