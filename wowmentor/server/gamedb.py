@@ -48,7 +48,7 @@ class GameDB:
                 return 200, self.status()
             fn = getattr(self, "r_" + sub, None)
             if not fn:
-                raise DbError("unknown db route %r (status quest npc item object search find_quests trainers chain waypoint validate)" % sub, 404)
+                raise DbError("unknown db route %r (status quest npc item object search find_quests trainers chain waypoint route spots training validate)" % sub, 404)
             with self.lock:
                 c = self.connect()
                 try:
@@ -339,6 +339,57 @@ class GameDB:
             raise DbError("that NPC has no known spawn")
         return {"npc": {"id": target, "name": self._name(c, "npc", target)}, "spawns": sp, "first": dict(sp[0], title=title),
                 "command": "wowui waypoint w1 --map %s --x %s --y %s --title %s" % (sp[0]["uiMapId"], sp[0]["x"], sp[0]["y"], json.dumps(title))}
+
+    def r_training(self, c, q):
+        """Spells a class can train, from the WhatsTraining data: level, spell id, cost. Names are not offline: pass the ids to `wowui watch --spells`
+        and read SPELL_WATCH. class=Warlock [level=N: only what is trainable by then] [from=M: only levels above M]."""
+        klass = (_q(q, "class") or "").upper()
+        if not klass:
+            raise DbError("pass class=<e.g. Warlock>")
+        try:
+            hi = int(_q(q, "level")) if _q(q, "level") else 80
+            lo = int(_q(q, "from")) if _q(q, "from") else 0
+            rows = c.execute("SELECT level, spell_id, cost, requires FROM training WHERE class=? AND level BETWEEN ? AND ? ORDER BY level, spell_id", (klass, lo + 1 if lo else 0, hi)).fetchall()
+        except sqlite3.OperationalError:
+            raise DbError("this database has no training table yet: the bridge uploads a new one within a minute of restarting", 503)
+        out, total = [], 0
+        for r in rows:
+            total += r["cost"]
+            out.append({"level": r["level"], "spell": r["spell_id"], "cost_copper": r["cost"], "cost": "%dg %ds %dc" % (r["cost"] // 10000, (r["cost"] % 10000) // 100, r["cost"] % 100),
+                        "requires": json.loads(r["requires"] or "[]")})
+        return {"class": klass, "count": len(out), "total_cost_copper": total, "spells": out[:120],
+                "note": "spell names are not in the offline data: `wowui watch --spells <ids>` then read SPELL_WATCH. Pet and tome spells are not listed."}
+
+    def r_spots(self, c, q):
+        """Where to find the creatures a quest wants killed: the densest spawn clusters (6x6 map-unit cells), best first.
+        quest=<id> or npc=<id|name>."""
+        creatures = []
+        if _q(q, "quest"):
+            rows = self._one(c, "quest", _q(q, "quest"))
+            if not rows:
+                raise DbError("no quest matches", 404)
+            o = self._lua(json.loads(rows[0]["json"]).get("objectives"))
+            for rr in (o.get("1") or o.get(1) or []):
+                creatures.append(rr[0])
+            for it in (o.get("3") or o.get(3) or []):
+                itrow = c.execute("SELECT json FROM item WHERE id=?", (it[0],)).fetchone()
+                creatures += (json.loads(itrow[0]).get("npcDrops") or [])[:6] if itrow else []
+        elif _q(q, "npc"):
+            creatures = [r["id"] for r in self._one(c, "npc", _q(q, "npc"))[:5]]
+        if not creatures:
+            raise DbError("pass quest=<id> (with creature or item objectives) or npc=<id|name>")
+        out = []
+        for nid in list(dict.fromkeys(creatures))[:8]:
+            cells = {}
+            for r in c.execute("SELECT uimap_id, x, y, area_id FROM spawn WHERE kind='npc' AND id=? AND uimap_id IS NOT NULL", (nid,)):
+                key = (r["uimap_id"], int(r["x"] // 6), int(r["y"] // 6))
+                cell = cells.setdefault(key, {"n": 0, "sx": 0.0, "sy": 0.0, "area": r["area_id"]})
+                cell["n"] += 1; cell["sx"] += r["x"]; cell["sy"] += r["y"]
+            best = sorted(cells.items(), key=lambda kv: -kv[1]["n"])[:3]
+            out.append({"npc": {"id": nid, "name": self._name(c, "npc", nid)},
+                        "clusters": [{"uiMapId": k[0], "zone": self._zone(c, v["area"])["name"], "x": round(v["sx"] / v["n"], 1), "y": round(v["sy"] / v["n"], 1), "spawn_points": v["n"]} for k, v in best],
+                        "total_spawn_points": sum(v["n"] for v in cells.values())})
+        return {"creatures": out, "note": "spawn points are Questie's; patrols and rare spawns have few points. The first cluster is where most of them stand."}
 
     def r_route(self, c, q):
         """Order quest stops for the player: turn-ins for finished quests, objective locations for open ones.

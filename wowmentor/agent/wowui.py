@@ -550,12 +550,14 @@ def cmd_watch(a):
 def cmd_db(a):
     route = a.dbcmd.replace("-", "_")
     params = {}
-    for k in ("id", "name", "zone", "level", "tol", "like", "which", "guide", "q", "npc", "quest"):
+    for k in ("id", "name", "zone", "level", "tol", "like", "which", "guide", "q", "npc", "quest", "frm"):
         v = getattr(a, k, None)
         if v is not None:
             params[k] = v
     if getattr(a, "klass", None):
         params["class"] = a.klass
+    if "frm" in params:
+        params["from"] = params.pop("frm")
     if getattr(a, "race", None):
         params["race"] = a.race
     q = urllib.parse.urlencode(params)
@@ -872,12 +874,18 @@ def live_guide_state(feed):
     m = re.search(r"current guide: (.+)", sec)
     if m:
         out["title"] = m.group(1).strip()
+    size = None
+    ms = re.search(r"Guidelime guide steps: (\d+)", sec)
+    if ms:
+        size = int(ms.group(1))
     m = re.search(r"resolved step indexes[^:]*: (.+)", sec)
     if m and m.group(1).strip() != "none":
         for part in m.group(1).split(","):
             lo, _, hi = part.strip().partition("-")
             if lo.isdigit():
                 out["resolved"].update(range(int(lo), int(hi or lo) + 1))
+    if size:
+        out["resolved"] = {i for i in out["resolved"] if i <= size}
     m = re.search(r"completed quest ids \(\d+\): ([\d,]*)", sec)
     if m:
         out["completed"] = {int(x) for x in m.group(1).split(",") if x}
@@ -1352,6 +1360,8 @@ def main():
     dadd("trainers", "trainers in a zone: --zone 'Stormwind City' --like warlock", "zone", "like")
     p = dadd("waypoint", "where is an NPC or a quest's start/finish: --npc NAME | --quest ID [--which start|finish] [--set] (set pins it with TomTom and focuses the quest)", "npc", "quest", "which")
     p.add_argument("--set", action="store_true"); p.add_argument("--wid", default="w1", help="waypoint id used with --set")
+    dadd("spots", "where to find the creatures a quest wants (densest spawn clusters): --quest ID or --npc NAME", "quest", "npc")
+    dadd("training", "spells a class can train with cost (names via `wowui watch --spells`): --class Warlock [--level N] [--from M]", "klass", "level", "frm")
     dadd("validate", "check a guide's quest ids, class/race gates and [G] coordinates: --guide NAME [--class Warlock --race Human]", "guide", "klass", "race")
     p = add("section", cmd_section, "print feed sections by name (e.g. wowui section FAST PVP TALENTS_TRAITS): no raw feed link needed"); p.add_argument("names", nargs="+")
     p = add("verify", cmd_verify, "contradiction guard: Guidelime's next step vs overlay tasks, waypoint and Questie focus; run it before every message that names a next step")

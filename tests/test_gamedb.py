@@ -121,3 +121,28 @@ class RouteTests(unittest.TestCase):
         self.assertTrue(kinds[2000].startswith("objective"))
         self.assertEqual(r["stops"][0]["quest"], 2000)             # the kobold at 10,10 is nearer to 11,11 than Gakin at 39,85
         self.assertEqual(r["no_location_known"], [999999])
+
+
+class SpotsTrainingTests(unittest.TestCase):
+    def test_spots_clusters_and_training_costs(self):
+        d = tempfile.mkdtemp()
+        make_db(os.path.join(d, "forever.sqlite"))
+        c = sqlite3.connect(os.path.join(d, "forever.sqlite"))
+        c.execute("INSERT INTO npc VALUES(7000,'Kobold Miner','',5,6,0,12,'{}')")
+        for x, y in ((7, 7), (8, 8), (9, 7), (60, 60)):
+            c.execute("INSERT INTO spawn VALUES('npc',7000,12,1429,?,?)", (x, y))
+        q = {"name": "Candles", "questLevel": 5, "objectives": {"1": [[7000, "Kobold Miner slain"]]}}
+        c.execute("INSERT INTO quest VALUES(2000,'Candles',5,3,NULL,12,0,0,'[6122]','[6122]','[]','[]','[]',NULL,NULL,0,?)", (json.dumps(q),))
+        for lv, sp, cost, req in ((4, 172, 100, "[]"), (6, 695, 100, "[686]"), (10, 696, 300, "[687]")):
+            c.execute("INSERT INTO training VALUES('WARLOCK',?,?,?,?)", (lv, sp, cost, req))
+        c.commit(); c.close()
+        g = GameDB(d)
+        code, r = g.handle("GET", "db/spots", {"quest": ["2000"]}, None)
+        self.assertEqual(code, 200, r)
+        top = r["creatures"][0]["clusters"][0]
+        self.assertEqual((top["spawn_points"], top["uiMapId"]), (3, 1429))
+        code, r = g.handle("GET", "db/training", {"class": ["warlock"], "level": ["8"]}, None)
+        self.assertEqual((r["count"], r["total_cost_copper"]), (2, 200))
+        self.assertEqual(r["spells"][1]["requires"], [686])
+        code, r = g.handle("GET", "db/training", {"class": ["warlock"], "from": ["4"], "level": ["10"]}, None)
+        self.assertEqual([s["spell"] for s in r["spells"]], [695, 696])

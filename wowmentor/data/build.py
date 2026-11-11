@@ -20,6 +20,7 @@ CREATE TABLE item(id INTEGER PRIMARY KEY, name TEXT, ilevel INT, reqlevel INT, c
 CREATE TABLE object(id INTEGER PRIMARY KEY, name TEXT, json TEXT);
 CREATE TABLE zone(area_id INTEGER PRIMARY KEY, name TEXT, uimap_id INT, parent INT);
 CREATE TABLE sort(id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE training(class TEXT, level INT, spell_id INT, cost INT, requires TEXT);
 """
 INDEXES = """CREATE INDEX q_name ON quest(name COLLATE NOCASE); CREATE INDEX q_zone ON quest(zone_or_sort, minlevel);
 CREATE INDEX n_name ON npc(name COLLATE NOCASE); CREATE INDEX i_name ON item(name COLLATE NOCASE); CREATE INDEX o_name ON object(name COLLATE NOCASE);
@@ -39,10 +40,41 @@ def toc_path(addons):
     return os.path.join(addons, "QuestieDB", "QuestieDB_Forever.toc")
 
 
+SCHEMA_TAG = "s2"          # bump when the tables change so every installed bridge rebuilds and re-uploads
+
+
 def fingerprint(addons):
-    """Cheap change detector for the source file: size, mtime and the build commit line."""
+    """Cheap change detector for the source file: size, mtime and the schema tag."""
     st = os.stat(toc_path(addons))
-    return "%d:%d" % (st.st_size, int(st.st_mtime))
+    return "%d:%d:%s" % (st.st_size, int(st.st_mtime), SCHEMA_TAG)
+
+
+def training_rows(addons):
+    """(class, level, spell id, cost in copper, required spell ids) from the WhatsTraining addon's Forever class files, if installed."""
+    import re
+    d = os.path.join(addons, "WhatsTraining", "Classes", "Camelot")
+    rows = []
+    if not os.path.isdir(d):
+        return rows
+    for fn in sorted(os.listdir(d)):
+        m = re.match(r"^([A-Za-z]+)\.lua$", fn)
+        if not m or m.group(1) in ("QuestSpells", "TrainerFactions", "HunterPets", "WarlockTomes"):
+            continue
+        try:
+            text = open(os.path.join(d, fn), encoding="utf-8").read()
+        except OSError:
+            continue
+        i = text.find("spellsByLevel")
+        if i < 0:
+            continue
+        marks = [(int(mm.group(1)), mm.start(), mm.end()) for mm in re.finditer(r"\[(\d+)\]\s*=\s*\{", text[i:])]
+        marks = [(lv, a + i, b + i) for lv, a, b in marks]
+        for k, (lv, a, b) in enumerate(marks):
+            end = marks[k + 1][1] if k + 1 < len(marks) else len(text)
+            for em in re.finditer(r"\{\s*id\s*=\s*(\d+)\s*,\s*cost\s*=\s*(\d+)(?:\s*,\s*requiredIds\s*=\s*\{([\d,\s]*)\})?", text[b:end]):
+                req = [int(x) for x in re.findall(r"\d+", em.group(3) or "")]
+                rows.append((m.group(1).upper(), lv, int(em.group(1)), int(em.group(2)), _j(req)))
+    return rows
 
 
 def build(addons, out):
@@ -78,6 +110,8 @@ def build(addons, out):
     for i in sorted(db.ids["Item"]):
         n = db.get("Item", i)
         c.execute("INSERT INTO item VALUES(?,?,?,?,?,?,?,?)", (i, n.get("name"), n.get("itemLevel"), n.get("requiredLevel"), n.get("class"), n.get("subClass"), n.get("startQuest"), _j(n)))
+    for r in training_rows(addons):
+        c.execute("INSERT INTO training VALUES(?,?,?,?,?)", r)
     c.executescript(INDEXES)
     for k, v in (("source", "QuestieDB_Forever.toc"), ("version", db.meta.get("Version", "")), ("commit", db.meta.get("X-BUILD-COMMIT", "")),
                  ("fingerprint", fingerprint(addons)), ("built", str(int(time.time())))):

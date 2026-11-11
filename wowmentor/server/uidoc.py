@@ -1127,7 +1127,7 @@ Guide syntax: one step per line. Header lines first: [GA Alliance] [N<this guide
   `tick_impact` block and a warning when either happens: read it. Prefer editing ahead of the player (the GUIDES section lists their resolved steps).
 
 Stay aligned: Guidelime, Questie, TomTom and the overlay must agree. Read the GUIDES feed section first: it is the LIVE state (the Guidelime
-current guide, which step indexes are done or skipped (step numbers match `tug show` line numbers), the Questie focused quest and full
+current guide, which step indexes are done or skipped (step numbers match `tug show` line numbers; GUIDES also prints `Guidelime guide steps: N` and drops leftover progress entries past N, which belong to an older version of the guide), the Questie focused quest and full
 completed-quest id list, the Guidelime arrow source and TomTom's arrow). OFFLINE SAVEDVARIABLES is only refreshed at /reload.
     wowui align [guide] [--ahead 2] [--also "side trip guide"]    audits the guides ahead against the live log: STALE (quest already done),
         HAVE (accept step for a quest already in the log), MISSING (logged quest no guide mentions), FOCUS (Questie focus not in the log).
@@ -1148,6 +1148,8 @@ trainers, quest chains) is loaded on the server. Answers are offline and exact f
     wowui db npc --name "Alchemist Mallory"             spawns, flags (trainer, vendor, flight master...), quests it starts and ends
     wowui db waypoint --quest 95041 --which finish [--set]   coordinates ready for TomTom; --set pins it and focuses the quest in one step
     wowui db find-quests --zone Elwynn --level 10 --class Warlock --race Human     wowui db trainers --zone "Stormwind City" --like warlock
+    wowui db spots --quest 22 | --npc "Goretusk"   the densest spawn clusters (where most of them stand), best first
+    wowui db training --class Warlock --level 20 [--from 10]   spells trainable with cost and prerequisites; names come from `wowui watch --spells <ids>` (SPELL_WATCH)
     wowui db chain --id 1689 (what must be done before, what comes next)     wowui db item --name "Surena's Choker" (who drops or sells it)
     wowui db validate --guide "9-11" --class Warlock --race Human    checks every [QA/QC/QT id] and [G x,y Zone] of a guide: UNKNOWN_QUEST, WRONG_CLASS,
         WRONG_RACE, FAR_FROM_NPC. Run it after every batch of guide edits and fix what it reports (FAR_FROM_NPC can be a patrol: confirm).

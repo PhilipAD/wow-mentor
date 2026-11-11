@@ -1082,8 +1082,11 @@ local function sGuides()
 		local prog = c.progress and c.progress[c.currentGuide]
 		if type(prog) == "table" then
 			local idx, done, skipped = {}, 0, 0
+			local size = c.guideSize and num(c.guideSize[c.currentGuide]) or nil
+			if size then L[#L+1] = "Guidelime guide steps: " .. size end
 			for i, st in pairs(prog) do
-				if type(i) == "number" and type(st) == "table" then
+				-- progress entries past the guide's current length are leftovers from an older version of the guide: not real steps
+				if type(i) == "number" and type(st) == "table" and (not size or i <= size) then
 					idx[#idx+1] = i
 					if st.completed then done = done + 1 elseif st.skip then skipped = skipped + 1 end
 				end
