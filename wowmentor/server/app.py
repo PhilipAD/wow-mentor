@@ -381,6 +381,7 @@ def schema():
                     "response": "{ok, rev, applied_rev, rejected, warnings, applied?, answered?, replayed?}"}
     c["events_api"] = {
         "events": "GET events?since=<eid>&types=a,b&limit=100 -> {events:[{eid,t,received_at,boot,type,data}], next, last_eid, oldest_eid, gap?, reset?}; no since = newest events",
+        "long_poll": "add &wait=25 (seconds, max 25) with since=<eid> to hold the request open until an event arrives; an empty list after the wait means nothing happened; a cursor ahead of the server returns reset:true at once",
         "read_only_events": "GET /<read-token>/events?since=<eid> (same shape; for agents that only hold the feed link)",
         "npcs": "GET npcs[?name=x] -> seen NPC cache {name,id,map,x,y,kind,count,last_seen}",
         "session": "GET session -> {state, foreground, last_login_at, last_logout_at, uploader_alive_at, ...}",

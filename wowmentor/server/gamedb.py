@@ -282,9 +282,15 @@ class GameDB:
         if area is not None:
             sql += " AND s.area_id=?"; args.append(area)
         if like:
-            sql += " AND (n.subname LIKE ? OR n.name LIKE ?)"; args += ["%" + like + "%"] * 2
+            stems = [w for w in re.split(r"\s+", like.strip()) if w]
+            stems = [w[:5] if len(w) >= 7 else w for w in stems]          # "alchemy" also finds "Alchemist"
+            for w in stems:
+                sql += " AND (n.subname LIKE ? OR n.name LIKE ?)"; args += ["%" + w + "%"] * 2
         ids = [r[0] for r in c.execute(sql + " ORDER BY n.id LIMIT %d" % MAX_ROWS, args)]
-        return {"count": len(ids), "trainers": [self._npc_ref(c, i) for i in ids]}
+        out = {"count": len(ids), "trainers": [self._npc_ref(c, i) for i in ids]}
+        if not ids:
+            out["hint"] = "no trainer matched: `like` matches the NPC's name or title (e.g. 'Warlock Trainer'); try a shorter stem such as 'alchem', or drop `like` to list every trainer in the zone"
+        return out
 
     def r_chain(self, c, q):
         rows = self._one(c, "quest", _q(q, "id") or _q(q, "name"))
@@ -347,6 +353,14 @@ class GameDB:
             qs = re.findall(r"\[(QA|QC|QT)(\d+)", line)
             if not qs:
                 continue
+            at = re.search(r"\[A\s+([^\]]+)\]", line)
+            if at and (klass or race):
+                wanted = {w.strip().lower().replace(" ", "") for w in at.group(1).split(",") if w.strip()}
+                me = {x for x in ((_q(q, "class") or "").lower(), (_q(q, "race") or "").lower().replace(" ", "")) if x}
+                if race:
+                    me.add("alliance" if RACE.get(race) in ("Human", "Dwarf", "Night Elf", "Gnome", "Draenei", "Worgen", "Skyborne Alliance") else "horde")
+                if wanted and not (wanted & me):
+                    continue                       # the step is tagged for other classes or races: it never shows for this player
             g = re.search(r"\[G\s*([\d.]+)\s*,\s*([\d.]+)\s*([^\]]*)\]", line)
             for kind, sid in qs:
                 qid = int(sid)

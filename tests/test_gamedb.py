@@ -85,3 +85,19 @@ class WatchOpTests(unittest.TestCase):
         with self.assertRaises(Exception):
             uidoc.apply_ops(d, {"op": "watch", "items": list(range(1, 40))})
         self.assertIn("watch", d.to_dict())
+
+
+class ValidateTagTests(unittest.TestCase):
+    def test_step_tagged_for_other_class_is_skipped_and_trainers_match_stems(self):
+        d = tempfile.mkdtemp()
+        make_db(os.path.join(d, "forever.sqlite"))
+        g = GameDB(d, lambda n: ("g", "[QA1688][A Hunter,Dwarf] x\n[QA1688][A Warlock,Human] y"))
+        code, r = g.handle("GET", "db/validate", {"guide": ["g"], "class": ["Mage"], "race": ["Human"]}, None)
+        self.assertEqual([i["line"] for i in r["issues"] if i["kind"] == "WRONG_CLASS"], [2])   # line 1 is tagged Hunter,Dwarf: skipped; line 2 applies to a Human Mage but the quest is Warlock-only
+        code, r = g.handle("GET", "db/validate", {"guide": ["g"], "class": ["Warlock"], "race": ["Human"]}, None)
+        self.assertEqual(r["issues"], [])
+        code, r = g.handle("GET", "db/trainers", {"zone": ["Elwynn Forest"], "like": ["warlockxx"]}, None)
+        self.assertEqual(r["count"], 1)                    # 'warlockxx' -> stem 'warlo'
+        code, r = g.handle("GET", "db/trainers", {"zone": ["Elwynn Forest"], "like": ["nothing"]}, None)
+        self.assertEqual(r["count"], 0)
+        self.assertIn("hint", r)

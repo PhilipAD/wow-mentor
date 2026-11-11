@@ -616,6 +616,9 @@ def addr(a):
 
 def cmd_tug_list(a):
     r = tug_get(a, "list", filter=a.filter)
+    if getattr(a, "json", False):
+        print(json.dumps(r["guides"], indent=2))
+        return
     for g in r["guides"]:
         print("%-44s %4d lines  [%s] -> %s" % (g["name"], g["lines"], g["title"], g["next"] or "-"))
 
@@ -1005,12 +1008,18 @@ def get_ok(a, route):
 
 
 def events_route(a, since=None):
-    params = {"since": since, "types": a.types, "limit": a.limit}
+    params = {"since": since, "types": a.types, "limit": a.limit, "wait": getattr(a, "wait", None)}
     q = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
     return "events" + ("?" + q if q else "")
 
 
 def cmd_events(a):
+    if getattr(a, "wait", None):
+        if a.since is None:
+            fail(["--wait needs --since <eid> (the `next` of your last call)"])
+        code, body = http("%s/%s%s%s" % (base_url(a), events_route(a, a.since), "&", nocache()), timeout=a.wait + 15)
+        sys.stdout.write(body.decode("utf-8", "replace"))
+        return
     if not a.follow:
         print(json.dumps(get_ok(a, events_route(a, a.since)), indent=None if a.compact else 2))
         return
@@ -1135,7 +1144,7 @@ def main():
     p = add("events", cmd_events, "structured game events (death, fight, quest_complete, bags_full...) in the order they happened")
     p.add_argument("--since", type=int, help="only events after this eid (the `next` of your last call); without it: the newest events (or, with --follow, only new ones)")
     p.add_argument("--types", help="comma list, e.g. death,fight"); p.add_argument("--limit", type=int, help="max events (default 100, max 500)")
-    p.add_argument("--follow", action="store_true", help="keep polling and print one JSON event per line"); p.add_argument("--interval", type=float, default=2.0)
+    p.add_argument("--wait", type=int, help="long-poll: with --since, block up to this many seconds (max 25) until a new event arrives, then print it"); p.add_argument("--follow", action="store_true", help="keep polling and print one JSON event per line"); p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--duration", type=float, help="with --follow: stop after this many seconds"); p.add_argument("--compact", action="store_true")
     p = add("npcs", cmd_npcs, "NPCs the player has met (name, id, map, x, y, kind, count, last_seen)"); p.add_argument("--name"); p.add_argument("--compact", action="store_true")
     p = add("session", cmd_session, "is the player in the game? state, foreground, last login/logout, bridge heartbeat"); p.add_argument("--compact", action="store_true")
@@ -1155,7 +1164,7 @@ def main():
         p.add_argument("--match", help="text that appears on exactly one step (use --nth if several)")
         p.add_argument("--nth", type=int); p.add_argument("--expect", help="text the step must contain (safety check)")
 
-    p = tadd("list", cmd_tug_list, "list guides (name, lines, title, next guide)"); p.add_argument("--filter")
+    p = tadd("list", cmd_tug_list, "list guides (name, lines, title, next guide)"); p.add_argument("--filter"); p.add_argument("--json", action="store_true")
     p = tadd("show", cmd_tug_show, "print a guide with step numbers"); p.add_argument("guide"); p.add_argument("--from", type=int, dest="frm"); p.add_argument("--to", type=int)
     p = tadd("search", cmd_tug_search, "find steps containing text across all guides"); p.add_argument("text"); p.add_argument("--guide")
     p = tadd("route", cmd_tug_route, "follow the [NX] chain from a guide"); p.add_argument("--start")
