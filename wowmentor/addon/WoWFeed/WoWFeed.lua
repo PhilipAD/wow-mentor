@@ -876,7 +876,7 @@ local function sRecipes()
 	for k, rec in pairs(WoWFeedDB and WoWFeedDB.recipes or {}) do      -- saved from an earlier session: shown until the window is opened again
 		if not recipes[k] and type(rec) == "table" and type(rec.lines) == "table" then
 			any = true
-			L[#L+1] = strfmt("(saved %s ago, from an earlier session)", rec.t and (floor((time() - rec.t) / 3600) .. "h") or "?")
+			L[#L+1] = strfmt("(saved %s ago, from an earlier session)", rec.t and (math.floor((time() - rec.t) / 3600) .. "h") or "?")
 			for _, l in ipairs(rec.lines) do L[#L+1] = l end
 			L[#L+1] = ""
 		end
@@ -1146,7 +1146,7 @@ local function sItemWatch()
 	local getStats = (C_Item and C_Item.GetItemStats) or GetItemStats
 	local getCount = (C_Item and C_Item.GetItemCount) or GetItemCount
 	local ah = Auctionator and Auctionator.API and Auctionator.API.v1 and Auctionator.API.v1.GetAuctionPriceByItemID
-	local function money(c) if not c then return "?" end return c >= 10000 and strfmt("%dg%02ds", c // 10000, (c % 10000) // 100) or (c >= 100 and strfmt("%ds%02dc", c // 100, c % 100) or (c .. "c")) end
+	local function money(c) if not c then return "?" end return c >= 10000 and strfmt("%dg%02ds", math.floor(c / 10000), math.floor((c % 10000) / 100)) or (c >= 100 and strfmt("%ds%02dc", math.floor(c / 100), c % 100) or (c .. "c")) end
 	for _, id in ipairs(ids) do
 		local name, link, quality, ilvl, minLevel, itype, subtype, stack, equipLoc, _, sell = getInfo(id)
 		if not name then
@@ -1173,7 +1173,7 @@ local function sFlightPaths()
 	local L = {}
 	if UnitOnTaxi and tb(try(UnitOnTaxi, "player")) then L[#L+1] = "IN FLIGHT right now (destination is not exposed by the game)" end
 	if not T then L[#L+1] = "(no flight map seen yet: opens when the player talks to a flight master)"; return L end
-	L[#L+1] = strfmt("Nodes seen when the map was last opened (%dh ago, from %s). CURRENT = here, REACHABLE = known and flyable from here, DISTANT = known but needs another stop, NONE = not usable.", floor((time() - (T.t or 0)) / 3600), T.zone or "?")
+	L[#L+1] = strfmt("Nodes seen when the map was last opened (%dh ago, from %s). CURRENT = here, REACHABLE = known and flyable from here, DISTANT = known but needs another stop, NONE = not usable.", math.floor((time() - (T.t or 0)) / 3600), T.zone or "?")
 	for _, nd in ipairs(T.nodes or {}) do L[#L+1] = strfmt("  %s [%s]", nd.n, nd.t) end
 	return L
 end
@@ -1186,7 +1186,7 @@ local function sMerchant()
 		local name, _, price, qty, avail = try(GetMerchantItemInfo, i)
 		local link = try(GetMerchantItemLink, i)
 		local id = link and tonumber(tostring(link):match("item:(%d+)"))
-		if name then L[#L+1] = strfmt("  %d. %s #%s | %s%s%s", i, clean(name), tostring(id or "?"), (num(price) and num(price) > 0) and (num(price) >= 10000 and strfmt("%dg%02ds", num(price) // 10000, (num(price) % 10000) // 100) or strfmt("%ds%02dc", num(price) // 100, num(price) % 100)) or "free",
+		if name then L[#L+1] = strfmt("  %d. %s #%s | %s%s%s", i, clean(name), tostring(id or "?"), (num(price) and num(price) > 0) and (num(price) >= 10000 and strfmt("%dg%02ds", math.floor(num(price) / 10000), math.floor((num(price) % 10000) / 100)) or strfmt("%ds%02dc", math.floor(num(price) / 100), num(price) % 100)) or "free",
 			(num(qty) and num(qty) > 1) and (" x" .. num(qty)) or "", (num(avail) and num(avail) >= 0) and (" | " .. num(avail) .. " left") or "") end
 	end
 	return L
