@@ -340,6 +340,64 @@ class GameDB:
         return {"npc": {"id": target, "name": self._name(c, "npc", target)}, "spawns": sp, "first": dict(sp[0], title=title),
                 "command": "wowui waypoint w1 --map %s --x %s --y %s --title %s" % (sp[0]["uiMapId"], sp[0]["x"], sp[0]["y"], json.dumps(title))}
 
+    def r_route(self, c, q):
+        """Order quest stops for the player: turn-ins for finished quests, objective locations for open ones.
+        quests=<ids> done=<ids that are complete> map=<uiMapId> x=<0-100> y=<0-100>. Nearest-neighbour inside a map, the player's own map first."""
+        ids = [int(i) for i in re.findall(r"\d+", _q(q, "quests") or "")][:40]
+        done = {int(i) for i in re.findall(r"\d+", _q(q, "done") or "")}
+        if not ids:
+            raise DbError("pass quests=<comma list of quest ids>")
+        here = (int(_q(q, "map")), float(_q(q, "x")), float(_q(q, "y"))) if _q(q, "map") and _q(q, "x") and _q(q, "y") else None
+
+        def spawn_of(kind, i):
+            r = c.execute("SELECT uimap_id, x, y, area_id FROM spawn WHERE kind=? AND id=? AND uimap_id IS NOT NULL ORDER BY (uimap_id=?) DESC LIMIT 1", (kind, i, here[0] if here else -1)).fetchone()
+            return r
+
+        stops, unknown = [], []
+        for qid in ids:
+            row = c.execute("SELECT id, name, qlevel, json, finish_npc FROM quest WHERE id=?", (qid,)).fetchone()
+            if not row:
+                unknown.append(qid)
+                continue
+            data = json.loads(row["json"])
+            pt, kind, who = None, "turn-in", None
+            fin = json.loads(row["finish_npc"] or "[]")
+            if qid not in done:
+                o = self._lua(data.get("objectives"))
+                for key, k2, tbl in ((1, "kill or talk", "npc"), (2, "object", "object")):
+                    rows = o.get(str(key)) or o.get(key) or []
+                    for rr in rows:
+                        pt = spawn_of(tbl, rr[0])
+                        if pt:
+                            kind, who = "objective (%s)" % k2, self._name(c, tbl, rr[0]); break
+                    if pt:
+                        break
+                if not pt:
+                    for it in (o.get("3") or o.get(3) or []):          # an item objective: its drop sources
+                        itrow = c.execute("SELECT json FROM item WHERE id=?", (it[0],)).fetchone()
+                        drops = (json.loads(itrow[0]).get("npcDrops") or []) if itrow else []
+                        for nid in drops[:6]:
+                            pt = spawn_of("npc", nid)
+                            if pt:
+                                kind, who = "objective (item from %s)" % self._name(c, "npc", nid), self._name(c, "npc", nid); break
+                        if pt:
+                            break
+            if not pt and fin:
+                pt = spawn_of("npc", fin[0]); who = self._name(c, "npc", fin[0])
+            if not pt:
+                unknown.append(qid)
+                continue
+            stops.append({"quest": qid, "name": row["name"], "kind": kind, "who": who, "uiMapId": pt["uimap_id"], "x": round(pt["x"], 1), "y": round(pt["y"], 1),
+                          "zone": self._zone(c, pt["area_id"])["name"]})
+        order, cur = [], here
+        pool = list(stops)
+        while pool:
+            same = [s for s in pool if cur is None or s["uiMapId"] == cur[0]] or pool
+            nxt = min(same, key=lambda s: ((s["x"] - cur[1]) ** 2 + (s["y"] - cur[2]) ** 2) if cur and s["uiMapId"] == cur[0] else 0)
+            order.append(nxt); pool.remove(nxt); cur = (nxt["uiMapId"], nxt["x"], nxt["y"])
+        return {"stops": order, "no_location_known": unknown,
+                "note": "straight-line order inside each map; flight paths, hearthstone and walls are not considered: check the first stop against the guide before pinning"}
+
     def r_validate(self, c, q):
         """Check every [QA|QC|QT id] in a guide against the database: unknown ids, class/race gates, and [G x,y Zone] too far from the giver."""
         name = _q(q, "guide")

@@ -101,3 +101,23 @@ class ValidateTagTests(unittest.TestCase):
         code, r = g.handle("GET", "db/trainers", {"zone": ["Elwynn Forest"], "like": ["nothing"]}, None)
         self.assertEqual(r["count"], 0)
         self.assertIn("hint", r)
+
+
+class RouteTests(unittest.TestCase):
+    def test_route_orders_stops_and_reports_unknown(self):
+        d = tempfile.mkdtemp()
+        make_db(os.path.join(d, "forever.sqlite"))
+        c = sqlite3.connect(os.path.join(d, "forever.sqlite"))
+        c.execute("INSERT INTO npc VALUES(7000,'Kobold Miner','',5,6,0,12,'{}')")
+        c.execute("INSERT INTO spawn VALUES('npc',7000,12,1429,10.0,10.0)")
+        q = {"name": "Candles", "questLevel": 5, "objectives": {"1": [[7000, "Kobold Miner slain"]]}}
+        c.execute("INSERT INTO quest VALUES(2000,'Candles',5,3,NULL,12,0,0,'[6122]','[6122]','[]','[]','[]',NULL,NULL,0,?)", (json.dumps(q),))
+        c.commit(); c.close()
+        g = GameDB(d)
+        code, r = g.handle("GET", "db/route", {"quests": ["1688,2000,999999"], "done": ["1688"], "map": ["1429"], "x": ["11"], "y": ["11"]}, None)
+        self.assertEqual(code, 200, r)
+        kinds = {s["quest"]: s["kind"] for s in r["stops"]}
+        self.assertEqual(kinds[1688], "turn-in")
+        self.assertTrue(kinds[2000].startswith("objective"))
+        self.assertEqual(r["stops"][0]["quest"], 2000)             # the kobold at 10,10 is nearer to 11,11 than Gakin at 39,85
+        self.assertEqual(r["no_location_known"], [999999])

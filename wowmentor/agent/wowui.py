@@ -518,8 +518,21 @@ def cmd_feed(a):
     sys.stdout.write(body.decode("utf-8", "replace"))
 
 
+def cmd_verdict(a):
+    if a.clear:
+        run(a, {"op": "verdict", "clear": True})
+    elif a.remove:
+        run(a, {"op": "verdict", "item": int(a.item), "remove": True})
+    else:
+        if not a.text:
+            fail(["verdict needs --text 'short opinion' (or --remove / --clear)"])
+        run(a, {"op": "verdict", "item": int(a.item), "text": a.text})
+
+
 def cmd_watch(a):
     op = {"op": "watch"}
+    if a.spells:
+        op["spells"] = [int(i) for i in a.spells]
     if a.clear:
         op["items"] = []
     elif a.ids:
@@ -529,7 +542,7 @@ def cmd_watch(a):
     if a.remove:
         op["remove"] = [int(i) for i in a.remove]
     if len(op) == 1:
-        fail(["watch needs item ids, --add, --remove or --clear. Find ids with `wowui db item --name ...`"])
+        fail(["watch needs item ids, --add, --remove, --spells or --clear. Find ids with `wowui db item --name ...`"])
     run(a, op)
 
 
@@ -559,6 +572,147 @@ def cmd_db(a):
         run(a, op)
         return
     print(json.dumps(res, indent=2, ensure_ascii=False))
+
+
+# ---------------------------------------------------------------- awareness helpers: sections, contradiction guard, route, autopsy, debrief
+def cmd_section(a):
+    feed = read_feed(a)
+    for name in a.names:
+        body = feed_section(feed, name.upper())
+        print("--- %s" % name.upper())
+        print(body.rstrip() if body else "(section not in the feed: the addon may be older, or nothing to report)")
+
+
+def _fast(feed):
+    f = feed_section(feed, "FAST")
+    m = re.search(r"Position: map=(\d+) \(([^)]*)\) x=([\d.]+) y=([\d.]+)", f)
+    return (int(m.group(1)), float(m.group(3)), float(m.group(4)), m.group(2)) if m else None
+
+
+def _quest_log(feed):
+    qs = feed_section(feed, "QUESTS")
+    return {int(i): (st, t) for st, t, i in re.findall(r"\[(COMPLETE|in progress|failed)\] (.+?) \(L\d+\) #(\d+)", qs)}
+
+
+def cmd_verify(a):
+    """Contradiction guard: compare Guidelime's next step, the overlay tasks, the waypoint and Questie's focus before you say anything."""
+    feed = read_feed(a)
+    st = live_guide_state(feed)
+    problems, info = [], []
+    guide = tug_name_for_title(a, st["title"]) if st["title"] else None
+    if not guide:
+        fail(["no Guidelime guide is loaded in the game, or the GUIDES section is missing (older addon?)"])
+    line = first_open_line(a, guide, st["resolved"])
+    text = tug_get(a, "show", name=guide, **{"from": line, "to": line + 14})["text"] if line else ""
+    steps = [re.match(r"\s*(\d+)\s+(.*)", l) for l in text.splitlines()]
+    steps = [(int(m.group(1)), m.group(2)) for m in steps if m]
+    nxt = steps[0] if steps else None
+    next_q = {int(i) for n, t in steps for i in re.findall(r"\[Q[ACT](\d+)", t)}
+    first_q = {int(i) for i in re.findall(r"\[Q[ACT](\d+)", nxt[1])} if nxt else set()
+    m = re.search(r"\[G\s*([\d.]+)\s*,\s*([\d.]+)", nxt[1]) if nxt else None
+    info.append("Guidelime next step (%s line %s): %s" % (guide, nxt[0] if nxt else "?", (nxt[1][:110] if nxt else "(none: guide finished?)")))
+    info.append("Questie focus: %s | arrow source: %s | resolved steps: %d" % (st["focus"] or "none", st["arrow"], len(st["resolved"])))
+    doc = current_doc(a)
+    open_items, task_q = [], set()
+    for p in doc.get("panels", []):
+        for c in p.get("children", []):
+            if c.get("type") == "checklist":
+                for it in c.get("items", []):
+                    if not it.get("done"):
+                        open_items.append((p["id"], it.get("id"), it.get("text", "")))
+                        au = it.get("auto") or {}
+                        if isinstance(au.get("quest"), int):
+                            task_q.add(au["quest"])
+    info.append("Overlay open tasks: %s" % ("; ".join("%s/%s: %s" % (p, i, t[:50]) for p, i, t in open_items[:8]) or "none"))
+    wps = doc.get("waypoints", [])
+    info.append("Overlay waypoints: %s" % (", ".join("%s map %s %.1f,%.1f %s" % (w["id"], w["map"], w["x"], w["y"], w.get("title", "")) for w in wps) or "none"))
+    if st["focus"] and next_q and st["focus"] not in next_q:
+        problems.append("FOCUS_MISMATCH Questie focus #%s is not a quest of the next Guidelime steps %s: `wowui action track_quest --quest %s`" % (st["focus"], sorted(next_q)[:4], sorted(first_q or next_q)[0]))
+    if not st["focus"] and first_q:
+        problems.append("NO_FOCUS the next step is about quest %s but Questie focuses nothing: `wowui action track_quest --quest %s`" % (sorted(first_q)[0], sorted(first_q)[0]))
+    if task_q and next_q and not (task_q & next_q):
+        problems.append("OVERLAY_OFF_GUIDE the open overlay tasks cover quests %s but the next guide steps are about %s" % (sorted(task_q)[:5], sorted(next_q)[:5]))
+    if not open_items:
+        problems.append("OVERLAY_EMPTY no open overlay tasks while the guide has a next step: `wowui pin` or `wowui plan`")
+    if m and wps:
+        gx, gy = float(m.group(1)), float(m.group(2))
+        w = next((x for x in wps if x.get("track")), wps[0])
+        d = ((w["x"] - gx) ** 2 + (w["y"] - gy) ** 2) ** 0.5
+        if d > 6:
+            problems.append("ARROW_MISMATCH waypoint %s at %.1f,%.1f is %.0f units from Guidelime's next [G] %.1f,%.1f (same map not checked): align them or use track=false" % (w["id"], w["x"], w["y"], d, gx, gy))
+    log = _quest_log(feed)
+    for qid in sorted(first_q):
+        if qid in log and log[qid][0] == "COMPLETE":
+            info.append("note: quest #%d is COMPLETE in the log: the next step is probably its turn-in" % qid)
+    print("\n".join("  " + i for i in info))
+    print("# %d problem(s)" % len(problems))
+    for pr in problems:
+        print("PROBLEM " + pr)
+    print("# anything the feed hides is UNKNOWN: do not state it as fact. Fix problems before you message the player.")
+
+
+def cmd_route(a):
+    """Order the quests in the log into stops (turn-ins first where done), nearest first; optionally pin the first stops."""
+    feed = read_feed(a)
+    log = _quest_log(feed)
+    if not log:
+        fail(["the quest log in the feed is empty"])
+    pos = _fast(feed)
+    ids = [i for i in log if a.only is None or str(i) in a.only.split(",")]
+    done = [i for i in ids if log[i][0] == "COMPLETE"]
+    params = {"quests": ",".join(map(str, ids)), "done": ",".join(map(str, done))}
+    if pos:
+        params.update(map=pos[0], x=pos[1], y=pos[2])
+    code, res = get_json(base_url(a), "db/route?" + urllib.parse.urlencode(params))
+    if code != 200 or not res.get("ok", True):
+        fail(res.get("errors") or [json.dumps(res)[:300]])
+    for n, s in enumerate(res["stops"], 1):
+        print("%2d. #%-6d %-34s %-22s %s %.1f,%.1f (map %s)%s" % (n, s["quest"], s["name"][:34], s["kind"][:22], s["zone"], s["x"], s["y"], s["uiMapId"], "  <- here" if n == 1 else ""))
+    if res["no_location_known"]:
+        print("no location in the database for: %s" % res["no_location_known"])
+    if a.set and res["stops"]:
+        ops = []
+        for n, s in enumerate(res["stops"][: a.set], 1):
+            op = {"op": "waypoint", "id": "route%d" % n, "map": s["uiMapId"], "x": s["x"], "y": s["y"], "title": "%d. %s" % (n, s["name"]), "track": n == 1}
+            if n == 1:
+                op["quest"] = s["quest"]
+            ops.append(op)
+        run(a, ops)
+
+
+def cmd_autopsy(a):
+    """Everything known about the latest death, in one place: events, the nearest fight, position, pet, buffs, bags, durability."""
+    feed = read_feed(a)
+    code, ev = get_json(base_url(a), "events?types=death,fight&limit=6")
+    evs = ev.get("events", []) if code == 200 else []
+    print("# latest death and fight events (newest last)")
+    for e in evs[-4:]:
+        print(json.dumps(e, ensure_ascii=False)[:600])
+    for name in ("DEATHS", "FIGHTS", "FAST", "PET", "AURAS", "ACTIONBARS", "BAGS", "EQUIPMENT"):
+        body = feed_section(feed, name)
+        if body:
+            print("--- %s" % name)
+            print("\n".join(body.rstrip().splitlines()[: (14 if name in ("DEATHS", "FIGHTS", "FAST", "PET", "AURAS") else 8)]))
+    print("# Write the lesson with `wowui memory add --tag lesson ...`; check pet out, Demon Skin, shards, Healthstone, potion; name where it happened and warn before going back.")
+
+
+def cmd_debrief(a):
+    feed = read_feed(a)
+    code, ev = get_json(base_url(a), "events?limit=500")
+    counts = {}
+    for e in ev.get("events", []) if code == 200 else []:
+        counts[e["type"]] = counts.get(e["type"], 0) + 1
+    print("# events in the buffer by type: %s" % (", ".join("%s=%d" % kv for kv in sorted(counts.items(), key=lambda kv: -kv[1])[:14]) or "none"))
+    for name in ("SESSION", "DEATHS", "FIGHTS", "QUESTS", "PROFESSIONS"):
+        body = feed_section(feed, name)
+        if body:
+            print("--- %s" % name)
+            print("\n".join(body.rstrip().splitlines()[:10]))
+    code, m = get_json(base_url(a), "memory")
+    lessons = [n for n in (m.get("notes") or []) if n.get("tag") == "lesson"][-8:] if code == 200 else []
+    print("--- lessons so far")
+    print("\n".join("- #%s %s" % (n["id"], n["text"]) for n in lessons) or "(none yet)")
+    print("# Say what went well and one thing to fix next, then `wowui memory add --tag lesson \"...\"`.")
 
 
 # ---------------------------------------------------------------- live guide editing (Guidelime TUGs on the player's Mac)
@@ -1061,7 +1215,7 @@ def main():
     common.add_argument("--partial", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     common.add_argument("--op-id", dest="op_id", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     OP_COMMANDS = {"panel", "plan", "add-task", "check", "remove", "text", "progress", "callout", "component", "toast", "say", "waypoint",
-                   "action", "theme", "ops", "clear", "reset", "builtin", "coach", "watch"}
+                   "action", "theme", "ops", "clear", "reset", "builtin", "coach", "watch", "verdict"}
 
     def add(name, fn, help_, style=False):
         p = sub.add_parser(name, help=help_, description=help_, parents=[common] if name in OP_COMMANDS else [])
@@ -1093,7 +1247,7 @@ def main():
     p.add_argument("--map", type=int, help="uiMapID, e.g. 1429 Elwynn Forest"); p.add_argument("--x", type=float); p.add_argument("--y", type=float)
     p.add_argument("--title"); p.add_argument("--track", action="store_true", help="make it the active arrow"); p.add_argument("--clear", action="store_true")
     p.add_argument("--quest", type=int, help="also focus this quest in Questie's tracker (questID)")
-    p = add("action", cmd_action, "one-shot client actions: flash, sound, chat, track_quest (focus in Questie), unfocus_quest, guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime"])
+    p = add("action", cmd_action, "one-shot client actions: flash, sound, chat, track_quest (focus in Questie), unfocus_quest, guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak"])
     p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide"]); p.add_argument("--guide")
     p.add_argument("--text"); p.add_argument("--sound", choices=["none", "ping", "warning", "quest", "levelup", "ready"]); p.add_argument("--quest", type=int)
     p = add("theme", cmd_theme, "change global style tokens")
@@ -1149,7 +1303,7 @@ def main():
     p = add("npcs", cmd_npcs, "NPCs the player has met (name, id, map, x, y, kind, count, last_seen)"); p.add_argument("--name"); p.add_argument("--compact", action="store_true")
     p = add("session", cmd_session, "is the player in the game? state, foreground, last login/logout, bridge heartbeat"); p.add_argument("--compact", action="store_true")
     p = add("questions", cmd_questions, "open questions the player asked with /coach <text>"); p.add_argument("--all", action="store_true", help="include answered ones"); p.add_argument("--compact", action="store_true")
-    p = add("builtin", cmd_builtin, "show or hide the built-in Character panel (professions, skills, gear, talents)"); p.add_argument("which", choices=["me"]); p.add_argument("state", choices=["on", "off"])
+    p = add("builtin", cmd_builtin, "show or hide the built-in Character panel (me), or turn spoken advice on or off (voice: the game's text to speech, off by default, the player can override with /wfui voice)"); p.add_argument("which", choices=["me", "voice"]); p.add_argument("state", choices=["on", "off"])
     tp = sub.add_parser("tug", help="live-edit the Guidelime TUGs leveling guide on the player's Mac (see `wowui tug --help`)",
                         description="Read, search and edit the guide files. Edits are validated here, written to the player's files by the bridge with a backup, and the player is asked to /reload.")
     tsub = tp.add_subparsers(dest="tugcmd", required=True, metavar="tug-command")
@@ -1180,7 +1334,8 @@ def main():
     p = tadd("history", cmd_tug_history, "list restore points for a guide"); p.add_argument("guide")
     p = tadd("restore", cmd_tug_restore, "restore a guide: orig (as first found) or a version id from `tug history`"); p.add_argument("guide"); p.add_argument("version"); p.add_argument("--note")
     p = add("watch", cmd_watch, "ask the game to report details, stats, vendor and AH prices and owned count for items (feed section ITEM_WATCH, up to 30)"); p.add_argument("ids", nargs="*")
-    p.add_argument("--add", nargs="+"); p.add_argument("--remove", nargs="+"); p.add_argument("--clear", action="store_true")
+    p.add_argument("--add", nargs="+"); p.add_argument("--remove", nargs="+"); p.add_argument("--clear", action="store_true"); p.add_argument("--spells", nargs="+", help="spell ids to report in SPELL_WATCH: known, cooldown, usable, in range of the target")
+    p = add("verdict", cmd_verdict, "show a one-line opinion in an item's tooltip in the game (Mentor: keep for AH, about 3s); up to 40 items"); p.add_argument("item", nargs="?"); p.add_argument("--text"); p.add_argument("--remove", action="store_true"); p.add_argument("--clear", action="store_true")
     dp = add("db", cmd_db, "look up Forever quests, NPCs, items, trainers and chains from the offline game database (no web search needed)")
     dsub = dp.add_subparsers(dest="dbcmd", required=True, metavar="db-command")
     def dadd(name, help_, *flags):
@@ -1198,6 +1353,11 @@ def main():
     p = dadd("waypoint", "where is an NPC or a quest's start/finish: --npc NAME | --quest ID [--which start|finish] [--set] (set pins it with TomTom and focuses the quest)", "npc", "quest", "which")
     p.add_argument("--set", action="store_true"); p.add_argument("--wid", default="w1", help="waypoint id used with --set")
     dadd("validate", "check a guide's quest ids, class/race gates and [G] coordinates: --guide NAME [--class Warlock --race Human]", "guide", "klass", "race")
+    p = add("section", cmd_section, "print feed sections by name (e.g. wowui section FAST PVP TALENTS_TRAITS): no raw feed link needed"); p.add_argument("names", nargs="+")
+    p = add("verify", cmd_verify, "contradiction guard: Guidelime's next step vs overlay tasks, waypoint and Questie focus; run it before every message that names a next step")
+    p = add("route", cmd_route, "order the quests in the log into stops (turn-ins first), nearest first; --set N pins the first N stops (the first one with the arrow and quest focus)"); p.add_argument("--set", type=int); p.add_argument("--only", help="comma list of quest ids")
+    add("autopsy", cmd_autopsy, "everything about the latest death in one place (events, fight, position, pet, buffs, bags, durability)")
+    add("debrief", cmd_debrief, "session summary data: events by type, deaths, fights, quests, professions and your lesson notes")
     p = add("align", cmd_align, "audit the guides ahead of the player against the live quest log and Questie's completed list (STALE / HAVE / MISSING / FOCUS)"); p.add_argument("guide", nargs="?", help="current guide (default: read from the game)")
     p.add_argument("--ahead", type=int, default=2, help="how many guides after it to check"); p.add_argument("--also", help="comma list of extra guides (side trips off the [NX] chain)"); p.add_argument("--completed", help="extra completed quest ids")
     p = add("pin", cmd_pin, "put an urgent task at the top of what is left in the current guide AND add it to the overlay panel, so they agree"); p.add_argument("text", help="a Guidelime step, e.g. 'Buy 2 Linen Cloth [AH]'")

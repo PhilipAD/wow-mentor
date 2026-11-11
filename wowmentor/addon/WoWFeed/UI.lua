@@ -695,6 +695,7 @@ local function computeTarget(P)
 	if (v.minLevel and lvl < v.minLevel) or (v.maxLevel and lvl > v.maxLevel) then return 0 end
 	if v.hideWhenMounted and truthy(call(IsMounted)) then return 0 end
 	if v.hideInInstance and truthy(call(IsInInstance)) then return 0 end
+	if v.ctx then local cx, okc = UI.context(), false; for _, x in ipairs(v.ctx) do if x == cx then okc = true end end; if not okc then return 0 end end
 	local full = (d.alpha or 1) * DB.alpha
 	local a = full
 	local inCombat = truthy(call(UnitAffectingCombat, "player")) or truthy(call(InCombatLockdown))
@@ -895,6 +896,63 @@ function UI.applyGuideLive(list)
 	end
 end
 
+-- Where the player is, in the words panels use: town, wild, contested, instance, battleground, city_pvp. Cached for half a second.
+function UI.context()
+	local t = now()
+	if S.ctxAt and t - S.ctxAt < 0.5 then return S.ctx end
+	local ok, inInst, itype = pcall(IsInInstance)
+	local cx = "wild"
+	if ok and inInst then
+		cx = (itype == "pvp" or itype == "arena") and "battleground" or "instance"
+	else
+		local okz, zt = pcall(GetZonePVPInfo)
+		local resting = truthy(call(IsResting))
+		if resting then cx = (okz and (zt == "hostile" or zt == "contested")) and "city_pvp" or "town"
+		elseif okz and (zt == "contested" or zt == "hostile" or zt == "combat") then cx = "contested"
+		elseif okz and zt == "sanctuary" then cx = "town" end
+	end
+	S.ctx, S.ctxAt = cx, t
+	return cx
+end
+
+-- Spoken advice (opt-in): the game's own text to speech through C_VoiceChat.SpeakText. The agent turns it on with `wowui builtin --voice on`;
+-- the player can always override with /wfui voice on|off. Throttled, short, never in a loop.
+local function voiceOn()
+	if DB.voiceMode == "off" then return false end
+	if DB.voiceMode == "on" then return true end
+	return S.voice == true
+end
+function UI.speak(text)
+	if not voiceOn() or type(text) ~= "string" or text == "" then return false end
+	local t = now()
+	if t - (S.speakAt or 0) < 4 then return false end
+	if not (C_VoiceChat and C_VoiceChat.SpeakText) then return false end
+	local voice = 0
+	pcall(function()
+		if C_TTSSettings and C_TTSSettings.GetVoiceOptionID then voice = C_TTSSettings.GetVoiceOptionID((Enum and Enum.TtsVoiceType and Enum.TtsVoiceType.Standard) or 0) or 0 end
+	end)
+	text = expand(text):sub(1, 220)
+	-- 12.x: (voiceID, text, rate, volume, overlap); older clients take a destination before the rate
+	local ok = pcall(C_VoiceChat.SpeakText, voice, text, 0, 100, false)
+	if not ok then ok = pcall(C_VoiceChat.SpeakText, voice, text, (Enum and Enum.VoiceTtsDestination and Enum.VoiceTtsDestination.LocalPlayback) or 1, 0, 100) end
+	if ok then S.speakAt = t end
+	return ok
+end
+
+-- Mentor verdicts in item tooltips (doc.verdicts: itemId -> short text).
+local function hookTooltips()
+	if S.tooltipHooked then return end
+	if not (TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType) then return end
+	local ok = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Item, function(tt, data)
+		local id = type(data) == "table" and data.id or nil
+		if id == nil or (issecretvalue and issecretvalue(id)) then return end
+		local v = S.verdicts and S.verdicts[tostring(id)]
+		if v and tt and tt.AddLine then tt:AddLine("|cff33ccffMentor:|r " .. v, 1, 1, 1, true) end
+	end)
+	if ok then S.tooltipHooked = true end
+end
+function UI.watchSpells() return S.watchSpells or {} end
+
 -- owner "rule" marks a waypoint created by a rule action: a new document revision does not sweep it away.
 local function setWaypoint(w, owner)
 	local sig = strfmt("%s:%s:%s:%s:%s:%s:%s", w.map, w.x, w.y, w.title or "", tostring(w.clear_yards or ""), tostring(w.task or ""), tostring(w.quest or ""))
@@ -931,6 +989,7 @@ local function runAction(a)
 		playSound(a.sound)
 	elseif a.name == "track_quest" and a.quest then
 		focusQuest(a.quest)
+	elseif a.name == "speak" then UI.speak(a.text)
 	elseif a.name == "unfocus_quest" then
 		pcall(function()
 			local TU = QuestieLoader and QuestieLoader:ImportModule("TrackerUtils")
@@ -1128,6 +1187,10 @@ local function applyDoc(doc)
 	end
 	S.rules = type(doc.rules) == "table" and doc.rules or {}
 	S.watch = type(doc.watch) == "table" and doc.watch or {}
+	S.watchSpells = type(doc.watch_spells) == "table" and doc.watch_spells or {}
+	S.verdicts = type(doc.verdicts) == "table" and doc.verdicts or {}
+	S.voice = type(doc.builtin) == "table" and doc.builtin.voice == true
+	if next(S.verdicts) ~= nil then pcall(hookTooltips) end
 	if type(doc.guide_live) == "table" and #doc.guide_live > 0 then local okg, eg = pcall(UI.applyGuideLive, doc.guide_live); if not okg then lerr("guide live: " .. tostring(eg)) end end
 	S.inbox = type(doc.inbox) == "table" and doc.inbox or {}
 	S.docNow = nowEpoch
@@ -1302,13 +1365,14 @@ SlashCmdList.WFUI = function(msg)
 	elseif cmd == "unlock" then DB.locked = false; say("unlocked: drag a panel by its title, or hold Shift and drag anywhere on it")
 	elseif cmd == "me" then DB.hideMe = not DB.hideMe; pcall(refreshBuiltin); say(DB.hideMe and "character panel hidden" or "character panel shown")
 	elseif cmd == "inbox" then DB.hideInbox = not DB.hideInbox; pcall(refreshBuiltin); say(DB.hideInbox and "coach inbox hidden" or "coach inbox shown")
+	elseif cmd == "voice" then local m = arg:lower(); if m == "on" or m == "off" then DB.voiceMode = m elseif m == "auto" then DB.voiceMode = nil end; say("spoken advice: " .. (DB.voiceMode or (S.voice and "on (the mentor turned it on)" or "off")) .. " (/wfui voice on|off|auto)")
 	elseif cmd == "edit" then manualEdit = not manualEdit; say(manualEdit and "edit mode on: drag any panel, /wfui edit again to finish" or "edit mode off")
 	elseif cmd == "alpha" then DB.alpha = max(0.1, min(1, tonumber(arg) or 1)); say("alpha " .. DB.alpha)
 	elseif cmd == "scale" then DB.scale = max(0.5, min(2, tonumber(arg) or 1)); for _, P in pairs(S.panels) do if P.data then placePanel(P) end end; say("scale " .. DB.scale)
 	elseif cmd == "reset" then DB.user = {}; for _, P in pairs(S.panels) do if P.data then P.dirty = true; placePanel(P) end end; say("positions, collapsed panels and ticks reset")
 	elseif cmd == "demo" then S.boot = true; pcall(applyDoc, DEMO); say("demo shown; the mentor replaces it on the next update")
 	elseif cmd == "dump" then for _, l in ipairs(stateLines()) do print(l) end
-	else say("/wfui show|hide|toggle|lock|unlock|edit|me|inbox|alpha <0.1-1>|scale <0.5-2>|reset|demo|dump. Drag by the title, or hold Shift and drag anywhere on a panel; Blizzard Edit Mode also unlocks them.") end
+	else say("/wfui show|hide|toggle|lock|unlock|edit|me|inbox|voice on|off|auto|alpha <0.1-1>|scale <0.5-2>|reset|demo|dump. Drag by the title, or hold Shift and drag anywhere on a panel; Blizzard Edit Mode also unlocks them.") end
 	S.dirtyState = true
 end
 

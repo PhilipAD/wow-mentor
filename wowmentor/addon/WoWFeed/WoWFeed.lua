@@ -1192,11 +1192,95 @@ local function sMerchant()
 	return L
 end
 
+-- Are we ready for a fight? One verdict line plus the facts it is built from: pet, armour buff, shards, Healthstone, potions and bandages,
+-- durability, bags, hearthstone location, and where we are (town, wild, contested ...). Out-of-combat facts only; anything the game hides is "unknown".
+local function sReadiness()
+	local L = {}
+	local ctx = WoWFeedUI and WoWFeedUI.context and WoWFeedUI.context() or "?"
+	local bad = {}
+	L[#L+1] = "Context: " .. tostring(ctx)
+	local class = select(2, try(UnitClass, "player"))
+	if class == "WARLOCK" or class == "HUNTER" then
+		local has = tb(try(UnitExists, "pet"))
+		local dead = has and tb(try(UnitIsDead, "pet"))
+		L[#L+1] = "Pet: " .. (not has and "NONE out" or (dead and "DEAD" or "out"))
+		if not has or dead then bad[#bad+1] = "pet" end
+	end
+	if class == "WARLOCK" then
+		local shards = num(try(GetItemCount, 6265))
+		L[#L+1] = "Soul Shards: " .. tostring(shards or "?")
+		if shards and shards < 3 then bad[#bad+1] = "soul shards" end
+		local armor
+		for i = 1, 40 do
+			local a = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex and try(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+			if type(a) ~= "table" then break end
+			local nm = a.name
+			if type(nm) == "string" and not (issecretvalue and issecretvalue(nm)) and (nm:find("Demon Skin") or nm:find("Demon Armor") or nm:find("Fel Armor")) then armor = nm; break end
+		end
+		L[#L+1] = "Armour buff: " .. (armor or "NONE found (out of combat the list is readable)")
+		if not armor then bad[#bad+1] = "demon armour buff" end
+	end
+	local hs, pot, band, free = 0, 0, 0, 0
+	for b = 0, 5 do
+		local slots = bagCount and bagCount(b) or 0
+		for sl = 1, slots do
+			local l, c = bagItem(b, sl)
+			if l then
+				local nm = tostring(l):match("%[(.-)%]") or ""
+				local n = num(c) or 1
+				if nm:find("Healthstone") then hs = hs + n elseif nm:find("Potion") then pot = pot + n elseif nm:find("Bandage") then band = band + n end
+			else free = free + 1 end
+		end
+	end
+	L[#L+1] = strfmt("Healthstones: %d | potions: %d | bandages: %d | free bag slots: %d", hs, pot, band, free)
+	if class == "WARLOCK" and hs == 0 then bad[#bad+1] = "no Healthstone" end
+	if pot + band == 0 then bad[#bad+1] = "no potion or bandage" end
+	local low, lowSlot = 100, nil
+	for slot = 1, 19 do
+		local cur, max = try(GetInventoryItemDurability, slot)
+		cur, max = num(cur), num(max)
+		if cur and max and max > 0 and (cur / max) * 100 < low then low = (cur / max) * 100; lowSlot = slot end
+	end
+	L[#L+1] = strfmt("Lowest durability: %d%%%s", math.floor(low + 0.5), lowSlot and (" (slot " .. lowSlot .. ")") or "")
+	if low < 25 then bad[#bad+1] = "durability " .. math.floor(low + 0.5) .. "%" end
+	L[#L+1] = "Hearthstone bound to: " .. clean(try(GetBindLocation) or "?")
+	L[#L+1] = (#bad == 0) and "VERDICT: READY" or ("VERDICT: NOT READY: " .. tconcat(bad, ", "))
+	return L
+end
+
+-- Spells the agent asked about (doc.watch_spells): known, cooldown, usable, in range of the target. Cooldown and range can be hidden by the game
+-- in combat; those fields then say "hidden".
+local function sSpellWatch()
+	local ids = WoWFeedUI and WoWFeedUI.watchSpells and WoWFeedUI.watchSpells() or {}
+	if #ids == 0 then return { "(empty: the agent has not asked about any spell; `wowui watch --spells <ids>`)" } end
+	local L = {}
+	for _, id in ipairs(ids) do
+		local info = C_Spell and C_Spell.GetSpellInfo and try(C_Spell.GetSpellInfo, id)
+		local name = type(info) == "table" and info.name or (GetSpellInfo and try(GetSpellInfo, id)) or "?"
+		local known = (IsPlayerSpell and tb(try(IsPlayerSpell, id))) or (IsSpellKnown and tb(try(IsSpellKnown, id))) or false
+		local cd = C_Spell and C_Spell.GetSpellCooldown and try(C_Spell.GetSpellCooldown, id)
+		local cdtxt = "?"
+		if type(cd) == "table" then
+			local st, du = num(cd.startTime), num(cd.duration)
+			if st and du then cdtxt = (du > 1.5 and st > 0) and strfmt("%ds left", math.max(0, math.floor(st + du - GetTime() + 0.5))) or "ready" else cdtxt = "hidden" end
+		end
+		local usable, nomana = false, false
+		if C_Spell and C_Spell.IsSpellUsable then usable, nomana = try(C_Spell.IsSpellUsable, id) end
+		local rng = "no target"
+		if tb(try(UnitExists, "target")) and C_Spell and C_Spell.IsSpellInRange then
+			local r = try(C_Spell.IsSpellInRange, id, "target")
+			if r == nil or (issecretvalue and issecretvalue(r)) then rng = "unknown" else rng = (r == true or r == 1) and "in range" or "OUT of range" end
+		end
+		L[#L+1] = strfmt("#%d %s | %s | cooldown %s | usable %s%s | target %s", id, clean(name), known and "known" or "NOT known", cdtxt, tostring(tb(usable) or false), tb(nomana) and " (no mana)" or "", rng)
+	end
+	return L
+end
+
 local tickN = 0
 local function tickBody()
 	tickN = tickN + 1
 	push("summary", safe(sSummary), 5); push("fast", safe(sPlayerFast), 5)
-	if tickN % 3 == 0 then push("guides", safe(sGuides), 90); push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
+	if tickN % 3 == 0 then push("guides", safe(sGuides), 90); push("readiness", safe(sReadiness), 30); push("spell_watch", safe(sSpellWatch), 30); push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
 	if tickN % 15 == 0 or dirty.slow then
 		dirty.slow = false
 		push("stats", safe(sStats), 120); push("equipment", safe(sEquipment), 300); push("bags", safe(sBags), 300)

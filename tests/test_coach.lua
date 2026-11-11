@@ -836,4 +836,31 @@ eq(#S.errors, 0, "no addon errors recorded: " .. table.concat(S.errors, " | "))
 eq(#US.errors, 0, "no UI errors recorded: " .. table.concat(US.errors, " | "))
 if fails > 0 then error(fails .. " coach test(s) failed", 0) end
 check(maxParts >= 2, "big events (a death with attackers) are split over several strip messages, max parts " .. maxParts)
+---------------------------------------------------------------- newer conditions: pet_dead, item_count_lte, hostiles_near_gte, enemy_player
+do
+	w.units.pet = { exists = true, name = "Imp", dead = true }
+	w.units.player.dead = nil
+	w.counts[6265] = 1
+	w.plates = { "nameplate1", "nameplate2", "nameplate3" }
+	for _, tok in ipairs(w.plates) do w.units[tok] = { exists = true, attackable = true, isPlayer = false } end
+	W.printed = {}
+	applyDoc({ panels = {}, rules = {
+		{ id = "pd", when = { type = "pet_dead" }, cooldown_s = 0, ["then"] = { { ["do"] = "chat", text = "pet is dead" } } },
+		{ id = "shards", when = { type = "item_count_lte", item = 6265, n = 2 }, cooldown_s = 0, ["then"] = { { ["do"] = "chat", text = "shards low: {count}" } } },
+		{ id = "mob", when = { type = "hostiles_near_gte", n = 3 }, cooldown_s = 0, ["then"] = { { ["do"] = "chat", text = "hostiles: {count}" } } },
+		{ id = "hunter", when = { type = "enemy_player", class = "Hunter" }, cooldown_s = 0, ["then"] = { { ["do"] = "chat", text = "hunter {level}" } } },
+	} })
+	step(1); step(1)
+	check(chatLog():find("pet is dead", 1, true), "pet_dead fires when the pet is dead")
+	check(chatLog():find("shards low: 1", 1, true), "item_count_lte reports the count")
+	check(chatLog():find("hostiles: 3", 1, true), "hostiles_near_gte counts attackable nameplates")
+	w.units.enemy1 = { exists = true, attackable = true, isPlayer = true, level = 12, guid = "Player-9-0002" }
+	_G.UnitClass = function(unit) if unit == "enemy1" then return "Hunter", "HUNTER", 3 end return "Warlock", "WARLOCK", 9 end
+	W.fire("NAME_PLATE_UNIT_ADDED", "enemy1"); step(1)
+	check(chatLog():find("hunter 12", 1, true), "enemy_player event reaches a rule with class and level")
+	W.printed = {}
+	W.fire("NAME_PLATE_UNIT_ADDED", "enemy1"); step(1)
+	check(not chatLog():find("hunter", 1, true), "the same enemy is not announced twice within a minute")
+end
+
 io.write("coach ok: events=" .. S.seq .. " rules fired=" .. R.fired .. "\n")
