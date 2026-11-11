@@ -829,9 +829,25 @@ local function dismissWaypoint(id, reason)
 	S.dirtyState = true
 end
 
+-- Focus a quest the way the player would: Questie's tracker focus (fades the other pins, supertracks the quest) when Questie
+-- is loaded, the Blizzard watch and supertrack otherwise. Advice-level helper: it only changes what is highlighted.
+local function focusQuest(id)
+	id = tonumber(id)
+	if not id then return false end
+	if QuestieLoader and QuestieLoader.ImportModule then
+		local ok, done = pcall(function()
+			local TU = QuestieLoader:ImportModule("TrackerUtils")
+			return TU and TU.FocusQuest and TU:FocusQuest(id)
+		end)
+		if ok and done then return true end
+	end
+	pcall(function() C_QuestLog.AddQuestWatch(id) end)
+	return (pcall(function() C_SuperTrack.SetSuperTrackedQuestID(id) end))
+end
+
 -- owner "rule" marks a waypoint created by a rule action: a new document revision does not sweep it away.
 local function setWaypoint(w, owner)
-	local sig = strfmt("%s:%s:%s:%s:%s:%s", w.map, w.x, w.y, w.title or "", tostring(w.clear_yards or ""), tostring(w.task or ""))
+	local sig = strfmt("%s:%s:%s:%s:%s:%s:%s", w.map, w.x, w.y, w.title or "", tostring(w.clear_yards or ""), tostring(w.task or ""), tostring(w.quest or ""))
 	if S.wpDismissed[w.id] == sig then return end
 	S.wpDismissed[w.id] = nil; S.wpNote[w.id] = nil
 	local cur = S.wps[w.id]
@@ -839,6 +855,7 @@ local function setWaypoint(w, owner)
 	if cur then clearWaypoint(w.id) end
 	local x, y = w.x / 100, w.y / 100
 	local rec = { sig = sig, data = w, owner = owner, t = now() }
+	if w.quest then focusQuest(w.quest) end
 	if TomTom and TomTom.AddWaypoint then
 		local ok, uid = pcall(TomTom.AddWaypoint, TomTom, w.map, x, y, { title = w.title or "Mentor", persistent = false, minimap = true, world = true, crazy = w.track and true or false, silent = true, from = "WoWFeed" })
 		if ok and uid then rec.uid = uid; rec.via = "TomTom"; S.wps[w.id] = rec; return end
@@ -863,8 +880,30 @@ local function runAction(a)
 		if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffMentor|r: " .. expand(a.text or "")) end
 		playSound(a.sound)
 	elseif a.name == "track_quest" and a.quest then
-		pcall(function() C_QuestLog.AddQuestWatch(a.quest) end)
-		pcall(function() C_SuperTrack.SetSuperTrackedQuestID(a.quest) end)
+		focusQuest(a.quest)
+	elseif a.name == "unfocus_quest" then
+		pcall(function()
+			local TU = QuestieLoader and QuestieLoader:ImportModule("TrackerUtils")
+			if TU and TU.UnFocus then TU:UnFocus() end
+			if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then C_SuperTrack.SetSuperTrackedQuestID(0) end
+		end)
+	elseif a.name == "guidelime" then
+		local gc, gd = rawget(_G, "GuidelimeDataChar"), rawget(_G, "GuidelimeData")
+		local c = a.cmd
+		if c == "skip" or c == "complete" then
+			if SlashCmdList and SlashCmdList.Guidelime then pcall(SlashCmdList.Guidelime, c) end
+		elseif c == "toggle_window" then
+			if Guidelime and Guidelime.toggleMainFrame then pcall(Guidelime.toggleMainFrame) end
+		elseif c == "arrow_tomtom" or c == "arrow_builtin" then
+			if gd then gd.useTomTomArrow = (c == "arrow_tomtom"); showToast({ text = "Guidelime arrow source changed: type /reload to apply.", level = "info", ttl = 10 }) end
+		elseif c == "arrow_show" or c == "arrow_hide" then
+			if gc then gc.showArrow = (c == "arrow_show"); showToast({ text = "Guidelime arrow setting changed: type /reload to apply.", level = "info", ttl = 10 }) end
+		elseif c == "open_guide" and gc and a.guide then
+			local name = a.guide
+			if not name:find("^TUGs ") then name = "TUGs The Ultimate (Leveling) Guides " .. name:gsub("^%a+/", "") end
+			gc.currentGuide = name
+			showToast({ text = "Guide set to " .. name .. ": type /reload to load it.", level = "info", ttl = 12 })
+		end
 	end
 end
 

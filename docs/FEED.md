@@ -50,6 +50,7 @@ source: screen capture of WoWFeed pixel strip
 | `STATS` | addon | 2 min | Attributes, ratings |
 | `EQUIPMENT` | addon | 5 min | Every slot, with durability and empty slots |
 | `BAGS` | addon | 5 min | Every bag item |
+| `GUIDES` **new** | addon | 2 min or on change | Live Guidelime progress and options, Questie focus and completed quest ids, TomTom arrow |
 | `QUESTS` | addon | 5 min | Quest log with objectives |
 | `COOLDOWNS` | addon | 30 s | Spells on cooldown |
 | `TALENTS` | addon | 10 min | Talent trees |

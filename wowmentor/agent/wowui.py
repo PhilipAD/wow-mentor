@@ -427,13 +427,15 @@ def cmd_waypoint(a):
     op = {"op": "waypoint", "id": a.id, "map": a.map, "x": a.x, "y": a.y, "track": a.track}
     if a.title:
         op["title"] = a.title
+    if a.quest:
+        op["quest"] = a.quest
     run(a, op)
 
 
 def cmd_action(a):
     op = {"op": "action", "name": a.name}
-    for k in ("text", "sound", "quest"):
-        if getattr(a, k) is not None:
+    for k in ("text", "sound", "quest", "cmd", "guide"):
+        if getattr(a, k, None) is not None:
             op[k] = getattr(a, k)
     run(a, op)
 
@@ -644,6 +646,132 @@ def cmd_tug_history(a):
 
 def cmd_tug_restore(a):
     tug_send(a, [{"guide": a.guide, "restore": a.version, "note": a.note or "restore " + a.version}])
+
+# ---------------------------------------------------------------- align with Guidelime / Questie, pin urgent tasks
+GUIDE_PREFIX = "TUGs The Ultimate (Leveling) Guides "
+
+
+def read_feed(a):
+    tok = os.environ.get("WOWUI_READ_TOKEN") or load_env().get("read_token")
+    if not tok:
+        fail(["set WOWUI_READ_TOKEN to the token in your private feed link (wowmentor links) to read the game feed"])
+    root = base_url(a).split("/ui/")[0]
+    code, body = http("%s/%s?%s" % (root, tok, nocache()))
+    return body.decode("utf-8", "replace")
+
+
+def feed_section(feed, name):
+    m = re.search(r"^--- %s\b[^\n]*\n(.*?)(?=^--- |\Z)" % name, feed, re.S | re.M)
+    return m.group(1) if m else ""
+
+
+def live_guide_state(feed):
+    """Parse the GUIDES section: current guide title, resolved step indexes, Questie completed ids, focus."""
+    sec = feed_section(feed, "GUIDES")
+    out = {"title": None, "resolved": set(), "completed": set(), "focus": None, "arrow": None}
+    m = re.search(r"current guide: (.+)", sec)
+    if m:
+        out["title"] = m.group(1).strip()
+    m = re.search(r"resolved step indexes[^:]*: (.+)", sec)
+    if m and m.group(1).strip() != "none":
+        for part in m.group(1).split(","):
+            lo, _, hi = part.strip().partition("-")
+            if lo.isdigit():
+                out["resolved"].update(range(int(lo), int(hi or lo) + 1))
+    m = re.search(r"completed quest ids \(\d+\): ([\d,]*)", sec)
+    if m:
+        out["completed"] = {int(x) for x in m.group(1).split(",") if x}
+    m = re.search(r"focused quest: (\d+)", sec)
+    if m:
+        out["focus"] = int(m.group(1))
+    m = re.search(r"arrow=(\w+)", sec)
+    if m:
+        out["arrow"] = m.group(1)
+    return out
+
+
+def tug_name_for_title(a, title):
+    short = (title or "").replace(GUIDE_PREFIX, "", 1)
+    for g in tug_get(a, "list")["guides"]:
+        if g["title"] == short or g["name"].endswith("/" + short):
+            return g["name"]
+    return None
+
+
+def cmd_align(a):
+    """Cross-check the guides ahead of the player against the live quest log and Questie's completed list."""
+    feed = read_feed(a)
+    st = live_guide_state(feed)
+    qs = feed_section(feed, "QUESTS")
+    log = {int(i): (s, t) for s, t, i in re.findall(r"\[(COMPLETE|in progress|failed)\] (.+?) \(L\d+\) #(\d+)", qs)}
+    done = st["completed"] | {int(x) for x in (a.completed or "").split(",") if x.strip()}
+    start = a.guide or tug_name_for_title(a, st["title"])
+    if not start:
+        fail(["could not tell the current guide; pass it: wowui align \"Alliance/9-11 Dun Morogh&Loch Modan\""])
+    route = tug_get(a, "route", start=start)["route"]
+    names = [r if isinstance(r, str) else r.get("name") for r in route][: a.ahead + 1] + [x.strip() for x in (a.also or "").split(",") if x.strip()]
+    print("# current guide: %s | quest log: %d | Questie completed: %d | focused quest: %s | arrow: %s | checking: %s" % (start, len(log), len(done), st["focus"] or "none", st["arrow"], ", ".join(names)))
+    tag, seen, n = re.compile(r"\[(QA|QC|QT|QS)(\d+)"), set(), 0
+    for gi, g in enumerate(names):
+        for ln in tug_get(a, "show", name=g)["text"].splitlines():
+            m = re.match(r"\s*(\d+)\s+(.*)", ln)
+            if not m:
+                continue
+            num, text = int(m.group(1)), m.group(2)
+            resolved = gi == 0 and num in st["resolved"]
+            for kind, qid in tag.findall(text):
+                qid = int(qid); seen.add(qid)
+                if resolved:
+                    continue
+                if kind == "QA" and qid in done:
+                    n += 1; print("STALE   %s:%d accept of #%d already completed: %s" % (g, num, qid, text[:90]))
+                elif kind == "QA" and qid in log:
+                    n += 1; print("HAVE    %s:%d #%d already in your log: %s" % (g, num, qid, text[:90]))
+                elif kind in ("QC", "QT") and qid in done:
+                    n += 1; print("STALE   %s:%d %s #%d already turned in: %s" % (g, num, kind, qid, text[:90]))
+    for qid, (s, t) in sorted(log.items()):
+        if qid not in seen:
+            n += 1; print("MISSING #%d %s [%s] is in your log but in none of the checked guides" % (qid, t, s))
+    if st["focus"] and st["focus"] not in log:
+        n += 1; print("FOCUS   Questie focus #%d is not in your log: wowui action unfocus_quest" % st["focus"])
+    print("# %d finding(s). Edit only steps ahead of the player; `wowui tug show` before every edit." % n)
+
+
+def first_open_line(a, guide, resolved):
+    """The line a new top-of-list step must go before: the first step the player has not resolved yet."""
+    lines = tug_get(a, "show", name=guide)["text"].splitlines()
+    first = 1
+    for ln in lines:
+        m = re.match(r"\s*(\d+)\s+(.*)", ln)
+        if m and re.match(r"\[(GA|N|NX|D|DA|DH)\b", m.group(2)):
+            first = int(m.group(1)) + 1
+    for ln in lines:
+        m = re.match(r"\s*(\d+)\s+", ln)
+        if m and int(m.group(1)) >= first and int(m.group(1)) not in resolved:
+            return int(m.group(1))
+    return None
+
+
+def cmd_pin(a):
+    """Put an urgent task at the top of what is left in the player's current guide AND on the overlay, so they agree."""
+    feed = read_feed(a)
+    st = live_guide_state(feed)
+    guide = a.guide or tug_name_for_title(a, st["title"])
+    if not guide:
+        fail(["could not tell the current guide; pass --guide"])
+    text = unescape(a.text)
+    if a.go:
+        text += " [G%s]" % a.go.replace(" ", "")
+    line = first_open_line(a, guide, st["resolved"])
+    if line is None:
+        op = {"op": "insert", "text": text, "at": "end"}
+    else:
+        op = {"op": "insert", "text": text, "before_line": line}
+    tug_send(a, [{"guide": guide, "ops": [op], "note": a.note or "pinned by the mentor: %s" % a.text[:60]}])
+    if not a.no_overlay:
+        ns = argparse.Namespace(**{**vars(a), "panel": a.panel, "text": re.sub(r"\[[^\]]*\]", "", a.text).strip()[:90], "id": a.id, "note": None, "priority": "high", "checklist": None})
+        cmd_add_task(ns)
+    print("pinned before line %s of %s; the player needs /reload to see it in Guidelime" % (line, guide))
 
 
 def cmd_tug_status(a):
@@ -912,7 +1040,9 @@ def main():
     p = add("waypoint", cmd_waypoint, "pin a map location (TomTom if installed, otherwise the native map pin)"); p.add_argument("id", nargs="?")
     p.add_argument("--map", type=int, help="uiMapID, e.g. 1429 Elwynn Forest"); p.add_argument("--x", type=float); p.add_argument("--y", type=float)
     p.add_argument("--title"); p.add_argument("--track", action="store_true", help="make it the active arrow"); p.add_argument("--clear", action="store_true")
-    p = add("action", cmd_action, "one-shot client actions: flash (dock bounce), sound, chat, track_quest"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest"])
+    p.add_argument("--quest", type=int, help="also focus this quest in Questie's tracker (questID)")
+    p = add("action", cmd_action, "one-shot client actions: flash, sound, chat, track_quest (focus in Questie), unfocus_quest, guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime"])
+    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide"]); p.add_argument("--guide")
     p.add_argument("--text"); p.add_argument("--sound", choices=["none", "ping", "warning", "quest", "levelup", "ready"]); p.add_argument("--quest", type=int)
     p = add("theme", cmd_theme, "change global style tokens")
     for f in ("accent", "bg", "border", "text", "muted", "good", "warn", "bad", "font"):
@@ -997,6 +1127,10 @@ def main():
     p = tadd("ops", cmd_tug_ops, "send raw edit JSON ({guide, ops:[...]} or {edits:[...]}) from a file or stdin"); p.add_argument("-f", "--file")
     p = tadd("history", cmd_tug_history, "list restore points for a guide"); p.add_argument("guide")
     p = tadd("restore", cmd_tug_restore, "restore a guide: orig (as first found) or a version id from `tug history`"); p.add_argument("guide"); p.add_argument("version"); p.add_argument("--note")
+    p = add("align", cmd_align, "audit the guides ahead of the player against the live quest log and Questie's completed list (STALE / HAVE / MISSING / FOCUS)"); p.add_argument("guide", nargs="?", help="current guide (default: read from the game)")
+    p.add_argument("--ahead", type=int, default=2, help="how many guides after it to check"); p.add_argument("--also", help="comma list of extra guides (side trips off the [NX] chain)"); p.add_argument("--completed", help="extra completed quest ids")
+    p = add("pin", cmd_pin, "put an urgent task at the top of what is left in the current guide AND add it to the overlay panel, so they agree"); p.add_argument("text", help="a Guidelime step, e.g. 'Buy 2 Linen Cloth [AH]'")
+    p.add_argument("--go", help="coordinates like '61.9,30.6Stormwind City' (adds [G..])"); p.add_argument("--guide"); p.add_argument("--panel", default="next"); p.add_argument("--id"); p.add_argument("--note"); p.add_argument("--no-overlay", action="store_true")
     tadd("status", cmd_tug_status, "pending/applied edits and whether the player still needs to /reload")
     a = ap.parse_args()
     a.fn(a)

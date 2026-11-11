@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+### Guides, quest focus and arrows
+
+- New `GUIDES` feed section: live Guidelime progress and options, Questie's focused quest and completed ids, and the TomTom arrow.
+- Waypoints take `quest` (focus it in Questie); new actions `unfocus_quest` and `guidelime` (skip, complete, arrow source, show or hide the arrow, open a guide).
+- `wowui align` audits guides against the live quest log; `wowui pin` puts an urgent step before the first unresolved guide step and on the overlay.
+- The "Guide changed: type /reload" prompt now waits for the agent to finish a batch of edits (`WOWMENTOR_RELOAD_QUIET_S`, default 45 s).
+
 ### Windows support
 
 - Windows 10 (2004 or newer) and 11 now work. Install with one PowerShell line (`install.ps1`) or by double-clicking `Install-WoWMentor.cmd`. No admin needed.

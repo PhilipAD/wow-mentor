@@ -1,3 +1,5 @@
+import os
+os.environ.setdefault("WOWMENTOR_RELOAD_QUIET_S", "0")
 import base64, json, os, sys, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from helpers import RunningServer, http, jhttp

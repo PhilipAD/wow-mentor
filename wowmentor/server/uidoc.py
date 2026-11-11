@@ -23,7 +23,8 @@ PRIORITIES = ("high", "med", "low")
 COMBAT = ("show", "dim", "hide")
 FONTS = ("default", "friz", "arial", "morpheus", "skurri")
 SOUNDS = ("none", "ping", "warning", "quest", "levelup", "ready")
-ACTIONS = ("flash", "sound", "chat", "track_quest")
+ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime")
+GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide")
 BINDS = ("bags", "durability")        # XP and level are never shown on the overlay
 COLOR_NAMES = {
     "white": "#ffffff", "black": "#000000", "red": "#ff4040", "green": "#40d060", "blue": "#4090ff", "yellow": "#ffd100",
@@ -171,7 +172,7 @@ def _auto(v):
 
 
 ITEM_FIELDS = {"auto": _auto, "id": _id, "text": _str, "done": _bool, "note": _str, "priority": _enum(PRIORITIES), "icon": _str, "reset": _bool}
-WAYPOINT_FIELDS = {"clear_yards": _num(1, 500), "task": _str, "id": _id, "map": _int(1, 100000), "x": _num(0, 100), "y": _num(0, 100), "title": _str, "track": _bool}
+WAYPOINT_FIELDS = {"clear_yards": _num(1, 500), "task": _str, "id": _id, "map": _int(1, 100000), "x": _num(0, 100), "y": _num(0, 100), "title": _str, "track": _bool, "quest": _int(1, 10_000_000)}
 
 
 def _apply_fields(spec, src, errs, path, allow_extra=()):
@@ -325,7 +326,7 @@ DO_TYPES = {
     "chat": {"text": (_str, True), "sound": (_enum(SOUNDS), False)},
     "check": {"panel": (_id, True), "item": (_id, True), "done": (_bool, False)},
     "waypoint": {"id": (_id, True), "map": (_int(1, 100000), True), "x": (_num(0, 100), True), "y": (_num(0, 100), True),
-                 "title": (_str, False), "track": (_bool, False), "clear_yards": (_num(1, 500), False)},
+                 "title": (_str, False), "track": (_bool, False), "clear_yards": (_num(1, 500), False), "quest": (_int(1, 10_000_000), False)},
     "panel_text": {"panel": (_id, True), "child": (_id, True), "text": (_str, True)},
     "sound": {"sound": (_enum(SOUNDS), True)},
     "flash": {},
@@ -589,7 +590,7 @@ class Doc:
             self.toasts = (self.toasts + [t])[-MAX_HISTORY:]
 
     def _op_action(self, b, errs, warns):
-        spec = {"name": _enum(ACTIONS), "text": _str, "sound": _enum(SOUNDS), "quest": _int(1, 10_000_000)}
+        spec = {"name": _enum(ACTIONS), "text": _str, "sound": _enum(SOUNDS), "quest": _int(1, 10_000_000), "cmd": _enum(GUIDELIME_CMDS), "guide": _str}
         a = _apply_fields(spec, b, errs, "action")
         if "name" not in a:
             errs.append("action.name: required (one of %s)" % ", ".join(ACTIONS))
@@ -597,6 +598,10 @@ class Doc:
             errs.append("action.text: required for chat")
         elif a["name"] == "track_quest" and "quest" not in a:
             errs.append("action.quest: required for track_quest")
+        elif a["name"] == "guidelime" and "cmd" not in a:
+            errs.append("action.cmd: required for guidelime (one of %s)" % ", ".join(GUIDELIME_CMDS))
+        elif a.get("cmd") == "open_guide" and "guide" not in a:
+            errs.append("action.guide: required for open_guide (the guide title, as `tug list` prints it)")
         if not errs:
             a.update(id=self.rev + 1, t=time.time())
             self.actions = (self.actions + [a])[-MAX_HISTORY:]
@@ -843,6 +848,7 @@ Add a fresh `?t=<random number>` to every fetch (the edge caches otherwise). Sec
 - QUESTS (log with objectives), PROFESSIONS (all skill lines incl. weapon skills and proficiencies), SKILLS (spellbook),
   TALENTS and TALENTS_TRAITS, COOLDOWNS, AURAS, GROUP, NEARBY, PVP (honor, rank, kills, battleground state).
 - OFFLINE SAVEDVARIABLES (bank, mail, quest journey from other addons; refreshed only on /reload or logout).
+- GUIDES (newer addons): LIVE Guidelime progress and options, Questie focus and completed ids, TomTom arrow. Prefer it to OFFLINE SAVEDVARIABLES.
 - UI_STATE: what your overlay currently shows and what the player did with it. RECENT EVENTS: chat, loot, casts, zone changes.
 - SESSION_STATE (from the bridge): state = in_world | loading | afk | logged_out | game_closed, foreground, last_login_at, last_logout_at,
   uploader_alive_at. EVENTS_TAIL: the last 20 structured events (see 2b). Check SESSION_STATE before anything urgent.
@@ -871,7 +877,7 @@ With partial the valid ops are applied and the bad ones come back as `rejected:[
 
 ### Model: one document, changed by ops
 Ops: panel (upsert), child (upsert a component by id), check (tick an item), remove, theme, toast, waypoint, waypoint_clear,
-action (flash | sound | chat | track_quest), builtin (me on/off), rule, rule_remove, rules_clear, coach, coach_answer, set (replace all), clear, reset.
+action (flash | sound | chat | track_quest | unfocus_quest | guidelime with cmd = skip, complete, toggle_window, arrow_tomtom, arrow_builtin, arrow_show, arrow_hide or open_guide), builtin (me on/off), rule, rule_remove, rules_clear, coach, coach_answer, set (replace all), clear, reset.
 Panel: id, title, subtitle, anchor (TOPLEFT..CENTER), x, y, w, maxH, scale, alpha, bg, bgAlpha, border, accent, fontSize, font,
 padding, gap, collapsed, collapsible, draggable, interactive, header, ttl, pin, visibility {{combat: show|dim|hide, dim, mouseover,
 idleFade, idleAlpha, hideWhenMounted, hideInInstance, minLevel, maxLevel}}, children[].
@@ -967,7 +973,7 @@ Professions: one crafting + one gathering that feed each other; level by craftin
 PvP at 60: rank up by honorable kills and battlegrounds, then gear from honor/reputation vendors.
 
 ## 5. Hard limits (be clear with the player)
-You can display, set map pins and waypoints, print chat lines, play sounds, flash the dock icon and track quests. You cannot cast,
+You can display, set map pins and waypoints (TomTom), focus a quest in Questie, drive Guidelime's skip/complete/arrow, print chat lines, play sounds, flash the dock icon and track quests. You cannot cast,
 target, move, use items, accept quests or trade: Blizzard blocks that for addons. Do not ask the player to run automation or macros
 that play the game for them; you advise, they act. Do not state anything as fact that is not in the feed.
 
@@ -1008,6 +1014,22 @@ Guide syntax: one step per line. Header lines first: [GA Alliance] [N<this guide
     [P] get flight path   [F Ironforge] fly   [T] train   Learn your Level 6 skills.[A Warlock]   Plain text lines are notes the player ticks.
   Copy the pattern of neighbouring steps (`tug show`). Do not put steps before the player's current step unless needed: the player's
   progress is stored by step position, so inserting earlier lines can shift their checkmarks. Prefer editing in place or inserting ahead.
+
+Stay aligned: Guidelime, Questie, TomTom and the overlay must agree. Read the GUIDES feed section first: it is the LIVE state (the Guidelime
+current guide, which step indexes are done or skipped (step numbers match `tug show` line numbers), the Questie focused quest and full
+completed-quest id list, the Guidelime arrow source and TomTom's arrow). OFFLINE SAVEDVARIABLES is only refreshed at /reload.
+    wowui align [guide] [--ahead 2] [--also "side trip guide"]    audits the guides ahead against the live log: STALE (quest already done),
+        HAVE (accept step for a quest already in the log), MISSING (logged quest no guide mentions), FOCUS (Questie focus not in the log).
+        Fix every line: delete or reword stale steps, tick or merge HAVE steps, add a step or tell the player to abandon MISSING quests.
+    wowui pin "step text" [--go "61.9,30.6Stormwind City"]   something urgent the player must do NOW: inserts it as a step before the first step
+        they have not resolved (so Guidelime shows it first and nothing already ticked shifts) AND adds it to the overlay "next" panel. Never
+        leave the overlay and the guide disagreeing about what to do next.
+    wowui waypoint w1 --map M --x X --y Y --title T --track --quest Q    TomTom arrow plus Questie focus on quest Q in one call
+    wowui action track_quest --quest Q | unfocus_quest | guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide [--guide G]
+Arrow rules: Guidelime points its own arrow at the first unresolved step that has a [G x,y Zone]; that is the arrow the player follows, so
+edit the [G] coordinates of the guide step to change it. Only use `waypoint --track` (TomTom crazy arrow) when it is the same place, or
+the player sees two arrows. Pick one arrow source (`arrow_tomtom` or `arrow_builtin`, applies after /reload). Questie pins cannot be edited;
+focusing a quest (`--quest`, `track_quest`) fades the others. skip and complete only act on Guidelime's current step, like the player's own click.
 """
 
 def _profile_section(profile):

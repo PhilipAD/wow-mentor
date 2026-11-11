@@ -1044,6 +1044,77 @@ end)
 
 ---------------------------------------------------------------- tick loops
 local function safe(fn) local ok, r = pcall(fn); if ok then return r end return { "ERROR: " .. tostring(r) } end
+-- Live state of the guide stack: Guidelime (progress, options, arrow mode), Questie (completed ids, focused quest, tracker) and
+-- TomTom (the arrow). All three keep their state in global tables, so this is the live truth, not the SavedVariables file
+-- (which only updates on /reload). Every read is guarded: a missing or changed addon just leaves its lines out.
+local function sGuides()
+	local L = {}
+	local gc = rawget(_G, "GuidelimeDataChar")
+	local gd = rawget(_G, "GuidelimeData")
+	if gc or gd then
+		local c = gc or {}
+		L[#L+1] = strfmt("Guidelime %s | current guide: %s", clean(gd and gd.version or "?"), clean(c.currentGuide or "(none)"))
+		if gd then
+			L[#L+1] = strfmt("Guidelime options: arrow=%s showArrow=%s autoAcceptQuests=%s autoTurnInQuests=%s dataSource=%s mapMarkersGOTO=%s autoAddCoordinates=%s",
+				gd.useTomTomArrow and "TomTom" or "Guidelime", tostring(c.showArrow), tostring(gd.autoAcceptQuests), tostring(gd.autoTurnInQuests), tostring(gd.dataSource), tostring(gd.showMapMarkersGOTO), tostring(gd.autoAddCoordinates))
+		end
+		local prog = c.progress and c.progress[c.currentGuide]
+		if type(prog) == "table" then
+			local idx, done, skipped = {}, 0, 0
+			for i, st in pairs(prog) do
+				if type(i) == "number" and type(st) == "table" then
+					idx[#idx+1] = i
+					if st.completed then done = done + 1 elseif st.skip then skipped = skipped + 1 end
+				end
+			end
+			table.sort(idx)
+			local rng, a0, b0 = {}, nil, nil
+			for _, v in ipairs(idx) do
+				if a0 and v == b0 + 1 then b0 = v
+				else if a0 then rng[#rng+1] = (a0 == b0) and tostring(a0) or (a0 .. "-" .. b0) end; a0, b0 = v, v end
+			end
+			if a0 then rng[#rng+1] = (a0 == b0) and tostring(a0) or (a0 .. "-" .. b0) end
+			L[#L+1] = "Guidelime resolved step indexes (done or skipped): " .. (tconcat(rng, ",") ~= "" and tconcat(rng, ",") or "none")
+			L[#L+1] = strfmt("Guidelime progress in this guide: %d steps completed, %d skipped; highest resolved step index %s (step numbers match `wowui tug show`)", done, skipped, tostring(idx[#idx] or 0))
+			for k = math.max(1, #idx - 4), #idx do
+				local st = prog[idx[k]]
+				L[#L+1] = strfmt("  step %d %s: %s", idx[k], st.completed and "done" or (st.skip and "skipped" or "?"), clean(st.stepText or ""):sub(1, 110))
+			end
+		end
+	else
+		L[#L+1] = "Guidelime: not loaded"
+	end
+	local Q = rawget(_G, "Questie")
+	if Q and Q.db and Q.db.char then
+		local ch, pr = Q.db.char, Q.db.profile or {}
+		local ids = {}
+		for id, v in pairs(ch.complete or {}) do if v and type(id) == "number" then ids[#ids+1] = id end end
+		table.sort(ids)
+		local hidden = 0
+		for _ in pairs(ch.TrackerHiddenQuests or {}) do hidden = hidden + 1 end
+		L[#L+1] = strfmt("Questie %s | focused quest: %s | tracker enabled: %s | hidden-from-tracker quests: %d", clean(Q.Version or Q.version or "?"), tostring(ch.TrackerFocus or "none"), tostring(pr.trackerEnabled), hidden)
+		L[#L+1] = strfmt("Questie completed quest ids (%d): %s", #ids, tconcat(ids, ","))
+	else
+		L[#L+1] = "Questie: not loaded"
+	end
+	local TT = rawget(_G, "TomTom")
+	if TT then
+		local arrow = rawget(_G, "TomTomCrazyArrow")
+		local shown = arrow and arrow.IsShown and tb(try(arrow.IsShown, arrow))
+		local line = strfmt("TomTom arrow: %s", shown and "visible" or "hidden")
+		local uid = TT.GetClosestWaypoint and try(TT.GetClosestWaypoint, TT)
+		if uid and TT.GetDistanceToWaypoint then
+			local d = num(try(TT.GetDistanceToWaypoint, TT, uid))
+			local t = type(uid) == "table" and (uid.title or (uid[1] and uid[1].title))
+			line = line .. strfmt(" | closest waypoint: %s%s", clean(t or "?"), d and strfmt(" %d yd", d) or "")
+		end
+		L[#L+1] = line
+	else
+		L[#L+1] = "TomTom: not loaded"
+	end
+	return L
+end
+
 local tickN = 0
 local function tickBody()
 	tickN = tickN + 1
@@ -1052,7 +1123,7 @@ local function tickBody()
 	if tickN % 15 == 0 or dirty.slow then
 		dirty.slow = false
 		push("stats", safe(sStats), 120); push("equipment", safe(sEquipment), 300); push("bags", safe(sBags), 300)
-		push("quests", safe(sQuests), 300); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
+		push("quests", safe(sQuests), 300); push("guides", safe(sGuides), 120); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
 	end
 	if tickN % 60 == 1 then
 		push("talents", safe(sTalents), 600); push("skills", safe(sSkills), 600); push("reputation", safe(sRep), 600); push("currency", safe(sCurrency), 600)
