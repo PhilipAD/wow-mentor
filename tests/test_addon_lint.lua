@@ -24,6 +24,17 @@ local function code(l)
 	return s
 end
 
+---------------------------------------------------------------- 0. Lua 5.1 only (WoW's runtime): newer syntax makes a whole file fail to load, and the strip stops drawing
+for _, n in ipairs(FILES) do
+	for i, l in ipairs(lines[n]) do
+		local c = code(l):gsub('"[^"]*"', '""'):gsub("'[^']*'", "''")
+		check(not c:find("[%w%)%]]%s*//%s*[%w%(]"), n .. ".lua:" .. i .. " uses // (integer division is Lua 5.3+; use math.floor(a / b))")
+		check(not c:find("%f[%w]goto%f[%W]") and not c:find("::[%a_][%w_]*::"), n .. ".lua:" .. i .. " uses goto (Lua 5.2+)")
+		check(not c:find("[%w%)%]]%s*[&|~]%s*[%w%(]") and not c:find("<<") and not c:find(">>"), n .. ".lua:" .. i .. " uses a bit operator (Lua 5.3+; use the bit library)")
+	end
+	if jit then check(loadfile(DIR .. n .. ".lua") ~= nil, n .. ".lua does not compile under LuaJIT (Lua 5.1 syntax)") end
+end
+
 ---------------------------------------------------------------- 1. forbidden calls
 local FORBIDDEN = {
 	"EquipItemByName", "EquipCursorItem", "AutoEquipCursorItem", "EquipPendingItem", "UseContainerItem", "PickupContainerItem", "PickupInventoryItem", "PickupItem",

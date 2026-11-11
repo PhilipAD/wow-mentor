@@ -836,6 +836,16 @@ local function sProfessions()
 	return L
 end
 
+-- Flight paths: the node list is only readable while the taxi map is open, so it is saved when the map opens.
+local function captureTaxi()
+	if not NumTaxiNodes then return end
+	local nodes = {}
+	for i = 1, (num(try(NumTaxiNodes)) or 0) do
+		local nm, ty = try(TaxiNodeName, i), try(TaxiNodeGetType, i)
+		if nm then nodes[#nodes+1] = { n = clean(nm), t = tostring(ty) } end
+	end
+	if #nodes > 0 and WoWFeedDB then WoWFeedDB.taxi = { t = time(), zone = clean(GetRealZoneText and GetRealZoneText() or ""), nodes = nodes } end
+end
 local recipes = {}
 local function captureTradeSkill()
 	local L = {}
@@ -856,11 +866,21 @@ local function captureTradeSkill()
 		if name then L[#L+1] = strfmt("  [craft %s] %s %s", tostring(kind), clean(name), clean(sub or "")) end
 	end
 	recipes[clean(line)] = L
+	-- keep them across /reload and logout: the window is rarely open when the agent wants to know a recipe
+	if WoWFeedDB then WoWFeedDB.recipes = WoWFeedDB.recipes or {}; WoWFeedDB.recipes[clean(line)] = { t = time(), lines = L } end
 end
 local function sRecipes()
 	local L = {}
 	local any = false
 	for k, v in pairs(recipes) do any = true; for _, l in ipairs(v) do L[#L+1] = l end; L[#L+1] = "" end
+	for k, rec in pairs(WoWFeedDB and WoWFeedDB.recipes or {}) do      -- saved from an earlier session: shown until the window is opened again
+		if not recipes[k] and type(rec) == "table" and type(rec.lines) == "table" then
+			any = true
+			L[#L+1] = strfmt("(saved %s ago, from an earlier session)", rec.t and (math.floor((time() - rec.t) / 3600) .. "h") or "?")
+			for _, l in ipairs(rec.lines) do L[#L+1] = l end
+			L[#L+1] = ""
+		end
+	end
 	if not any then L[1] = "(open each profession window once, recipes are captured when the window is shown)" end
 	return L
 end
@@ -1034,6 +1054,7 @@ local function onEventBody(e, a1, a2, a3, a4)
 	elseif not noisy[e] then
 		ev(e, clean(a1))
 	end
+	if e == "TAXIMAP_OPENED" then C_Timer.After(0.3, function() pcall(captureTaxi) end) end
 	if e == "TRADE_SKILL_SHOW" or e == "TRADE_SKILL_UPDATE" or e == "CRAFT_SHOW" or e == "CRAFT_UPDATE" then C_Timer.After(0.3, function() pcall(captureTradeSkill); last.recipes = nil end) end
 	if e ~= "PLAYER_TARGET_CHANGED" and e ~= "UNIT_SPELLCAST_SUCCEEDED" then dirty.slow = true end
 end
@@ -1044,15 +1065,229 @@ end)
 
 ---------------------------------------------------------------- tick loops
 local function safe(fn) local ok, r = pcall(fn); if ok then return r end return { "ERROR: " .. tostring(r) } end
+-- Live state of the guide stack: Guidelime (progress, options, arrow mode), Questie (completed ids, focused quest, tracker) and
+-- TomTom (the arrow). All three keep their state in global tables, so this is the live truth, not the SavedVariables file
+-- (which only updates on /reload). Every read is guarded: a missing or changed addon just leaves its lines out.
+local function sGuides()
+	local L = {}
+	local gc = rawget(_G, "GuidelimeDataChar")
+	local gd = rawget(_G, "GuidelimeData")
+	if gc or gd then
+		local c = gc or {}
+		L[#L+1] = strfmt("Guidelime %s | current guide: %s", clean(gd and gd.version or "?"), clean(c.currentGuide or "(none)"))
+		if gd then
+			L[#L+1] = strfmt("Guidelime options: arrow=%s showArrow=%s autoAcceptQuests=%s autoTurnInQuests=%s dataSource=%s mapMarkersGOTO=%s autoAddCoordinates=%s",
+				gd.useTomTomArrow and "TomTom" or "Guidelime", tostring(c.showArrow), tostring(gd.autoAcceptQuests), tostring(gd.autoTurnInQuests), tostring(gd.dataSource), tostring(gd.showMapMarkersGOTO), tostring(gd.autoAddCoordinates))
+		end
+		local prog = c.progress and c.progress[c.currentGuide]
+		if type(prog) == "table" then
+			local idx, done, skipped = {}, 0, 0
+			local size = c.guideSize and num(c.guideSize[c.currentGuide]) or nil
+			if size then L[#L+1] = "Guidelime guide steps: " .. size end
+			for i, st in pairs(prog) do
+				-- progress entries past the guide's current length are leftovers from an older version of the guide: not real steps
+				if type(i) == "number" and type(st) == "table" and (not size or i <= size) then
+					idx[#idx+1] = i
+					if st.completed then done = done + 1 elseif st.skip then skipped = skipped + 1 end
+				end
+			end
+			table.sort(idx)
+			local rng, a0, b0 = {}, nil, nil
+			for _, v in ipairs(idx) do
+				if a0 and v == b0 + 1 then b0 = v
+				else if a0 then rng[#rng+1] = (a0 == b0) and tostring(a0) or (a0 .. "-" .. b0) end; a0, b0 = v, v end
+			end
+			if a0 then rng[#rng+1] = (a0 == b0) and tostring(a0) or (a0 .. "-" .. b0) end
+			L[#L+1] = "Guidelime resolved step indexes (done or skipped): " .. (tconcat(rng, ",") ~= "" and tconcat(rng, ",") or "none")
+			L[#L+1] = strfmt("Guidelime progress in this guide: %d steps completed, %d skipped; highest resolved step index %s (step numbers match `wowui tug show`)", done, skipped, tostring(idx[#idx] or 0))
+			for k = math.max(1, #idx - 4), #idx do
+				local st = prog[idx[k]]
+				L[#L+1] = strfmt("  step %d %s: %s", idx[k], st.completed and "done" or (st.skip and "skipped" or "?"), clean(st.stepText or ""):sub(1, 110))
+			end
+		end
+	else
+		L[#L+1] = "Guidelime: not loaded"
+	end
+	local Q = rawget(_G, "Questie")
+	if Q and Q.db and Q.db.char then
+		local ch, pr = Q.db.char, Q.db.profile or {}
+		local ids = {}
+		for id, v in pairs(ch.complete or {}) do if v and type(id) == "number" then ids[#ids+1] = id end end
+		table.sort(ids)
+		local hidden = 0
+		for _ in pairs(ch.TrackerHiddenQuests or {}) do hidden = hidden + 1 end
+		L[#L+1] = strfmt("Questie %s | focused quest: %s | tracker enabled: %s | hidden-from-tracker quests: %d", clean(Q.Version or Q.version or "?"), tostring(ch.TrackerFocus or "none"), tostring(pr.trackerEnabled), hidden)
+		L[#L+1] = strfmt("Questie completed quest ids (%d): %s", #ids, tconcat(ids, ","))
+	else
+		L[#L+1] = "Questie: not loaded"
+	end
+	local TT = rawget(_G, "TomTom")
+	if TT then
+		local arrow = rawget(_G, "TomTomCrazyArrow")
+		local shown = arrow and arrow.IsShown and tb(try(arrow.IsShown, arrow))
+		local line = strfmt("TomTom arrow: %s", shown and "visible" or "hidden")
+		local uid = TT.GetClosestWaypoint and try(TT.GetClosestWaypoint, TT)
+		if uid and TT.GetDistanceToWaypoint then
+			local d = num(try(TT.GetDistanceToWaypoint, TT, uid))
+			local t = type(uid) == "table" and (uid.title or (uid[1] and uid[1].title))
+			line = line .. strfmt(" | closest waypoint: %s%s", clean(t or "?"), d and strfmt(" %d yd", d) or "")
+		end
+		L[#L+1] = line
+	else
+		L[#L+1] = "TomTom: not loaded"
+	end
+	return L
+end
+
+-- Items the agent asked about (doc.watch): details, stats, prices and how many the player owns. Item data may not be cached yet:
+-- we ask the client to load it and report "(loading)" until it arrives (the next tick shows it).
+local function sItemWatch()
+	local L = {}
+	local ids = WoWFeedUI and WoWFeedUI.watchList and WoWFeedUI.watchList() or {}
+	if #ids == 0 then return { "(empty: the agent has not asked about any item; `wowui watch <ids>`)" } end
+	local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+	local getStats = (C_Item and C_Item.GetItemStats) or GetItemStats
+	local getCount = (C_Item and C_Item.GetItemCount) or GetItemCount
+	local ah = Auctionator and Auctionator.API and Auctionator.API.v1 and Auctionator.API.v1.GetAuctionPriceByItemID
+	local function money(c) if not c then return "?" end return c >= 10000 and strfmt("%dg%02ds", math.floor(c / 10000), math.floor((c % 10000) / 100)) or (c >= 100 and strfmt("%ds%02dc", math.floor(c / 100), c % 100) or (c .. "c")) end
+	for _, id in ipairs(ids) do
+		local name, link, quality, ilvl, minLevel, itype, subtype, stack, equipLoc, _, sell = getInfo(id)
+		if not name then
+			if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+			L[#L+1] = strfmt("#%d (loading: item data not cached yet)", id)
+		else
+			local stats = {}
+			local st = link and try(getStats, link)
+			if type(st) == "table" then for k, v in pairs(st) do local nm = tostring(k):gsub("^ITEM_MOD_", ""):gsub("_SHORT$", ""):gsub("_NAME$", ""); if nm == "RESISTANCE0" then nm = "ARMOR" end; stats[#stats+1] = strfmt("%s=%s", nm, tostring(v)) end end
+			table.sort(stats)
+			local price = ah and num(try(ah, "WoWFeed", id)) or nil
+			local have = num(try(getCount, id, true))
+			L[#L+1] = strfmt("#%d %s | quality %s | ilvl %s | req level %s | %s %s%s | stack %s | vendor sells for %s | AH %s | owned %s%s",
+				id, clean(name), tostring(quality), tostring(ilvl), tostring(minLevel), clean(itype or ""), clean(subtype or ""), (equipLoc and equipLoc ~= "") and (" " .. equipLoc) or "",
+				tostring(stack), money(num(sell)), ah and money(price) or "(Auctionator not loaded)", tostring(have or "?"), #stats > 0 and (" | stats: " .. tconcat(stats, " ")) or "")
+		end
+	end
+	return L
+end
+
+-- Flight paths: the node list is only readable while the taxi map is open, so it is saved when the map opens and reported from the saved copy.
+local function sFlightPaths()
+	local T = WoWFeedDB and WoWFeedDB.taxi
+	local L = {}
+	if UnitOnTaxi and tb(try(UnitOnTaxi, "player")) then L[#L+1] = "IN FLIGHT right now (destination is not exposed by the game)" end
+	if not T then L[#L+1] = "(no flight map seen yet: opens when the player talks to a flight master)"; return L end
+	L[#L+1] = strfmt("Nodes seen when the map was last opened (%dh ago, from %s). CURRENT = here, REACHABLE = known and flyable from here, DISTANT = known but needs another stop, NONE = not usable.", math.floor((time() - (T.t or 0)) / 3600), T.zone or "?")
+	for _, nd in ipairs(T.nodes or {}) do L[#L+1] = strfmt("  %s [%s]", nd.n, nd.t) end
+	return L
+end
+
+-- The open vendor window: what is for sale, the price, and the item ids (feed them to `wowui watch` for stats and AH prices).
+local function sMerchant()
+	if not (MerchantFrame and MerchantFrame:IsShown() and GetMerchantNumItems) then return { "(no vendor window open)" } end
+	local L = { "Vendor: " .. clean(try(UnitName, "npc") or "?") }
+	for i = 1, (num(try(GetMerchantNumItems)) or 0) do
+		local name, _, price, qty, avail = try(GetMerchantItemInfo, i)
+		local link = try(GetMerchantItemLink, i)
+		local id = link and tonumber(tostring(link):match("item:(%d+)"))
+		if name then L[#L+1] = strfmt("  %d. %s #%s | %s%s%s", i, clean(name), tostring(id or "?"), (num(price) and num(price) > 0) and (num(price) >= 10000 and strfmt("%dg%02ds", math.floor(num(price) / 10000), math.floor((num(price) % 10000) / 100)) or strfmt("%ds%02dc", math.floor(num(price) / 100), num(price) % 100)) or "free",
+			(num(qty) and num(qty) > 1) and (" x" .. num(qty)) or "", (num(avail) and num(avail) >= 0) and (" | " .. num(avail) .. " left") or "") end
+	end
+	return L
+end
+
+-- Are we ready for a fight? One verdict line plus the facts it is built from: pet, armour buff, shards, Healthstone, potions and bandages,
+-- durability, bags, hearthstone location, and where we are (town, wild, contested ...). Out-of-combat facts only; anything the game hides is "unknown".
+local function sReadiness()
+	local L = {}
+	local ctx = WoWFeedUI and WoWFeedUI.context and WoWFeedUI.context() or "?"
+	local bad = {}
+	L[#L+1] = "Context: " .. tostring(ctx)
+	local class = select(2, try(UnitClass, "player"))
+	if class == "WARLOCK" or class == "HUNTER" then
+		local has = tb(try(UnitExists, "pet"))
+		local dead = has and tb(try(UnitIsDead, "pet"))
+		L[#L+1] = "Pet: " .. (not has and "NONE out" or (dead and "DEAD" or "out"))
+		if not has or dead then bad[#bad+1] = "pet" end
+	end
+	if class == "WARLOCK" then
+		local shards = num(try(GetItemCount, 6265))
+		L[#L+1] = "Soul Shards: " .. tostring(shards or "?")
+		if shards and shards < 3 then bad[#bad+1] = "soul shards" end
+		local armor
+		for i = 1, 40 do
+			local a = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex and try(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+			if type(a) ~= "table" then break end
+			local nm = a.name
+			if type(nm) == "string" and not (issecretvalue and issecretvalue(nm)) and (nm:find("Demon Skin") or nm:find("Demon Armor") or nm:find("Fel Armor")) then armor = nm; break end
+		end
+		L[#L+1] = "Armour buff: " .. (armor or "NONE found (out of combat the list is readable)")
+		if not armor then bad[#bad+1] = "demon armour buff" end
+	end
+	local hs, pot, band, free = 0, 0, 0, 0
+	for b = 0, 5 do
+		local slots = bagCount and bagCount(b) or 0
+		for sl = 1, slots do
+			local l, c = bagItem(b, sl)
+			if l then
+				local nm = tostring(l):match("%[(.-)%]") or ""
+				local n = num(c) or 1
+				if nm:find("Healthstone") then hs = hs + n elseif nm:find("Potion") then pot = pot + n elseif nm:find("Bandage") then band = band + n end
+			else free = free + 1 end
+		end
+	end
+	L[#L+1] = strfmt("Healthstones: %d | potions: %d | bandages: %d | free bag slots: %d", hs, pot, band, free)
+	if class == "WARLOCK" and hs == 0 then bad[#bad+1] = "no Healthstone" end
+	if pot + band == 0 then bad[#bad+1] = "no potion or bandage" end
+	local low, lowSlot = 100, nil
+	for slot = 1, 19 do
+		local cur, max = try(GetInventoryItemDurability, slot)
+		cur, max = num(cur), num(max)
+		if cur and max and max > 0 and (cur / max) * 100 < low then low = (cur / max) * 100; lowSlot = slot end
+	end
+	L[#L+1] = strfmt("Lowest durability: %d%%%s", math.floor(low + 0.5), lowSlot and (" (slot " .. lowSlot .. ")") or "")
+	if low < 25 then bad[#bad+1] = "durability " .. math.floor(low + 0.5) .. "%" end
+	L[#L+1] = "Hearthstone bound to: " .. clean(try(GetBindLocation) or "?")
+	L[#L+1] = (#bad == 0) and "VERDICT: READY" or ("VERDICT: NOT READY: " .. tconcat(bad, ", "))
+	return L
+end
+
+-- Spells the agent asked about (doc.watch_spells): known, cooldown, usable, in range of the target. Cooldown and range can be hidden by the game
+-- in combat; those fields then say "hidden".
+local function sSpellWatch()
+	local ids = WoWFeedUI and WoWFeedUI.watchSpells and WoWFeedUI.watchSpells() or {}
+	if #ids == 0 then return { "(empty: the agent has not asked about any spell; `wowui watch --spells <ids>`)" } end
+	local L = {}
+	for _, id in ipairs(ids) do
+		local info = C_Spell and C_Spell.GetSpellInfo and try(C_Spell.GetSpellInfo, id)
+		local name = type(info) == "table" and info.name or (GetSpellInfo and try(GetSpellInfo, id)) or "?"
+		local known = (IsPlayerSpell and tb(try(IsPlayerSpell, id))) or (IsSpellKnown and tb(try(IsSpellKnown, id))) or false
+		local cd = C_Spell and C_Spell.GetSpellCooldown and try(C_Spell.GetSpellCooldown, id)
+		local cdtxt = "?"
+		if type(cd) == "table" then
+			local st, du = num(cd.startTime), num(cd.duration)
+			if st and du then cdtxt = (du > 1.5 and st > 0) and strfmt("%ds left", math.max(0, math.floor(st + du - GetTime() + 0.5))) or "ready" else cdtxt = "hidden" end
+		end
+		local usable, nomana = false, false
+		if C_Spell and C_Spell.IsSpellUsable then usable, nomana = try(C_Spell.IsSpellUsable, id) end
+		local rng = "no target"
+		if tb(try(UnitExists, "target")) and C_Spell and C_Spell.IsSpellInRange then
+			local r = try(C_Spell.IsSpellInRange, id, "target")
+			if r == nil or (issecretvalue and issecretvalue(r)) then rng = "unknown" else rng = (r == true or r == 1) and "in range" or "OUT of range" end
+		end
+		L[#L+1] = strfmt("#%d %s | %s | cooldown %s | usable %s%s | target %s", id, clean(name), known and "known" or "NOT known", cdtxt, tostring(tb(usable) or false), tb(nomana) and " (no mana)" or "", rng)
+	end
+	return L
+end
+
 local tickN = 0
 local function tickBody()
 	tickN = tickN + 1
 	push("summary", safe(sSummary), 5); push("fast", safe(sPlayerFast), 5)
-	if tickN % 3 == 0 then push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
+	if tickN % 3 == 0 then push("guides", safe(sGuides), 90); push("readiness", safe(sReadiness), 30); push("spell_watch", safe(sSpellWatch), 30); push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
 	if tickN % 15 == 0 or dirty.slow then
 		dirty.slow = false
 		push("stats", safe(sStats), 120); push("equipment", safe(sEquipment), 300); push("bags", safe(sBags), 300)
-		push("quests", safe(sQuests), 300); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
+		push("quests", safe(sQuests), 300); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("flightpaths", safe(sFlightPaths), 300); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
 	end
 	if tickN % 60 == 1 then
 		push("talents", safe(sTalents), 600); push("skills", safe(sSkills), 600); push("reputation", safe(sRep), 600); push("currency", safe(sCurrency), 600)

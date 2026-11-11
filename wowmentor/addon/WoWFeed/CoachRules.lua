@@ -26,7 +26,7 @@ R.fired = 0
 R.dirty = true       -- RULES section needs a refresh
 
 ---------------------------------------------------------------- conditions
-local STATE_TYPES = { bags_free_lte = true, durability_lte = true, buff_missing = true }
+local STATE_TYPES = { bags_free_lte = true, durability_lte = true, buff_missing = true, pet_missing = true, item_count_lte = true, hostiles_near_gte = true, pet_dead = true }
 
 local function whenKind(w)
 	if w.type == "all" or w.type == "any" then
@@ -72,6 +72,7 @@ local function ctxOf(name, d)
 		c.name = d.npc and d.npc.name
 		c.count = d.choices and #d.choices or d.count
 	elseif name == "entering_world" then c.zone = d.zone; c.subzone = d.subzone
+	elseif name == "enemy_player" then c.class = d.class; c.level = d.level; c.race = d.race; c.name = d.class
 	end
 	return c
 end
@@ -94,6 +95,33 @@ local function evalLeaf(c, ev)
 		if m == nil then return nil, {} end
 		local nm = c.name or (c.spell and U.spellName(c.spell)) or nil
 		return m, { name = nm, spell = c.spell or nm }
+	elseif t == "item_count_lte" then
+		-- how many of an item the player carries (bags only): soul shards, Healthstones, potions, bandages, reagents
+		local want = c.item or c.name
+		if not want then return nil, {} end
+		local n = U.num(try(GetItemCount, want))
+		if n == nil then return nil, {} end
+		return n <= c.n, { count = n, name = c.name or tostring(c.item) }
+	elseif t == "hostiles_near_gte" then
+		-- attackable units with a visible nameplate (players only when c.players): "3 or more hostiles near"
+		local plates = C_NamePlate and try(C_NamePlate.GetNamePlates)
+		if type(plates) ~= "table" then return nil, {} end
+		local n = 0
+		for _, pl in ipairs(plates) do
+			local unit = pl.namePlateUnitToken or (pl.UnitFrame and pl.UnitFrame.unit)
+			if unit and U.bool(try(UnitCanAttack, "player", unit)) and not U.bool(try(UnitIsDead, unit)) and (not c.players or U.bool(try(UnitIsPlayer, unit))) then n = n + 1 end
+		end
+		return n >= c.n, { count = n }
+	elseif t == "pet_dead" then
+		if U.bool(try(UnitIsDeadOrGhost, "player")) then return nil, {} end
+		if not U.exists("pet") then return false, {} end
+		return U.bool(try(UnitIsDead, "pet")) or false, { name = "pet" }
+	elseif t == "pet_missing" then
+		-- any pet counts (Imp, Voidwalker, Succubus...): true only while the player is alive, not mounted or flying, and has none out
+		if U.bool(try(UnitIsDeadOrGhost, "player")) then return nil, {} end
+		if c.ooc and U.inCombat() then return nil, {} end
+		if U.bool(try(IsMounted)) or U.bool(try(UnitOnTaxi, "player")) then return nil, {} end
+		return not U.exists("pet"), { name = "pet" }
 	end
 	if not ev then return false, {} end
 	local d = ev.data or {}
@@ -112,6 +140,11 @@ local function evalLeaf(c, ev)
 	elseif t == "item_looted" then
 		local q = d.quality
 		if c.min_quality and c.min_quality > 0 and not (q and q >= c.min_quality) then return false, ctx end
+		return true, ctx
+	elseif t == "enemy_player" then
+		if c.class and not ci(c.class, d.class) then return false, ctx end
+		if c.min_level and not (d.level and d.level >= c.min_level) then return false, ctx end
+		if c.flagged and not d.flagged then return false, ctx end
 		return true, ctx
 	elseif t == "target_elite" then
 		if not (d.elite or (c.rare and d.rare)) then return false, ctx end
@@ -167,6 +200,8 @@ local function runActions(acts, ctx)
 				UI.playSound(a.sound)
 			elseif kind == "flash" then
 				UI.runAction({ name = "flash" })
+			elseif kind == "speak" then
+				UI.speak(fill(a.text, ctx))
 			end
 		end)
 		names[#names + 1] = tostring(kind)

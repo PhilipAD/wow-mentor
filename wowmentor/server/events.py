@@ -113,6 +113,9 @@ def _int_param(q, name, default, lo, hi):
     return max(lo, min(hi, n))
 
 
+MAX_WAIT_S = 25                 # longest long-poll (events?since=N&wait=25)
+
+
 class EventStore(object):
     def __init__(self, path=None, ring=RING, clock=time.time):
         self.path, self.ring, self.clock = path, ring, clock
@@ -415,6 +418,12 @@ class EventStore(object):
                     if not TYPE_RE.match(t.strip()):
                         raise StoreError(["types: %r is not an event type" % t[:40]])
                 res = self.query(since, [t.strip() for t in types], limit)
+                wait = _int_param(q, "wait", 0, 0, MAX_WAIT_S)
+                if wait and since is not None:              # long-poll: hold the request open until something new arrives (or `wait` seconds pass)
+                    deadline = self.clock() + wait
+                    while not res["events"] and not res.get("reset") and self.clock() < deadline:
+                        time.sleep(0.4)
+                        res = self.query(since, [t.strip() for t in types], limit)
                 res["ok"] = True
                 return 200, res
             if route == "events/push" and method == "POST":

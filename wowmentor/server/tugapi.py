@@ -5,7 +5,7 @@ them against the cache (dry run) and queues them, the bridge applies the queue t
 After a successful apply the server puts a "type /reload" notice on the player's overlay and clears it when the
 bridge sees the game reload. Pure stdlib; called by feed_server.py with the UI lock held.
 """
-import base64, json, re, sys, time
+import os, base64, json, re, sys, time
 
 from .. import config as cfgmod
 from . import tugdoc
@@ -132,6 +132,9 @@ class TugAPI:
         s = self.s
         pending = [e for e in s["queue"] if e["status"] == "queued"]
         return 200, {"ok": True, "guides": len(s["guides"]), "pending": len(pending), "recent": s["results"][-10:], "reload": s["reload"],
+                     "live": {"enabled": os.environ.get("WOWMENTOR_LIVE_APPLY", "1") != "0", "acked_through": s["reload"].get("live_acked", 0),
+                              "waiting_for_game": s["reload"].get("last_edit_id", 0) > s["reload"].get("live_acked", 0),
+                              "note": "reload.needed stays true until the game confirms the edit live (5 to 60 s); the player is only prompted if that takes 2 minutes"},
                      "bridge_age_s": round(time.time() - s["bridge_t"], 1) if s["bridge_t"] else None}
 
     def r_history(self, method, q, body):
@@ -155,7 +158,7 @@ class TugAPI:
             if "restore" in e:
                 if str(e["restore"]) not in [v["id"] for v in self.s["versions"].get(name, [])] + ["orig"]:
                     raise tugdoc.TugError(["edit %d: restore %r is not a known version (see `wowui tug history`)" % (k, e["restore"])])
-                results.append((name, None, {"restore": str(e["restore"])}, e.get("note", ""), ["restore " + str(e["restore"])], [], None))
+                results.append((name, None, {"restore": str(e["restore"])}, e.get("note", ""), ["restore " + str(e["restore"])], [], None, None))
                 continue
             text = trial.get(name, self.s["guides"][name]["text"])
             try:
@@ -164,16 +167,17 @@ class TugAPI:
                 raise tugdoc.TugError(["edit %d (%s): %s" % (k, name, m) for m in err.errors])
             old = tugdoc.split_file(text)[1]
             trial[name] = out
-            results.append((name, e["ops"], None, e.get("note", ""), summary, warns, tugdoc.context(None, summary, new, old)))
+            imp = tugdoc.impact(old, tugdoc.split_file(out)[1])
+            results.append((name, e["ops"], None, e.get("note", ""), summary, warns + ([imp["warning"]] if imp.get("warning") else []), tugdoc.context(None, summary, new, old), imp))
         replies = []
-        for name, ops, restore, note, summary, warns, ctx in results:
+        for name, ops, restore, note, summary, warns, ctx, *rest in results:
             self.s["seq"] += 1
             entry = {"id": self.s["seq"], "guide": name, "ops": ops, "restore": restore, "note": str(note)[:200], "t": time.time(), "status": "queued", "summary": summary}
             self.s["queue"].append(entry)
             if name in trial:
                 self.s["guides"][name]["text"] = trial[name]
                 self.s["guides"][name]["hash"] = tugdoc.sha(trial[name])
-            replies.append({"id": entry["id"], "guide": name, "summary": summary, "warnings": warns, "preview": ctx})
+            replies.append({"id": entry["id"], "guide": name, "summary": summary, "warnings": warns, "preview": ctx, "tick_impact": rest[0] if rest else None})
         self.s["queue"] = self.s["queue"][-200:]
         self.save()
         return 200, {"ok": True, "queued": replies, "note": "applied to the guide file within a few seconds; the player then gets a /reload prompt"}
@@ -193,6 +197,7 @@ class TugAPI:
 
     def r_pending(self, method, q, body):
         self.s["bridge_t"] = time.time()
+        self._maybe_notice()
         return 200, {"ok": True, "queue": [e for e in self.s["queue"] if e["status"] == "queued"][:20]}
 
     def r_applied(self, method, q, body):
@@ -217,14 +222,63 @@ class TugAPI:
             if not r["needed"]:
                 r.update(needed=True, edits=[], boot=body.get("boot"), since=time.time())
             r["edits"] = (r["edits"] + [line[:90]])[-6:]
-            if body.get("game_live"):
-                self._notice()
+            r["last_edit_id"] = max(r.get("last_edit_id", 0), eid)
+            self._live(eid, entry["guide"], body.get("text"))
+            # Wait until the agent has gone quiet (one prompt per batch of edits), but never longer than MAX_WAIT after the first edit:
+            # a long revamp must not hide the prompt for the whole run. Raised even when the game is closed: the bridge clears it at the
+            # first live boot, so a player who starts the game later is not left with a stale prompt.
+            now = time.time()
+            live = os.environ.get("WOWMENTOR_LIVE_APPLY", "1") != "0"
+            quiet = float(os.environ.get("WOWMENTOR_RELOAD_QUIET_S") or (120 if live else 45))     # live apply confirms in 5 to 60 s: the prompt is only the fallback
+            r["notify_due"] = min(now + quiet, (r.get("since") or now) + float(os.environ.get("WOWMENTOR_RELOAD_MAX_WAIT_S", "300")))
+            self._maybe_notice()
         else:
             self.overlay([{"op": "toast", "title": "Guide edit failed", "text": ("; ".join(entry["errors"])[:160] or "unknown error"), "level": "bad"}])
         self.save()
         return 200, {"ok": True}
 
-    def _notice(self):
+    def _live(self, eid, name, text):
+        """Hand the edited guide to the addon so Guidelime picks it up in the running game: no /reload. If the game does not confirm it
+        (older addon, Guidelime changed, game closed), the usual reload prompt appears after the quiet period."""
+        if os.environ.get("WOWMENTOR_LIVE_APPLY", "1") == "0" or not isinstance(text, str):
+            return
+        try:
+            pre, lines, suf, eol = tugdoc.split_file(text)
+            m = re.search(r',\s*"([^"]*)"\s*\)\s*$', suf)
+            if not m:
+                return
+            self.overlay([{"op": "guide_live", "id": eid, "name": name, "group": m.group(1), "text": eol.join(lines) + eol}])
+        except Exception:
+            return
+
+    def r_live(self, method, q, body):
+        """The bridge saw the addon confirm it registered edits up to `id`: nothing to reload."""
+        self.s["bridge_t"] = time.time()
+        eid = body.get("id") if isinstance(body, dict) else None
+        if not isinstance(eid, int):
+            raise tugdoc.TugError(["id (an edit id) required"])
+        r = self.s["reload"]
+        self.s["reload"]["live_acked"] = max(self.s["reload"].get("live_acked", 0), eid)
+        self.overlay([{"op": "guide_live_clear", "upto": eid}])
+        if r.get("needed") and eid >= r.get("last_edit_id", 0):
+            r.update(needed=False, edits=[], since=0, notify_due=None, notified=False)
+            self.overlay([{"op": "remove", "panel": "tug-reload"}], panel_exists="tug-reload")
+        self.save()
+        return 200, {"ok": True}
+
+    def _maybe_notice(self):
+        r = self.s["reload"]
+        due = r.get("notify_due")
+        if not r.get("needed") or not due or time.time() < due:
+            return
+        if any(e["status"] in ("queued", "applying") for e in self.s["queue"]):
+            r["notify_due"] = time.time() + 5       # more edits are on the way: keep waiting
+            return
+        first = not r.get("notified")
+        r["notify_due"], r["notified"] = None, True
+        self._notice(first)
+
+    def _notice(self, first=True):
         r = self.s["reload"]
         text = "\n".join(r["edits"])
         self.overlay([
@@ -233,14 +287,13 @@ class TugAPI:
              "children": [
                  {"type": "callout", "level": "warn", "text": "Your mentor edited the leveling guide (%d change(s)). Type /reload when you are out of combat to load it." % len(r["edits"])},
                  {"type": "text", "muted": True, "size": 11, "text": text[:600]}]},
-            {"op": "toast", "text": "Guide edited: type /reload to load the changes", "level": "warn", "sound": "ping", "ttl": 10},
-        ])
+        ] + ([{"op": "toast", "text": "Guide edited: type /reload to load the changes", "level": "warn", "sound": "ping", "ttl": 10}] if first else []))
 
     def r_reloaded(self, method, q, body):
         self.s["bridge_t"] = time.time()
         r = self.s["reload"]
         if r["needed"]:
-            r.update(needed=False, edits=[], since=0)
+            r.update(needed=False, edits=[], since=0, notify_due=None, notified=False)
             self.overlay([{"op": "remove", "panel": "tug-reload"}, {"op": "toast", "text": "Guide reloaded", "level": "good", "ttl": 4}], panel_exists="tug-reload")
             self.save()
         return 200, {"ok": True}

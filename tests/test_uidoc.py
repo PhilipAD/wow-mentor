@@ -88,3 +88,22 @@ class UiDocTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AwarenessOpTests(unittest.TestCase):
+    def test_verdict_spells_ctx_voice_and_new_rule_types(self):
+        d = uidoc.Doc()
+        uidoc.apply_ops(d, [{"op": "verdict", "item": 6543, "text": "keep for AH"}, {"op": "watch", "spells": [348, 5782]}, {"op": "builtin", "voice": True},
+                            {"op": "panel", "id": "pvp", "title": "Ready", "visibility": {"ctx": ["contested", "wild"]}},
+                            {"op": "rule", "id": "s", "when": {"type": "item_count_lte", "item": 6265, "n": 2}, "then": [{"do": "speak", "text": "Low on shards"}]},
+                            {"op": "rule", "id": "h", "when": {"type": "hostiles_near_gte", "n": 3, "players": True}, "then": [{"do": "toast", "text": "{count} hostiles"}]},
+                            {"op": "rule", "id": "e", "when": {"type": "enemy_player", "class": "Hunter"}, "then": [{"do": "toast", "text": "Hunter {level}"}]},
+                            {"op": "rule", "id": "p", "when": {"type": "pet_dead"}, "then": [{"do": "toast", "text": "pet dead"}]},
+                            {"op": "action", "name": "speak", "text": "hello"}])
+        self.assertEqual((d.verdicts, d.watch_spells, d.builtin), ({"6543": "keep for AH"}, [348, 5782], {"voice": True}))
+        uidoc.apply_ops(d, {"op": "verdict", "item": 6543, "remove": True})
+        self.assertEqual(d.verdicts, {})
+        for bad in ({"op": "panel", "id": "x", "title": "x", "visibility": {"ctx": ["moon"]}}, {"op": "verdict", "item": 1}, {"op": "action", "name": "speak"},
+                    {"op": "rule", "id": "z", "when": {"type": "item_count_lte", "n": 1}, "then": [{"do": "flash"}]}):
+            with self.assertRaises(uidoc.OpError):
+                uidoc.apply_ops(d, bad)

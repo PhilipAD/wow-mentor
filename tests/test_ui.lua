@@ -97,4 +97,27 @@ assert(UI.apply("{bad") == false)
 assert(UI.apply('{"v":2,"rev":5}') == false)
 assert(UI.apply('{"v":1,"rev":13,"panels":[]}') == true or true)
 assert(UI.apply('{"v":1,"rev":2,"panels":[]}') == false, "stale rev rejected")
+-- live guide update (no /reload): register with Guidelime, refresh through its options checkbox, acknowledge via the KV line
+do
+	local registered, clicked = {}, 0
+	Guidelime = { registerGuide = function(text, group) registered[#registered + 1] = { text, group } end }
+	local checkbox = { GetScript = function() return function() clicked = clicked + 1 end end }
+	local content = { options = { showMapMarkersGOTO = checkbox } }
+	local frames = { { options = false }, content }
+	EnumerateFrames = function(prev)
+		if prev == nil then return frames[1] end
+		for i, f in ipairs(frames) do if f == prev then return frames[i + 1] end end
+	end
+	UI.applyGuideLive({ { id = 7, name = "a", group = "G", text = "TEXT" } })
+	assert(#registered == 1 and registered[1][1] == "TEXT" and registered[1][2] == "G", "guide registered")
+	assert(clicked == 1, "Guidelime refreshed once")
+	assert(UI.kv():find("glive=7"), "kv acknowledges the edit: " .. UI.kv())
+	UI.applyGuideLive({ { id = 7, name = "a", group = "G", text = "TEXT" } })
+	assert(#registered == 1 and clicked == 1, "an acknowledged edit is not applied twice")
+	frames[2] = {}                                             -- Guidelime changed shape: no checkbox to refresh through
+	S.limeContent = nil
+	UI.applyGuideLive({ { id = 8, name = "b", group = "G", text = "T2" } })
+	assert(not UI.kv():find("glive=8"), "no acknowledgement when the refresh was not possible")
+	Guidelime, EnumerateFrames = nil, nil
+end
 io.write("ui ok: panels=" .. (function() local c = 0 for _ in pairs(S.panels) do c = c + 1 end return c end)() .. " errors=" .. #S.errors .. "\n")

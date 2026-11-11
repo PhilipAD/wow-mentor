@@ -16,6 +16,10 @@ MAX_ITEMS = 60
 MAX_TEXT = 800
 MAX_HISTORY = 10
 MAX_OPS = 100
+MAX_GUIDE_LIVE = 6               # guide files queued for live registration in the game (no /reload), cleared once the game confirms
+MAX_GUIDE_LIVE_BYTES = 40_000
+MAX_VERDICTS = 40
+MAX_WATCH = 30                 # item ids the addon reports on in the ITEM_WATCH feed section
 
 ANCHORS = ("TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT")
 LEVELS = ("info", "tip", "good", "warn", "bad")
@@ -23,7 +27,8 @@ PRIORITIES = ("high", "med", "low")
 COMBAT = ("show", "dim", "hide")
 FONTS = ("default", "friz", "arial", "morpheus", "skurri")
 SOUNDS = ("none", "ping", "warning", "quest", "levelup", "ready")
-ACTIONS = ("flash", "sound", "chat", "track_quest")
+ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak")
+GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide")
 BINDS = ("bags", "durability")        # XP and level are never shown on the overlay
 COLOR_NAMES = {
     "white": "#ffffff", "black": "#000000", "red": "#ff4040", "green": "#40d060", "blue": "#4090ff", "yellow": "#ffd100",
@@ -100,12 +105,22 @@ def _id(v):
     return str(v)
 
 
+CONTEXTS = ("town", "wild", "contested", "instance", "battleground", "city_pvp")
+
+
+def _ctxlist(v):
+    if not isinstance(v, list) or not 1 <= len(v) <= len(CONTEXTS) or not all(x in CONTEXTS for x in v):
+        raise ValueError("ctx: a list of %s (the panel shows only in those contexts)" % ", ".join(CONTEXTS))
+    return list(dict.fromkeys(v))
+
+
 def _visibility(v):
     if not isinstance(v, dict):
         raise ValueError("must be an object")
     spec = {
         "combat": _enum(COMBAT), "dim": _num(0, 1), "mouseover": _bool, "idleFade": _num(0, 3600), "idleAlpha": _num(0, 1),
         "hideWhenMounted": _bool, "hideInInstance": _bool, "minLevel": _int(1, 80), "maxLevel": _int(1, 80),
+        "ctx": _ctxlist,
     }
     out = {}
     for k, val in v.items():
@@ -171,7 +186,7 @@ def _auto(v):
 
 
 ITEM_FIELDS = {"auto": _auto, "id": _id, "text": _str, "done": _bool, "note": _str, "priority": _enum(PRIORITIES), "icon": _str, "reset": _bool}
-WAYPOINT_FIELDS = {"clear_yards": _num(1, 500), "task": _str, "id": _id, "map": _int(1, 100000), "x": _num(0, 100), "y": _num(0, 100), "title": _str, "track": _bool}
+WAYPOINT_FIELDS = {"clear_yards": _num(1, 500), "task": _str, "id": _id, "map": _int(1, 100000), "x": _num(0, 100), "y": _num(0, 100), "title": _str, "track": _bool, "quest": _int(1, 10_000_000)}
 
 
 def _apply_fields(spec, src, errs, path, allow_extra=()):
@@ -311,6 +326,11 @@ WHEN_TYPES = {
     "durability_lte": {"pct": (_num(0, 100), True)},
     "deaths_in_subzone": {"count": (_int(1, 20), False), "minutes": (_num(1, 120), False)},
     "buff_missing": {"name": (_str, False), "spell": (_int(1, 10_000_000), False), "pet": (_bool, False), "ooc": (_bool, False)},
+    "pet_missing": {"ooc": (_bool, False)},
+    "pet_dead": {},
+    "item_count_lte": {"n": (_int(0, 10000), True), "item": (_int(1, 10_000_000), False), "name": (_str, False)},
+    "hostiles_near_gte": {"n": (_int(1, 40), True), "players": (_bool, False)},
+    "enemy_player": {"class": (_str, False), "min_level": (_int(1, 80), False), "flagged": (_bool, False)},
     "level_up": {}, "death": {}, "logout": {}, "entering_world": {}, "merchant_show": {}, "trainer_show": {}, "quest_reward": {},
     "loot_opened": {}, "lower_rank_on_bar": {},
     "spell_learned": {"name": (_str, False)},
@@ -325,9 +345,10 @@ DO_TYPES = {
     "chat": {"text": (_str, True), "sound": (_enum(SOUNDS), False)},
     "check": {"panel": (_id, True), "item": (_id, True), "done": (_bool, False)},
     "waypoint": {"id": (_id, True), "map": (_int(1, 100000), True), "x": (_num(0, 100), True), "y": (_num(0, 100), True),
-                 "title": (_str, False), "track": (_bool, False), "clear_yards": (_num(1, 500), False)},
+                 "title": (_str, False), "track": (_bool, False), "clear_yards": (_num(1, 500), False), "quest": (_int(1, 10_000_000), False)},
     "panel_text": {"panel": (_id, True), "child": (_id, True), "text": (_str, True)},
     "sound": {"sound": (_enum(SOUNDS), True)},
+    "speak": {"text": (_str, True)},
     "flash": {},
 }
 MAX_RULES = 40
@@ -354,6 +375,8 @@ def _typed(v, table, key, what, depth=0):
         raise ValueError("unknown field(s) %s for %s (allowed: %s)" % (", ".join(sorted(extra)), t, ", ".join(sorted(spec)) or "none"))
     if t == "buff_missing" and "name" not in out and "spell" not in out:
         raise ValueError("buff_missing needs name or spell")
+    if t == "item_count_lte" and "item" not in out and "name" not in out:
+        raise ValueError("item_count_lte needs item (id) or name")
     return out
 
 
@@ -408,11 +431,15 @@ class Doc:
         self.builtin = dict(d.get("builtin", {}))
         self.rules = list(d.get("rules", []))
         self.inbox = list(d.get("inbox", []))
+        self.watch = [int(i) for i in d.get("watch", []) if isinstance(i, int)][:MAX_WATCH]
+        self.guide_live = [g for g in d.get("guide_live", []) if isinstance(g, dict)][:MAX_GUIDE_LIVE]
+        self.watch_spells = [int(i) for i in d.get("watch_spells", []) if isinstance(i, int)][:MAX_WATCH]
+        self.verdicts = {str(k): str(v)[:160] for k, v in dict(d.get("verdicts", {})).items()}
         self.updated = d.get("updated", time.time())
 
     def to_dict(self):
         return {"v": VERSION, "rev": self.rev, "updated": self.updated, "theme": self.theme, "panels": self.panels,
-                "waypoints": self.waypoints, "toasts": self.toasts, "actions": self.actions, "builtin": self.builtin, "rules": self.rules, "inbox": self.inbox}
+                "waypoints": self.waypoints, "toasts": self.toasts, "actions": self.actions, "builtin": self.builtin, "rules": self.rules, "inbox": self.inbox, "watch": self.watch, "guide_live": self.guide_live, "watch_spells": self.watch_spells, "verdicts": self.verdicts}
 
     def wire(self):
         d = self.to_dict()
@@ -589,7 +616,7 @@ class Doc:
             self.toasts = (self.toasts + [t])[-MAX_HISTORY:]
 
     def _op_action(self, b, errs, warns):
-        spec = {"name": _enum(ACTIONS), "text": _str, "sound": _enum(SOUNDS), "quest": _int(1, 10_000_000)}
+        spec = {"name": _enum(ACTIONS), "text": _str, "sound": _enum(SOUNDS), "quest": _int(1, 10_000_000), "cmd": _enum(GUIDELIME_CMDS), "guide": _str}
         a = _apply_fields(spec, b, errs, "action")
         if "name" not in a:
             errs.append("action.name: required (one of %s)" % ", ".join(ACTIONS))
@@ -597,6 +624,12 @@ class Doc:
             errs.append("action.text: required for chat")
         elif a["name"] == "track_quest" and "quest" not in a:
             errs.append("action.quest: required for track_quest")
+        elif a["name"] == "speak" and "text" not in a:
+            errs.append("action.text: required for speak")
+        elif a["name"] == "guidelime" and "cmd" not in a:
+            errs.append("action.cmd: required for guidelime (one of %s)" % ", ".join(GUIDELIME_CMDS))
+        elif a.get("cmd") == "open_guide" and "guide" not in a:
+            errs.append("action.guide: required for open_guide (the guide title, as `tug list` prints it)")
         if not errs:
             a.update(id=self.rev + 1, t=time.time())
             self.actions = (self.actions + [a])[-MAX_HISTORY:]
@@ -612,12 +645,89 @@ class Doc:
         self.waypoints.append(w)
 
     def _op_builtin(self, b, errs, warns):
-        spec = {"me": _bool}
+        spec = {"me": _bool, "voice": _bool}
         t = _apply_fields(spec, b, errs, "builtin")
         if not t and not errs:
-            errs.append("builtin: pass me=true|false (the built-in character panel: professions, skills, gear, talents)")
+            errs.append("builtin: pass me=true|false (the built-in character panel) and/or voice=true|false (spoken advice, off by default)")
         if not errs:
             self.builtin.update(t)
+
+    def _op_verdict(self, b, errs, warns):
+        """A one-line opinion shown in the item's tooltip in the game ("Mentor: keep for AH, about 3s")."""
+        if b.get("clear"):
+            self.verdicts = {}
+            return
+        item = b.get("item")
+        if not isinstance(item, int) or isinstance(item, bool) or not 1 <= item <= 10_000_000:
+            errs.append("verdict.item: an item id (or pass clear=true)")
+            return
+        if b.get("remove"):
+            self.verdicts.pop(str(item), None)
+            return
+        text = b.get("text")
+        if not isinstance(text, str) or not text.strip():
+            errs.append("verdict.text: required (or remove=true)")
+            return
+        if str(item) not in self.verdicts and len(self.verdicts) >= MAX_VERDICTS:
+            errs.append("verdict: at most %d items (remove one first)" % MAX_VERDICTS)
+            return
+        self.verdicts[str(item)] = text.strip()[:160]
+
+    def _op_guide_live(self, b, errs, warns):
+        """From the bridge, not the agent: a guide file that was just edited, for the addon to register with Guidelime in the running game."""
+        spec = {"id": _int(1, 10 ** 9), "name": _str, "group": _str, "text": _str}
+        g = {k: b[k] for k in spec if k in b}
+        for k in spec:
+            if k not in g:
+                errs.append("guide_live.%s: required" % k)
+                return
+        if not isinstance(g["id"], int) or not all(isinstance(g[k], str) for k in ("name", "group", "text")) or len(g["text"]) > MAX_GUIDE_LIVE_BYTES:
+            errs.append("guide_live: id (int), name, group and text (at most %d bytes) are required" % MAX_GUIDE_LIVE_BYTES)
+            return
+        keep = [x for x in self.guide_live if x.get("name") != g["name"]] + [g]
+        while len(keep) > MAX_GUIDE_LIVE or sum(len(x.get("text", "")) for x in keep) > MAX_GUIDE_LIVE_BYTES * 2:
+            keep.pop(0)
+        self.guide_live = keep
+
+    def _op_guide_live_clear(self, b, errs, warns):
+        upto = b.get("upto")
+        if not isinstance(upto, int):
+            errs.append("guide_live_clear.upto: an edit id")
+            return
+        self.guide_live = [x for x in self.guide_live if x.get("id", 0) > upto]
+
+    def _op_watch(self, b, errs, warns):
+        """Ask the addon to report item details and prices: name, quality, level, slot, stats, vendor and Auctionator prices, count owned."""
+        ids = _int(1, 10_000_000)
+        out = list(self.watch)
+        for key in ("items", "add", "remove"):
+            if key not in b:
+                continue
+            v = b[key]
+            if not isinstance(v, list) or not all(isinstance(i, int) and not isinstance(i, bool) and 1 <= i <= 10_000_000 for i in v):
+                errs.append("watch.%s: a list of item ids (integers)" % key)
+                return
+            if key == "items":
+                out = list(dict.fromkeys(v))
+            elif key == "add":
+                out += [i for i in v if i not in out]
+            else:
+                out = [i for i in out if i not in v]
+        if "spells" in b:
+            sp = b["spells"]
+            if not isinstance(sp, list) or not all(isinstance(i, int) and not isinstance(i, bool) and 1 <= i <= 10_000_000 for i in sp) or len(sp) > MAX_WATCH:
+                errs.append("watch.spells: a list of at most %d spell ids" % MAX_WATCH)
+                return
+            self.watch_spells = list(dict.fromkeys(sp))
+            if not any(k in b for k in ("items", "add", "remove")):
+                return
+        if not any(k in b for k in ("items", "add", "remove")):
+            errs.append("watch: pass items=[ids] (replace), add=[ids], remove=[ids] or spells=[ids]; an empty list clears")
+            return
+        if len(out) > MAX_WATCH:
+            errs.append("watch: at most %d items (you gave %d)" % (MAX_WATCH, len(out)))
+            return
+        self.watch = out
 
     def _op_rule(self, b, errs, warns):
         r = normalize_rule(b, errs, "rule")
@@ -732,13 +842,14 @@ def catalog():
             "rule": "upsert an addon-side rule: {id, when:{type,...}, then:[{do,...}], cooldown_s, once, enabled}. Evaluated instantly in the game, no polling",
             "rule_remove": {"id": "rule id"}, "rules_clear": "remove every rule",
             "coach": {"text": "message", "chat": "print a chat line (default true)", "toast": "also a banner (default false)", "level": list(LEVELS), "sound": list(SOUNDS)},
+            "watch": {"items": "[item ids] replace the list", "add": "[item ids]", "remove": "[item ids]", "note": "up to %d; the ITEM_WATCH feed section reports name, quality, level, slot, stats, vendor and AH price, and how many the player owns" % MAX_WATCH},
             "builtin": {"me": "true|false: show or hide the built-in character panel (professions, skills, gear, talents), on by default"},
             "action": {"name": list(ACTIONS), "text": "for chat", "sound": "for sound", "quest": "questID for track_quest"},
             "clear": "removes panels and waypoints", "reset": "removes everything including theme",
         },
         "theme_fields": names(THEME_FIELDS),
         "panel_fields": names(PANEL_FIELDS),
-        "visibility_fields": ["combat", "dim", "mouseover", "idleFade", "idleAlpha", "hideWhenMounted", "hideInInstance", "minLevel", "maxLevel"],
+        "visibility_fields": ["combat", "dim", "mouseover", "idleFade", "idleAlpha", "hideWhenMounted", "hideInInstance", "minLevel", "maxLevel", "ctx (list: town, wild, contested, instance, battleground, city_pvp)"],
         "components": {t: sorted(set(COMPONENT_COMMON) | set(COMPONENT_FIELDS[t])) + (["items"] if t == "checklist" else ["rows"] if t == "kv" else ["children"] if t == "row" else [])
                        for t in COMPONENT_TYPES},
         "item_fields": names(ITEM_FIELDS),
@@ -843,6 +954,10 @@ Add a fresh `?t=<random number>` to every fetch (the edge caches otherwise). Sec
 - QUESTS (log with objectives), PROFESSIONS (all skill lines incl. weapon skills and proficiencies), SKILLS (spellbook),
   TALENTS and TALENTS_TRAITS, COOLDOWNS, AURAS, GROUP, NEARBY, PVP (honor, rank, kills, battleground state).
 - OFFLINE SAVEDVARIABLES (bank, mail, quest journey from other addons; refreshed only on /reload or logout).
+- MERCHANT: the open vendor window (items, prices, item ids: pass them to `wowui watch` for stats and AH prices). FLIGHTPATHS: nodes seen at the last flight master visit (the game only exposes them while the map is open).
+- READINESS: one READY / NOT READY verdict plus the facts (pet, shards, Healthstone, potions, durability, context). SPELL_WATCH: spells you asked about with `wowui watch --spells`.
+- ITEM_WATCH: details and prices for the items you asked about with `wowui watch`.
+- GUIDES (newer addons): LIVE Guidelime progress and options, Questie focus and completed ids, TomTom arrow. Prefer it to OFFLINE SAVEDVARIABLES.
 - UI_STATE: what your overlay currently shows and what the player did with it. RECENT EVENTS: chat, loot, casts, zone changes.
 - SESSION_STATE (from the bridge): state = in_world | loading | afk | logged_out | game_closed, foreground, last_login_at, last_logout_at,
   uploader_alive_at. EVENTS_TAIL: the last 20 structured events (see 2b). Check SESSION_STATE before anything urgent.
@@ -871,7 +986,7 @@ With partial the valid ops are applied and the bad ones come back as `rejected:[
 
 ### Model: one document, changed by ops
 Ops: panel (upsert), child (upsert a component by id), check (tick an item), remove, theme, toast, waypoint, waypoint_clear,
-action (flash | sound | chat | track_quest), builtin (me on/off), rule, rule_remove, rules_clear, coach, coach_answer, set (replace all), clear, reset.
+action (flash | sound | chat | track_quest | unfocus_quest | guidelime with cmd = skip, complete, toggle_window, arrow_tomtom, arrow_builtin, arrow_show, arrow_hide or open_guide), builtin (me on/off), watch (item ids to report in ITEM_WATCH), rule, rule_remove, rules_clear, coach, coach_answer, set (replace all), clear, reset.
 Panel: id, title, subtitle, anchor (TOPLEFT..CENTER), x, y, w, maxH, scale, alpha, bg, bgAlpha, border, accent, fontSize, font,
 padding, gap, collapsed, collapsible, draggable, interactive, header, ttl, pin, visibility {{combat: show|dim|hide, dim, mouseover,
 idleFade, idleAlpha, hideWhenMounted, hideInInstance, minLevel, maxLevel}}, children[].
@@ -904,7 +1019,7 @@ Task spec: 'Text', 'id::Text', 'id::Text::note'; prefix ! high priority, ~ mediu
 Do not wait for your next poll to react to something the game already knows. Put RULES into the game: the addon evaluates them locally the moment a
 condition becomes true and runs the actions, with no round trip. A rule is {{id, when:{{type,...}}, then:[{{do,...}}], cooldown_s (default 60), once, enabled}}.
 Edge triggered: it fires when the condition goes false to true (event rules: on each matching event), then waits for its cooldown. `once` rules fire once per game session.
-Conditions (when.type): bags_free_lte{{n}}, durability_lte{{pct}}, deaths_in_subzone{{count, minutes}}, buff_missing{{name|spell, pet, ooc}}, level_up, death, logout,
+Conditions (when.type): bags_free_lte{{n}}, durability_lte{{pct}}, deaths_in_subzone{{count, minutes}}, buff_missing{{name|spell, pet, ooc}}, pet_missing{{ooc}} (no pet of ANY kind is out; use it instead of checking one pet's buff), pet_dead, item_count_lte{{n, item|name}} (soul shards, Healthstones, potions in the bags), hostiles_near_gte{{n, players}} (attackable nameplates), enemy_player{{class, min_level, flagged}} (an attackable enemy player appeared; {{class}} {{level}} {{race}} in the text), level_up, death, logout,
 entering_world, merchant_show, trainer_show, quest_reward, loot_opened, lower_rank_on_bar, spell_learned{{name}}, quest_complete{{quest}}, zone_changed{{zone, subzone}},
 target_elite{{level_diff, rare}}, item_looted{{min_quality}}, item_equipped; combine 2 to 4 with {{"type":"all"|"any","of":[...]}} (not nested).
 Actions (then[].do, 1 to 4): toast{{text, level, sound, title}}, chat{{text, sound}}, check{{panel, item, done}}, waypoint{{...}}, panel_text{{panel, child, text}}, sound{{sound}}, flash.
@@ -967,7 +1082,7 @@ Professions: one crafting + one gathering that feed each other; level by craftin
 PvP at 60: rank up by honorable kills and battlegrounds, then gear from honor/reputation vendors.
 
 ## 5. Hard limits (be clear with the player)
-You can display, set map pins and waypoints, print chat lines, play sounds, flash the dock icon and track quests. You cannot cast,
+You can display, set map pins and waypoints (TomTom), focus a quest in Questie, drive Guidelime's skip/complete/arrow, print chat lines, play sounds, flash the dock icon and track quests. You cannot cast,
 target, move, use items, accept quests or trade: Blizzard blocks that for addons. Do not ask the player to run automation or macros
 that play the game for them; you advise, they act. Do not state anything as fact that is not in the feed.
 
@@ -1006,8 +1121,60 @@ Guide syntax: one step per line. Header lines first: [GA Alliance] [N<this guide
     [G47.6,41.6 Elwynn Forest] coordinate arrow   [TAR2329] target NPC id   Vendor at [TAR152][G47.6,41.6 Elwynn Forest]
     Buy: [CI2512,600 Rough Arrow]at [TAR152]   [SK First Aid 20] skill target   Use: [SP465]   [H] hearthstone   [S] set hearth
     [P] get flight path   [F Ironforge] fly   [T] train   Learn your Level 6 skills.[A Warlock]   Plain text lines are notes the player ticks.
-  Copy the pattern of neighbouring steps (`tug show`). Do not put steps before the player's current step unless needed: the player's
-  progress is stored by step position, so inserting earlier lines can shift their checkmarks. Prefer editing in place or inserting ahead.
+  Copy the pattern of neighbouring steps (`tug show`). Ticks are stored by step number AND step text. Guidelime re-matches them by text only when the
+  number of steps changes, so: inserting or deleting steps (count changes) keeps ticks on unchanged steps; moving or replacing steps so the count stays
+  the same shifts ticks onto the wrong steps; changing the text of a step the player already resolved drops its tick. Every `tug` edit reply carries a
+  `tick_impact` block and a warning when either happens: read it. Prefer editing ahead of the player (the GUIDES section lists their resolved steps).
+
+Stay aligned: Guidelime, Questie, TomTom and the overlay must agree. Read the GUIDES feed section first: it is the LIVE state (the Guidelime
+current guide, which step indexes are done or skipped (step numbers match `tug show` line numbers; GUIDES also prints `Guidelime guide steps: N` and drops leftover progress entries past N, which belong to an older version of the guide), the Questie focused quest and full
+completed-quest id list, the Guidelime arrow source and TomTom's arrow). OFFLINE SAVEDVARIABLES is only refreshed at /reload.
+    wowui align [guide] [--ahead 2] [--also "side trip guide"]    audits the guides ahead against the live log: STALE (quest already done),
+        HAVE (accept step for a quest already in the log), MISSING (logged quest no guide mentions), FOCUS (Questie focus not in the log).
+        Fix every line: delete or reword stale steps, tick or merge HAVE steps, add a step or tell the player to abandon MISSING quests.
+    wowui pin "step text" [--go "61.9,30.6Stormwind City"]   something urgent the player must do NOW: inserts it as a step before the first step
+        they have not resolved (so Guidelime shows it first and nothing already ticked shifts) AND adds it to the overlay "next" panel. Never
+        leave the overlay and the guide disagreeing about what to do next.
+    wowui waypoint w1 --map M --x X --y Y --title T --track --quest Q    TomTom arrow plus Questie focus on quest Q in one call
+    wowui action track_quest --quest Q | unfocus_quest | guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide [--guide G]
+React within seconds: `GET <read-link>/events?since=<next>&wait=25` holds the request open until a new event arrives (death, quest done, coach question, bags full...) and then returns it; loop on it
+with the `next` cursor it gives back. Use `&types=death,quest_complete` to filter. This replaces polling every few minutes. Prefer installing rules (2b) for reflexes that need no thinking.
+Item details and prices: `wowui watch <item ids>` (find ids with `wowui db item`) makes the game report each item in the ITEM_WATCH feed section within seconds:
+name, quality, item level, required level, slot, stats, vendor price, Auctionator AH price (the player's last scan, so say it may be stale) and how many they own.
+Use it for quest reward choices, merchant items and the materials of a shopping list. `--add` / `--remove` / `--clear` edit the list (30 max).
+Look facts up instead of guessing: the player's Forever game database (quests incl. Forever-only ids like 97915, NPCs with coordinates, items, objects,
+trainers, quest chains) is loaded on the server. Answers are offline and exact for this build; prefer them to web search for ids, names, coordinates, levels and gates.
+    wowui db quest --id 97915 | --name "Camping 101"    giver, turn-in (with uiMapId and x,y), prerequisites, exclusive variants, race/class gates, objectives
+    wowui db npc --name "Alchemist Mallory"             spawns, flags (trainer, vendor, flight master...), quests it starts and ends
+    wowui db waypoint --quest 95041 --which finish [--set]   coordinates ready for TomTom; --set pins it and focuses the quest in one step
+    wowui db find-quests --zone Elwynn --level 10 --class Warlock --race Human     wowui db trainers --zone "Stormwind City" --like warlock
+    wowui db spots --quest 22 | --npc "Goretusk"   the densest spawn clusters (where most of them stand), best first
+    wowui db training --class Warlock --level 20 [--from 10]   spells trainable with cost and prerequisites; names come from `wowui watch --spells <ids>` (SPELL_WATCH)
+    wowui db chain --id 1689 (what must be done before, what comes next)     wowui db item --name "Surena's Choker" (who drops or sells it)
+    wowui db validate --guide "9-11" --class Warlock --race Human    checks every [QA/QC/QT id] and [G x,y Zone] of a guide: UNKNOWN_QUEST, WRONG_CLASS,
+        WRONG_RACE, FAR_FROM_NPC. Run it after every batch of guide edits and fix what it reports (FAR_FROM_NPC can be a patrol: confirm).
+HTTP twin: GET {BASE}/db/quest?id=97915, /db/npc?name=.., /db/find_quests?zone=..&level=.., /db/validate?guide=.., /db/status. Not in the database: item stats, prices, quality, quest text.
+Awareness and UX toolbox (use these instead of describing things in text):
+    wowui section FAST PVP READINESS ...     print feed sections by name (no raw feed link needed)
+    wowui verify        contradiction guard: Guidelime next step vs overlay tasks, waypoint and Questie focus. Run it before EVERY message that names a next step.
+    wowui route [--set 3]   order the quests in the log into stops (turn-ins first), nearest first; --set pins the first stops (arrow and quest focus on the first)
+    wowui autopsy       after a death: events, fight, position, pet, buffs, bags, durability in one place; write the lesson with `wowui memory add --tag lesson ...`
+    wowui debrief       session summary data (events by type, deaths, fights, quests, professions, your lesson notes); use it when the player logs out
+    READINESS feed section (fast): one verdict line "READY" or "NOT READY: pet, soul shards..." plus context (town, wild, contested, instance, battleground, city_pvp), pet,
+        armour buff, shards, Healthstones, potions, bandages, durability, hearth location. Turn it into a small panel with visibility {{"ctx": ["contested"]}} so it shows only where it matters.
+    SPELL_WATCH feed section: `wowui watch --spells <ids>` reports known, cooldown, usable and in-range-of-target for spells (cooldown and range can be "hidden" in combat).
+    panel visibility ctx: {{"visibility": {{"ctx": ["town"]}}}} shows a panel only in those contexts: swap the same three panels between questing (wild), town, contested and instance
+        without rebuilding them; never add a fourth panel for a context.
+    wowui verdict <itemId> --text "keep for AH, about 3s"    shows "Mentor: ..." in that item's tooltip (40 max): use it for reward picks, keep/vendor/AH calls.
+    spoken advice (OFF by default): `wowui builtin voice on` lets rules and `wowui action speak --text ...` use the game's text to speech; only for urgent, short lines; the
+        player can override with /wfui voice on|off. Rule action: {{"do": "speak", "text": "Pet is dead"}}.
+    enemy radar: the `enemy_player` event/rule gives class, level, race and flagged status of an attackable player who appears; names are never sent. Install rules per class
+        with a one-line matchup tip (toast) instead of reacting live.
+    Not possible here: a combat log, exact damage or enemy cooldowns (the game hides them from addons), automatic input, anything that plays for the player.
+Arrow rules: Guidelime points its own arrow at the first unresolved step that has a [G x,y Zone]; that is the arrow the player follows, so
+edit the [G] coordinates of the guide step to change it. Only use `waypoint --track` (TomTom crazy arrow) when it is the same place, or
+the player sees two arrows. Pick one arrow source (`arrow_tomtom` or `arrow_builtin`, applies after /reload). Questie pins cannot be edited;
+focusing a quest (`--quest`, `track_quest`) fades the others. skip and complete only act on Guidelime's current step, like the player's own click.
 """
 
 def _profile_section(profile):

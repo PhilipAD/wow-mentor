@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .. import config as cfgmod
-from . import agentmem, events as eventsmod, tugapi, uidoc
+from . import agentmem, events as eventsmod, gamedb as gamedbmod, tugapi, uidoc
 
 # Filled in by serve(); module level so the request handler can reach them.
 READ = WRITE = UI = ""
@@ -17,7 +17,7 @@ state = {"body": b"(no data yet)\n", "t": 0.0}
 ui_lock = threading.Lock()
 doc = uidoc.Doc()
 game = {"t": 0.0}      # last report from the bridge: what the addon applied and what the player did
-tug = mem = store = None
+tug = mem = store = gdb = None
 UI_FILE = ""
 CFG = {}
 
@@ -259,6 +259,9 @@ class Handler(BaseHTTPRequestHandler):
             hit = store.handle("GET", route, self._query(), None)      # events, npcs, session, coach/questions (own lock)
             if hit is not None:
                 return self._json(*hit)
+            if route.startswith("db/"):
+                code, obj = gdb.handle("GET", route, self._query(), None)
+                return self._json(code, obj)
             with ui_lock:
                 if route.startswith("tug/"):
                     code, obj = tug.handle("GET", route, self._query(), None)
@@ -320,6 +323,9 @@ class Handler(BaseHTTPRequestHandler):
             hit = store.handle("POST", route, self._query(), body)
             if hit is not None:
                 return self._json(*hit)
+            if route.startswith("db/"):
+                code, obj = gdb.handle("POST", route, self._query(), body if isinstance(body, dict) else {})
+                return self._json(code, obj)
             with ui_lock:
                 if route.startswith("tug/"):
                     code, obj = tug.handle("POST", route, self._query(), body if isinstance(body, dict) else {})
@@ -346,6 +352,16 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, b"ok\n")
 
 
+def _guide_text(name):
+    """(resolved guide name, text) from the uploaded guide cache, for db/validate."""
+    with ui_lock:
+        try:
+            g = tug.resolve(name)
+        except Exception as e:
+            raise gamedbmod.DbError(str(e)[:200])
+        return g, "\n".join(tug.lines_of(g))
+
+
 def _secrets():
     """Everything a read-only caller must never see echoed back: the three tokens and the webhook URL and secret (read live, since
     `wowmentor webhook set` changes config.json while the server runs)."""
@@ -365,6 +381,7 @@ def schema():
                     "response": "{ok, rev, applied_rev, rejected, warnings, applied?, answered?, replayed?}"}
     c["events_api"] = {
         "events": "GET events?since=<eid>&types=a,b&limit=100 -> {events:[{eid,t,received_at,boot,type,data}], next, last_eid, oldest_eid, gap?, reset?}; no since = newest events",
+        "long_poll": "add &wait=25 (seconds, max 25) with since=<eid> to hold the request open until an event arrives; an empty list after the wait means nothing happened; a cursor ahead of the server returns reset:true at once",
         "read_only_events": "GET /<read-token>/events?since=<eid> (same shape; for agents that only hold the feed link)",
         "npcs": "GET npcs[?name=x] -> seen NPC cache {name,id,map,x,y,kind,count,last_seen}",
         "session": "GET session -> {state, foreground, last_login_at, last_logout_at, uploader_alive_at, ...}",
@@ -375,7 +392,7 @@ def schema():
 
 def configure(cfg, data_path=None):
     """Load secrets and persistent state. Returns nothing; call serve() or use make_server() afterwards."""
-    global READ, WRITE, UI, doc, tug, mem, store, UI_FILE, CFG
+    global READ, WRITE, UI, doc, tug, mem, store, gdb, UI_FILE, CFG
     CFG = dict(cfg)
     READ, WRITE, UI = cfg["read_token"], cfg["write_secret"], cfg["ui_secret"]
     d = data_path or cfgmod.data_dir()
@@ -393,6 +410,7 @@ def configure(cfg, data_path=None):
     tug = tugapi.TugAPI(os.path.join(d, "tug_state.json"), _overlay)
     mem = agentmem.AgentMemory(os.path.join(d, "agent_memory.json"))
     store = eventsmod.EventStore(os.path.join(d, "events.json"))
+    gdb = gamedbmod.GameDB(d, _guide_text)
     _idem.clear()
 
 

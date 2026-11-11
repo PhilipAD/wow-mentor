@@ -951,6 +951,26 @@ H.PLAYER_TARGET_CHANGED = function()
 		pcall(C.noteNpc, "target", "target")
 	end
 end
+-- An attackable enemy player shows up (nameplate): one event per player per minute with class and level, so a rule can warn or advise.
+-- Names are never sent (they can be hidden by the game and the agent does not need them).
+S.enemySeen = {}
+H.NAME_PLATE_UNIT_ADDED = function(unit)
+	if secret(unit) or type(unit) ~= "string" then return end
+	if not U.bool(try(UnitIsPlayer, unit)) or not U.bool(try(UnitCanAttack, "player", unit)) then return end
+	local okg, guid = pcall(UnitGUID, unit)
+	local key = (okg and type(guid) == "string" and not secret(guid)) and guid or unit
+	local t = U.now()
+	if S.enemySeen[key] and t - S.enemySeen[key] < 60 then return end
+	S.enemySeen[key] = t
+	local okc, _, class = pcall(UnitClass, unit)
+	local okl, lvl = pcall(UnitLevel, unit)
+	local okr, _, race = pcall(UnitRace, unit)
+	local d = { class = (okc and type(class) == "string" and not secret(class)) and class or nil,
+		level = (okl and type(lvl) == "number" and not secret(lvl)) and lvl or nil,
+		race = (okr and type(race) == "string" and not secret(race)) and race or nil,
+		flagged = U.bool(try(UnitIsPVP, unit)) or false }
+	C.event("enemy_player", d)
+end
 H.BAG_UPDATE_DELAYED = function() S.dirtyBags = true; S.dirtyItems = true; S.autoDirty = true end
 H.UPDATE_INVENTORY_DURABILITY = function() S.dirtyDura = true end
 H.UNIT_AURA = function(unit) if not secret(unit) and (unit == "player" or unit == "pet") then S.dirtyAuras = true end end

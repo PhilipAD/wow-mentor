@@ -215,3 +215,30 @@ def context(lines, ops_summary, new_lines, old_lines, pad=1):
     while b > a and len(old_lines) - (len(new_lines) - b) > a and new_lines[b - 1] == old_lines[len(old_lines) - (len(new_lines) - b) - 1]:
         b -= 1
     return numbered(new_lines, max(1, a + 1 - pad), min(len(new_lines), max(b, a + 1) + pad))
+
+
+def impact(old, new):
+    """What an edit does to a player's Guidelime ticks (stored by step number and step text).
+
+    Guidelime re-matches ticks by text only when the number of steps changed. So:
+      shifted      old line ranges that moved to a different number (ticks on them follow only if the step count changed)
+      count_same_shifted   True when lines moved but the count is unchanged: Guidelime will NOT re-match, ticks land on the wrong steps
+      text_changed old line numbers whose text changed: a tick on such a step is dropped on re-match
+    Line numbers are the 1-based numbers `tug show` prints (the player's resolved steps are in the feed GUIDES section)."""
+    import difflib
+    sm = difflib.SequenceMatcher(None, old, new, autojunk=False)
+    shifted, changed = [], []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal" and i1 != j1:
+            shifted.append({"old": [i1 + 1, i2], "new_start": j1 + 1})
+        elif tag in ("replace", "delete"):
+            changed.append([i1 + 1, i2])
+    same = len(old) == len(new)
+    out = {"old_lines": len(old), "new_lines": len(new), "shifted": shifted[:12], "text_changed": changed[:12]}
+    if same and shifted:
+        out["count_same_shifted"] = True
+        out["warning"] = ("lines moved but the step count is unchanged, so Guidelime will not re-match ticks: the player's ticks on shifted steps land on the wrong steps. "
+                          "Change the line count in the same batch (or edit in place) and tell the player to re-check the steps around the edit.")
+    elif changed:
+        out["warning"] = "text of existing steps changed (old lines %s): a tick or skip on those steps is lost at the next /reload, so do not edit steps the player has already resolved" % ", ".join("%d-%d" % tuple(c) if c[0] != c[1] else str(c[0]) for c in changed[:6])
+    return out

@@ -87,6 +87,7 @@ class GuideSync(object):
         self.too_big = set()
         self.pending_reload = False
         self.boot_at_edit = None
+        self.live_acked = 0
         self.last_scan = 0.0
         self.files = {}
         self._rescan()
@@ -191,7 +192,20 @@ class GuideSync(object):
                 self.sent.pop(name, None)
                 self._call("applied", {"id": e["id"], "ok": False, "errors": ["bridge error: %r" % (err,)]})
 
+    def watch_live(self):
+        """The addon puts the id of the last guide edit it registered with Guidelime (no /reload needed) in the KV line: tell the server."""
+        kv = self.get_kv()
+        try:
+            gid = int((kv or {}).get("glive") or 0)
+        except (TypeError, ValueError):
+            return
+        if gid and gid != self.live_acked and self.game_age() is not None and self.game_age() < 15:
+            if self._call("live", {"id": gid}):
+                self.live_acked = gid
+                self.log("guide edits up to %d are live in the game (no reload needed)" % gid)
+
     def watch_reload(self):
+        self.watch_live()
         if not self.pending_reload:
             return
         kv = self.get_kv()
@@ -201,7 +215,19 @@ class GuideSync(object):
             self._call("reloaded", {"boot": boot})
             self.pending_reload = False
 
+    def resume_pending(self):
+        """After a bridge restart: the server still holds an unanswered reload prompt. Pick it up so it clears at the next reload."""
+        st = self._call("status")
+        r = (st or {}).get("reload") or {}
+        if r.get("needed"):
+            self.pending_reload, self.boot_at_edit = True, r.get("boot")
+            self.log("guidesync: resumed a pending reload prompt")
+
     def run(self):
+        try:
+            self.resume_pending()
+        except Exception as e:
+            self.log("guidesync resume error: %r" % (e,))
         while True:
             try:
                 if time.time() - self.last_scan > 6:

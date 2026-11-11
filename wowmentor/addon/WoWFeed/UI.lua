@@ -695,6 +695,7 @@ local function computeTarget(P)
 	if (v.minLevel and lvl < v.minLevel) or (v.maxLevel and lvl > v.maxLevel) then return 0 end
 	if v.hideWhenMounted and truthy(call(IsMounted)) then return 0 end
 	if v.hideInInstance and truthy(call(IsInInstance)) then return 0 end
+	if v.ctx then local cx, okc = UI.context(), false; for _, x in ipairs(v.ctx) do if x == cx then okc = true end end; if not okc then return 0 end end
 	local full = (d.alpha or 1) * DB.alpha
 	local a = full
 	local inCombat = truthy(call(UnitAffectingCombat, "player")) or truthy(call(InCombatLockdown))
@@ -829,9 +830,132 @@ local function dismissWaypoint(id, reason)
 	S.dirtyState = true
 end
 
+-- Focus a quest the way the player would: Questie's tracker focus (fades the other pins, supertracks the quest) when Questie
+-- is loaded, the Blizzard watch and supertrack otherwise. Advice-level helper: it only changes what is highlighted.
+local function focusQuest(id)
+	id = tonumber(id)
+	if not id then return false end
+	if QuestieLoader and QuestieLoader.ImportModule then
+		local ok, done = pcall(function()
+			local TU = QuestieLoader:ImportModule("TrackerUtils")
+			return TU and TU.FocusQuest and TU:FocusQuest(id)
+		end)
+		if ok and done then return true end
+	end
+	pcall(function() C_QuestLog.AddQuestWatch(id) end)
+	return (pcall(function() C_SuperTrack.SetSuperTrackedQuestID(id) end))
+end
+
+-- Guide edits without /reload. The bridge writes the edited guide file to disk AND sends its text here; we register it with the running
+-- Guidelime (Guidelime.registerGuide is its public API) and then run the same refresh Guidelime runs when a player toggles a map option
+-- (re-parse the current guide, re-match ticks by step text, redraw). Everything is guarded: if Guidelime changes shape the edit stays on
+-- disk, nothing is acknowledged, and the server falls back to its "type /reload" prompt.
+local function limeOptionsFrame()
+	if S.limeContent and S.limeContent.options then return S.limeContent end
+	if not EnumerateFrames then return nil end
+	local f = EnumerateFrames()
+	while f do
+		local ok, o = pcall(function() return f.options end)
+		if ok and type(o) == "table" and o.showMapMarkersGOTO then S.limeContent = f; return f end
+		f = EnumerateFrames(f)
+	end
+	return nil
+end
+local function refreshLime()
+	local c = limeOptionsFrame()
+	local cb = c and c.options and c.options.showMapMarkersGOTO
+	local h = cb and cb.GetScript and cb:GetScript("OnClick")
+	if not h then return false end
+	h(cb)           -- Guidelime's handler stores the checkbox's current value again, then loadCurrentGuide(false), updateFromQuestLog, updateMainFrame
+	return true
+end
+function UI.applyGuideLive(list)
+	if not (Guidelime and Guidelime.registerGuide) then return end
+	S.gliveTried = S.gliveTried or {}
+	local pending = {}
+	for _, g in ipairs(list) do
+		if type(g) == "table" and type(g.id) == "number" and g.id > (DB.glive or 0) and not S.gliveTried[g.id] and type(g.text) == "string" and type(g.group) == "string" then
+			pending[#pending + 1] = g
+		end
+	end
+	if #pending == 0 then return end
+	table.sort(pending, function(a, b) return a.id < b.id end)
+	local maxid, registered = 0, 0
+	for _, g in ipairs(pending) do
+		S.gliveTried[g.id] = true
+		local ok, err = pcall(Guidelime.registerGuide, g.text, g.group)
+		if ok then registered = registered + 1; maxid = g.id
+		else S.gliveErr = tostring(err):sub(1, 90); lerr("guide live: " .. tostring(err)) end
+	end
+	if registered == 0 then return end
+	local ok, refreshed = pcall(refreshLime)
+	if ok and refreshed then
+		DB.glive = maxid; S.glive = maxid; S.gliveErr = nil; S.gliveAt = now()
+	else
+		S.gliveErr = "registered " .. registered .. " guide(s) but could not refresh Guidelime's current guide"
+	end
+end
+
+-- Where the player is, in the words panels use: town, wild, contested, instance, battleground, city_pvp. Cached for half a second.
+function UI.context()
+	local t = now()
+	if S.ctxAt and t - S.ctxAt < 0.5 then return S.ctx end
+	local ok, inInst, itype = pcall(IsInInstance)
+	local cx = "wild"
+	if ok and inInst then
+		cx = (itype == "pvp" or itype == "arena") and "battleground" or "instance"
+	else
+		local okz, zt = pcall(GetZonePVPInfo)
+		local resting = truthy(call(IsResting))
+		if resting then cx = (okz and (zt == "hostile" or zt == "contested")) and "city_pvp" or "town"
+		elseif okz and (zt == "contested" or zt == "hostile" or zt == "combat") then cx = "contested"
+		elseif okz and zt == "sanctuary" then cx = "town" end
+	end
+	S.ctx, S.ctxAt = cx, t
+	return cx
+end
+
+-- Spoken advice (opt-in): the game's own text to speech through C_VoiceChat.SpeakText. The agent turns it on with `wowui builtin --voice on`;
+-- the player can always override with /wfui voice on|off. Throttled, short, never in a loop.
+local function voiceOn()
+	if DB.voiceMode == "off" then return false end
+	if DB.voiceMode == "on" then return true end
+	return S.voice == true
+end
+function UI.speak(text)
+	if not voiceOn() or type(text) ~= "string" or text == "" then return false end
+	local t = now()
+	if t - (S.speakAt or 0) < 4 then return false end
+	if not (C_VoiceChat and C_VoiceChat.SpeakText) then return false end
+	local voice = 0
+	pcall(function()
+		if C_TTSSettings and C_TTSSettings.GetVoiceOptionID then voice = C_TTSSettings.GetVoiceOptionID((Enum and Enum.TtsVoiceType and Enum.TtsVoiceType.Standard) or 0) or 0 end
+	end)
+	text = expand(text):sub(1, 220)
+	-- 12.x: (voiceID, text, rate, volume, overlap); older clients take a destination before the rate
+	local ok = pcall(C_VoiceChat.SpeakText, voice, text, 0, 100, false)
+	if not ok then ok = pcall(C_VoiceChat.SpeakText, voice, text, (Enum and Enum.VoiceTtsDestination and Enum.VoiceTtsDestination.LocalPlayback) or 1, 0, 100) end
+	if ok then S.speakAt = t end
+	return ok
+end
+
+-- Mentor verdicts in item tooltips (doc.verdicts: itemId -> short text).
+local function hookTooltips()
+	if S.tooltipHooked then return end
+	if not (TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType) then return end
+	local ok = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Item, function(tt, data)
+		local id = type(data) == "table" and data.id or nil
+		if id == nil or (issecretvalue and issecretvalue(id)) then return end
+		local v = S.verdicts and S.verdicts[tostring(id)]
+		if v and tt and tt.AddLine then tt:AddLine("|cff33ccffMentor:|r " .. v, 1, 1, 1, true) end
+	end)
+	if ok then S.tooltipHooked = true end
+end
+function UI.watchSpells() return S.watchSpells or {} end
+
 -- owner "rule" marks a waypoint created by a rule action: a new document revision does not sweep it away.
 local function setWaypoint(w, owner)
-	local sig = strfmt("%s:%s:%s:%s:%s:%s", w.map, w.x, w.y, w.title or "", tostring(w.clear_yards or ""), tostring(w.task or ""))
+	local sig = strfmt("%s:%s:%s:%s:%s:%s:%s", w.map, w.x, w.y, w.title or "", tostring(w.clear_yards or ""), tostring(w.task or ""), tostring(w.quest or ""))
 	if S.wpDismissed[w.id] == sig then return end
 	S.wpDismissed[w.id] = nil; S.wpNote[w.id] = nil
 	local cur = S.wps[w.id]
@@ -839,6 +963,7 @@ local function setWaypoint(w, owner)
 	if cur then clearWaypoint(w.id) end
 	local x, y = w.x / 100, w.y / 100
 	local rec = { sig = sig, data = w, owner = owner, t = now() }
+	if w.quest then focusQuest(w.quest) end
 	if TomTom and TomTom.AddWaypoint then
 		local ok, uid = pcall(TomTom.AddWaypoint, TomTom, w.map, x, y, { title = w.title or "Mentor", persistent = false, minimap = true, world = true, crazy = w.track and true or false, silent = true, from = "WoWFeed" })
 		if ok and uid then rec.uid = uid; rec.via = "TomTom"; S.wps[w.id] = rec; return end
@@ -863,10 +988,36 @@ local function runAction(a)
 		if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffMentor|r: " .. expand(a.text or "")) end
 		playSound(a.sound)
 	elseif a.name == "track_quest" and a.quest then
-		pcall(function() C_QuestLog.AddQuestWatch(a.quest) end)
-		pcall(function() C_SuperTrack.SetSuperTrackedQuestID(a.quest) end)
+		focusQuest(a.quest)
+	elseif a.name == "speak" then UI.speak(a.text)
+	elseif a.name == "unfocus_quest" then
+		pcall(function()
+			local TU = QuestieLoader and QuestieLoader:ImportModule("TrackerUtils")
+			if TU and TU.UnFocus then TU:UnFocus() end
+			if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then C_SuperTrack.SetSuperTrackedQuestID(0) end
+		end)
+	elseif a.name == "guidelime" then
+		local gc, gd = rawget(_G, "GuidelimeDataChar"), rawget(_G, "GuidelimeData")
+		local c = a.cmd
+		if c == "skip" or c == "complete" then
+			if SlashCmdList and SlashCmdList.Guidelime then pcall(SlashCmdList.Guidelime, c) end
+		elseif c == "toggle_window" then
+			if Guidelime and Guidelime.toggleMainFrame then pcall(Guidelime.toggleMainFrame) end
+		elseif c == "arrow_tomtom" or c == "arrow_builtin" then
+			if gd then gd.useTomTomArrow = (c == "arrow_tomtom"); showToast({ text = "Guidelime arrow source changed: type /reload to apply.", level = "info", ttl = 10 }) end
+		elseif c == "arrow_show" or c == "arrow_hide" then
+			if gc then gc.showArrow = (c == "arrow_show"); showToast({ text = "Guidelime arrow setting changed: type /reload to apply.", level = "info", ttl = 10 }) end
+		elseif c == "open_guide" and gc and a.guide then
+			local name = a.guide
+			if not name:find("^TUGs ") then name = "TUGs The Ultimate (Leveling) Guides " .. name:gsub("^%a+/", "") end
+			gc.currentGuide = name
+			showToast({ text = "Guide set to " .. name .. ": type /reload to load it.", level = "info", ttl = 12 })
+		end
 	end
 end
+
+-- item ids the agent asked to have reported (ITEM_WATCH in WoWFeed.lua)
+function UI.watchList() return S.watch or {} end
 
 -- what Coach.lua needs from this file
 UI.showToast = showToast
@@ -1035,6 +1186,12 @@ local function applyDoc(doc)
 		end
 	end
 	S.rules = type(doc.rules) == "table" and doc.rules or {}
+	S.watch = type(doc.watch) == "table" and doc.watch or {}
+	S.watchSpells = type(doc.watch_spells) == "table" and doc.watch_spells or {}
+	S.verdicts = type(doc.verdicts) == "table" and doc.verdicts or {}
+	S.voice = type(doc.builtin) == "table" and doc.builtin.voice == true
+	if next(S.verdicts) ~= nil then pcall(hookTooltips) end
+	if type(doc.guide_live) == "table" and #doc.guide_live > 0 then local okg, eg = pcall(UI.applyGuideLive, doc.guide_live); if not okg then lerr("guide live: " .. tostring(eg)) end end
 	S.inbox = type(doc.inbox) == "table" and doc.inbox or {}
 	S.docNow = nowEpoch
 	local coach = WoWFeedCoach
@@ -1140,7 +1297,7 @@ function UI.kvTokens()
 	local chat = 0
 	pcall(function() if ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow() then chat = 1 end end)
 	local combat = truthy(call(UnitAffectingCombat, "player")) and 1 or 0
-	local crit = { strfmt("uirev=%d", S.rev), strfmt("uiboot=%d", S.bootId), strfmt("chat=%d", chat), strfmt("combat=%d", combat) }
+	local crit = { strfmt("uirev=%d", S.rev), strfmt("uiboot=%d", S.bootId), strfmt("chat=%d", chat), strfmt("combat=%d", combat), strfmt("glive=%d", S.glive or DB.glive or 0) }
 	local extra = { strfmt("uislot=%d", S.slot), strfmt("uidoor=%d", S.door), "uidb=" .. tostring(S.doorMode), "uimeta=" .. tostring(S.metaMode) }
 	return crit, extra
 end
@@ -1153,6 +1310,7 @@ local function stateLines()
 	local L = {}
 	L[#L + 1] = strfmt("rev=%d docs_applied=%d slot=%d/%d mode=%s meta=%s (%d changes) last_load=%s", S.rev, S.docs, S.slot, S.poolMax, S.metaMode, tostring(S.meta), S.metaChanges, S.lastLoad)
 	L[#L + 1] = "doorbell selftest: " .. S.selftest
+	L[#L + 1] = strfmt("guide live updates (no /reload): last applied edit %s%s", tostring(S.glive or DB.glive or 0), S.gliveErr and (" | PROBLEM: " .. S.gliveErr) or "")
 	L[#L + 1] = strfmt("overlay: hidden=%s locked=%s edit=%s alpha=%.2f scale=%.2f", tostring(S.hidden), tostring(DB.locked), tostring(editMode or manualEdit), DB.alpha, DB.scale)
 	for _, spec in ipairs(BUILTINS) do
 		local bp = S.panels[spec.id]
@@ -1207,13 +1365,14 @@ SlashCmdList.WFUI = function(msg)
 	elseif cmd == "unlock" then DB.locked = false; say("unlocked: drag a panel by its title, or hold Shift and drag anywhere on it")
 	elseif cmd == "me" then DB.hideMe = not DB.hideMe; pcall(refreshBuiltin); say(DB.hideMe and "character panel hidden" or "character panel shown")
 	elseif cmd == "inbox" then DB.hideInbox = not DB.hideInbox; pcall(refreshBuiltin); say(DB.hideInbox and "coach inbox hidden" or "coach inbox shown")
+	elseif cmd == "voice" then local m = arg:lower(); if m == "on" or m == "off" then DB.voiceMode = m elseif m == "auto" then DB.voiceMode = nil end; say("spoken advice: " .. (DB.voiceMode or (S.voice and "on (the mentor turned it on)" or "off")) .. " (/wfui voice on|off|auto)")
 	elseif cmd == "edit" then manualEdit = not manualEdit; say(manualEdit and "edit mode on: drag any panel, /wfui edit again to finish" or "edit mode off")
 	elseif cmd == "alpha" then DB.alpha = max(0.1, min(1, tonumber(arg) or 1)); say("alpha " .. DB.alpha)
 	elseif cmd == "scale" then DB.scale = max(0.5, min(2, tonumber(arg) or 1)); for _, P in pairs(S.panels) do if P.data then placePanel(P) end end; say("scale " .. DB.scale)
 	elseif cmd == "reset" then DB.user = {}; for _, P in pairs(S.panels) do if P.data then P.dirty = true; placePanel(P) end end; say("positions, collapsed panels and ticks reset")
 	elseif cmd == "demo" then S.boot = true; pcall(applyDoc, DEMO); say("demo shown; the mentor replaces it on the next update")
 	elseif cmd == "dump" then for _, l in ipairs(stateLines()) do print(l) end
-	else say("/wfui show|hide|toggle|lock|unlock|edit|me|inbox|alpha <0.1-1>|scale <0.5-2>|reset|demo|dump. Drag by the title, or hold Shift and drag anywhere on a panel; Blizzard Edit Mode also unlocks them.") end
+	else say("/wfui show|hide|toggle|lock|unlock|edit|me|inbox|voice on|off|auto|alpha <0.1-1>|scale <0.5-2>|reset|demo|dump. Drag by the title, or hold Shift and drag anywhere on a panel; Blizzard Edit Mode also unlocks them.") end
 	S.dirtyState = true
 end
 
