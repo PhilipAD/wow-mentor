@@ -1210,7 +1210,8 @@ local function sReadiness()
 		if not has or dead then bad[#bad+1] = "pet" end
 	end
 	if class == "WARLOCK" then
-		local shards = num(try(GetItemCount, 6265))
+		local getCount = (C_Item and C_Item.GetItemCount) or GetItemCount
+		local shards = num(try(getCount, 6265))
 		L[#L+1] = "Soul Shards: " .. tostring(shards or "?")
 		if shards and shards < 3 then bad[#bad+1] = "soul shards" end
 		local armor
