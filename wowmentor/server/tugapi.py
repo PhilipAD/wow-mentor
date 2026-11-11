@@ -225,7 +225,9 @@ class TugAPI:
             # a long revamp must not hide the prompt for the whole run. Raised even when the game is closed: the bridge clears it at the
             # first live boot, so a player who starts the game later is not left with a stale prompt.
             now = time.time()
-            r["notify_due"] = min(now + float(os.environ.get("WOWMENTOR_RELOAD_QUIET_S", "45")), (r.get("since") or now) + float(os.environ.get("WOWMENTOR_RELOAD_MAX_WAIT_S", "300")))
+            live = os.environ.get("WOWMENTOR_LIVE_APPLY", "1") != "0"
+            quiet = float(os.environ.get("WOWMENTOR_RELOAD_QUIET_S") or (120 if live else 45))     # live apply confirms in 5 to 60 s: the prompt is only the fallback
+            r["notify_due"] = min(now + quiet, (r.get("since") or now) + float(os.environ.get("WOWMENTOR_RELOAD_MAX_WAIT_S", "300")))
             self._maybe_notice()
         else:
             self.overlay([{"op": "toast", "title": "Guide edit failed", "text": ("; ".join(entry["errors"])[:160] or "unknown error"), "level": "bad"}])
