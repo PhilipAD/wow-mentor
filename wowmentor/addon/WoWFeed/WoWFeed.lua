@@ -1155,7 +1155,7 @@ local function sItemWatch()
 		else
 			local stats = {}
 			local st = link and try(getStats, link)
-			if type(st) == "table" then for k, v in pairs(st) do stats[#stats+1] = strfmt("%s=%s", tostring(k):gsub("^ITEM_MOD_", ""):gsub("_SHORT$", ""), tostring(v)) end end
+			if type(st) == "table" then for k, v in pairs(st) do local nm = tostring(k):gsub("^ITEM_MOD_", ""):gsub("_SHORT$", ""):gsub("_NAME$", ""); if nm == "RESISTANCE0" then nm = "ARMOR" end; stats[#stats+1] = strfmt("%s=%s", nm, tostring(v)) end end
 			table.sort(stats)
 			local price = ah and num(try(ah, "WoWFeed", id)) or nil
 			local have = num(try(getCount, id, true))
@@ -1196,11 +1196,11 @@ local tickN = 0
 local function tickBody()
 	tickN = tickN + 1
 	push("summary", safe(sSummary), 5); push("fast", safe(sPlayerFast), 5)
-	if tickN % 3 == 0 then push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
+	if tickN % 3 == 0 then push("guides", safe(sGuides), 90); push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
 	if tickN % 15 == 0 or dirty.slow then
 		dirty.slow = false
 		push("stats", safe(sStats), 120); push("equipment", safe(sEquipment), 300); push("bags", safe(sBags), 300)
-		push("quests", safe(sQuests), 300); push("guides", safe(sGuides), 120); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("flightpaths", safe(sFlightPaths), 300); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
+		push("quests", safe(sQuests), 300); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("flightpaths", safe(sFlightPaths), 300); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
 	end
 	if tickN % 60 == 1 then
 		push("talents", safe(sTalents), 600); push("skills", safe(sSkills), 600); push("reputation", safe(sRep), 600); push("currency", safe(sCurrency), 600)

@@ -10,7 +10,7 @@ import base64, json, re, sys, time
 from .. import config as cfgmod
 from . import events as eventsmod
 
-MAX_NOTES = 80
+MAX_NOTES = 200                 # the oldest note is dropped past this; the reply warns when the list is nearly full
 MAX_NOTE = 600
 MAX_SUMMARY = 3000
 SECTIONS = ["SUMMARY", "SESSION", "FAST", "VITALS", "PROFESSIONS", "EQUIPMENT", "BAG_VALUE", "QUESTS", "GUIDES", "TALENTS_TRAITS", "PVP", "UI_STATE", "GROUP"]
@@ -54,7 +54,10 @@ class AgentMemory:
                     self._apply(op)
                 self.d["updated"] = time.time()
                 self.save()
-                return 200, {"ok": True, "notes": len(self.d["notes"]), "summary_chars": len(self.d["summary"])}
+                res = {"ok": True, "notes": len(self.d["notes"]), "limit": MAX_NOTES, "summary_chars": len(self.d["summary"])}
+                if len(self.d["notes"]) >= MAX_NOTES - 10:
+                    res["warning"] = "memory holds %d of %d notes: the oldest is dropped on the next add. Fold what matters into `wowui memory summary` and remove stale notes." % (len(self.d["notes"]), MAX_NOTES)
+                return 200, res
         except MemoryError_ as e:
             return 400, {"ok": False, "errors": e.errors}
         return 404, {"ok": False, "errors": ["unknown memory route"]}

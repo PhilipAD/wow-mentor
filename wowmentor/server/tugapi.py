@@ -132,6 +132,9 @@ class TugAPI:
         s = self.s
         pending = [e for e in s["queue"] if e["status"] == "queued"]
         return 200, {"ok": True, "guides": len(s["guides"]), "pending": len(pending), "recent": s["results"][-10:], "reload": s["reload"],
+                     "live": {"enabled": os.environ.get("WOWMENTOR_LIVE_APPLY", "1") != "0", "acked_through": s["reload"].get("live_acked", 0),
+                              "waiting_for_game": s["reload"].get("last_edit_id", 0) > s["reload"].get("live_acked", 0),
+                              "note": "reload.needed stays true until the game confirms the edit live (5 to 60 s); the player is only prompted if that takes 2 minutes"},
                      "bridge_age_s": round(time.time() - s["bridge_t"], 1) if s["bridge_t"] else None}
 
     def r_history(self, method, q, body):
@@ -255,6 +258,7 @@ class TugAPI:
         if not isinstance(eid, int):
             raise tugdoc.TugError(["id (an edit id) required"])
         r = self.s["reload"]
+        self.s["reload"]["live_acked"] = max(self.s["reload"].get("live_acked", 0), eid)
         self.overlay([{"op": "guide_live_clear", "upto": eid}])
         if r.get("needed") and eid >= r.get("last_edit_id", 0):
             r.update(needed=False, edits=[], since=0, notify_due=None, notified=False)
