@@ -155,7 +155,7 @@ class TugAPI:
             if "restore" in e:
                 if str(e["restore"]) not in [v["id"] for v in self.s["versions"].get(name, [])] + ["orig"]:
                     raise tugdoc.TugError(["edit %d: restore %r is not a known version (see `wowui tug history`)" % (k, e["restore"])])
-                results.append((name, None, {"restore": str(e["restore"])}, e.get("note", ""), ["restore " + str(e["restore"])], [], None))
+                results.append((name, None, {"restore": str(e["restore"])}, e.get("note", ""), ["restore " + str(e["restore"])], [], None, None))
                 continue
             text = trial.get(name, self.s["guides"][name]["text"])
             try:
@@ -164,16 +164,17 @@ class TugAPI:
                 raise tugdoc.TugError(["edit %d (%s): %s" % (k, name, m) for m in err.errors])
             old = tugdoc.split_file(text)[1]
             trial[name] = out
-            results.append((name, e["ops"], None, e.get("note", ""), summary, warns, tugdoc.context(None, summary, new, old)))
+            imp = tugdoc.impact(old, tugdoc.split_file(out)[1])
+            results.append((name, e["ops"], None, e.get("note", ""), summary, warns + ([imp["warning"]] if imp.get("warning") else []), tugdoc.context(None, summary, new, old), imp))
         replies = []
-        for name, ops, restore, note, summary, warns, ctx in results:
+        for name, ops, restore, note, summary, warns, ctx, *rest in results:
             self.s["seq"] += 1
             entry = {"id": self.s["seq"], "guide": name, "ops": ops, "restore": restore, "note": str(note)[:200], "t": time.time(), "status": "queued", "summary": summary}
             self.s["queue"].append(entry)
             if name in trial:
                 self.s["guides"][name]["text"] = trial[name]
                 self.s["guides"][name]["hash"] = tugdoc.sha(trial[name])
-            replies.append({"id": entry["id"], "guide": name, "summary": summary, "warnings": warns, "preview": ctx})
+            replies.append({"id": entry["id"], "guide": name, "summary": summary, "warnings": warns, "preview": ctx, "tick_impact": rest[0] if rest else None})
         self.s["queue"] = self.s["queue"][-200:]
         self.save()
         return 200, {"ok": True, "queued": replies, "note": "applied to the guide file within a few seconds; the player then gets a /reload prompt"}
@@ -218,10 +219,12 @@ class TugAPI:
             if not r["needed"]:
                 r.update(needed=True, edits=[], boot=body.get("boot"), since=time.time())
             r["edits"] = (r["edits"] + [line[:90]])[-6:]
-            if body.get("game_live"):
-                # Wait until the agent has gone quiet: one prompt per batch of edits, not one per edit.
-                r["notify_due"] = time.time() + float(os.environ.get("WOWMENTOR_RELOAD_QUIET_S", "45"))
-                self._maybe_notice()
+            # Wait until the agent has gone quiet (one prompt per batch of edits), but never longer than MAX_WAIT after the first edit:
+            # a long revamp must not hide the prompt for the whole run. Raised even when the game is closed: the bridge clears it at the
+            # first live boot, so a player who starts the game later is not left with a stale prompt.
+            now = time.time()
+            r["notify_due"] = min(now + float(os.environ.get("WOWMENTOR_RELOAD_QUIET_S", "45")), (r.get("since") or now) + float(os.environ.get("WOWMENTOR_RELOAD_MAX_WAIT_S", "300")))
+            self._maybe_notice()
         else:
             self.overlay([{"op": "toast", "title": "Guide edit failed", "text": ("; ".join(entry["errors"])[:160] or "unknown error"), "level": "bad"}])
         self.save()

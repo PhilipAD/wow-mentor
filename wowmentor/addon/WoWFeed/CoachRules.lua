@@ -26,7 +26,7 @@ R.fired = 0
 R.dirty = true       -- RULES section needs a refresh
 
 ---------------------------------------------------------------- conditions
-local STATE_TYPES = { bags_free_lte = true, durability_lte = true, buff_missing = true }
+local STATE_TYPES = { bags_free_lte = true, durability_lte = true, buff_missing = true, pet_missing = true }
 
 local function whenKind(w)
 	if w.type == "all" or w.type == "any" then
@@ -94,6 +94,12 @@ local function evalLeaf(c, ev)
 		if m == nil then return nil, {} end
 		local nm = c.name or (c.spell and U.spellName(c.spell)) or nil
 		return m, { name = nm, spell = c.spell or nm }
+	elseif t == "pet_missing" then
+		-- any pet counts (Imp, Voidwalker, Succubus...): true only while the player is alive, not mounted or flying, and has none out
+		if U.bool(try(UnitIsDeadOrGhost, "player")) then return nil, {} end
+		if c.ooc and U.inCombat() then return nil, {} end
+		if U.bool(try(IsMounted)) or U.bool(try(UnitOnTaxi, "player")) then return nil, {} end
+		return not U.exists("pet"), { name = "pet" }
 	end
 	if not ev then return false, {} end
 	local d = ev.data or {}

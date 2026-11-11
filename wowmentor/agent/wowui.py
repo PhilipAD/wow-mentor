@@ -518,6 +518,49 @@ def cmd_feed(a):
     sys.stdout.write(body.decode("utf-8", "replace"))
 
 
+def cmd_watch(a):
+    op = {"op": "watch"}
+    if a.clear:
+        op["items"] = []
+    elif a.ids:
+        op["items"] = [int(i) for i in a.ids]
+    if a.add:
+        op["add"] = [int(i) for i in a.add]
+    if a.remove:
+        op["remove"] = [int(i) for i in a.remove]
+    if len(op) == 1:
+        fail(["watch needs item ids, --add, --remove or --clear. Find ids with `wowui db item --name ...`"])
+    run(a, op)
+
+
+# ---------------------------------------------------------------- game database (Forever quests, NPCs, items; offline, from the player's Mac)
+def cmd_db(a):
+    route = a.dbcmd.replace("-", "_")
+    params = {}
+    for k in ("id", "name", "zone", "level", "tol", "like", "which", "guide", "q", "npc", "quest"):
+        v = getattr(a, k, None)
+        if v is not None:
+            params[k] = v
+    if getattr(a, "klass", None):
+        params["class"] = a.klass
+    if getattr(a, "race", None):
+        params["race"] = a.race
+    q = urllib.parse.urlencode(params)
+    code, res = get_json(base_url(a), "db/%s%s" % (route, "?" + q if q else ""))
+    if code != 200 or not res.get("ok", True):
+        fail(res.get("errors") or [json.dumps(res)[:300]])
+    if getattr(a, "set", False) and route == "waypoint":
+        f = res["first"]
+        op = {"op": "waypoint", "id": a.wid, "map": f["uiMapId"], "x": f["x"], "y": f["y"], "title": f["title"], "track": True}
+        if a.quest:
+            op["quest"] = int(a.quest) if str(a.quest).isdigit() else None
+            if op["quest"] is None:
+                del op["quest"]
+        run(a, op)
+        return
+    print(json.dumps(res, indent=2, ensure_ascii=False))
+
+
 # ---------------------------------------------------------------- live guide editing (Guidelime TUGs on the player's Mac)
 def unescape(t):
     return t.replace("\\n", "\n") if t is not None else t
@@ -1009,7 +1052,7 @@ def main():
     common.add_argument("--partial", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     common.add_argument("--op-id", dest="op_id", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     OP_COMMANDS = {"panel", "plan", "add-task", "check", "remove", "text", "progress", "callout", "component", "toast", "say", "waypoint",
-                   "action", "theme", "ops", "clear", "reset", "builtin", "coach"}
+                   "action", "theme", "ops", "clear", "reset", "builtin", "coach", "watch"}
 
     def add(name, fn, help_, style=False):
         p = sub.add_parser(name, help=help_, description=help_, parents=[common] if name in OP_COMMANDS else [])
@@ -1127,6 +1170,25 @@ def main():
     p = tadd("ops", cmd_tug_ops, "send raw edit JSON ({guide, ops:[...]} or {edits:[...]}) from a file or stdin"); p.add_argument("-f", "--file")
     p = tadd("history", cmd_tug_history, "list restore points for a guide"); p.add_argument("guide")
     p = tadd("restore", cmd_tug_restore, "restore a guide: orig (as first found) or a version id from `tug history`"); p.add_argument("guide"); p.add_argument("version"); p.add_argument("--note")
+    p = add("watch", cmd_watch, "ask the game to report details, stats, vendor and AH prices and owned count for items (feed section ITEM_WATCH, up to 30)"); p.add_argument("ids", nargs="*")
+    p.add_argument("--add", nargs="+"); p.add_argument("--remove", nargs="+"); p.add_argument("--clear", action="store_true")
+    dp = add("db", cmd_db, "look up Forever quests, NPCs, items, trainers and chains from the offline game database (no web search needed)")
+    dsub = dp.add_subparsers(dest="dbcmd", required=True, metavar="db-command")
+    def dadd(name, help_, *flags):
+        p = dsub.add_parser(name, help=help_, description=help_)
+        p.set_defaults(fn=cmd_db)
+        for f in flags:
+            p.add_argument("--" + f.replace("_", "-") if f != "klass" else "--class", dest=f, help=f)
+        return p
+    dsub.add_parser("status", help="is the database loaded on the server, and which build").set_defaults(fn=cmd_db)
+    for nm in ("quest", "npc", "item", "object", "chain"):
+        dadd(nm, "%s by --id or --name (partial names match)" % nm, "id", "name")
+    dadd("search", "find quests, NPCs, items and objects by name fragment", "q")
+    dadd("find-quests", "quests in a zone for a level: --zone Elwynn --level 10 --class Warlock --race Human [--tol 3]", "zone", "level", "tol", "klass", "race")
+    dadd("trainers", "trainers in a zone: --zone 'Stormwind City' --like warlock", "zone", "like")
+    p = dadd("waypoint", "where is an NPC or a quest's start/finish: --npc NAME | --quest ID [--which start|finish] [--set] (set pins it with TomTom and focuses the quest)", "npc", "quest", "which")
+    p.add_argument("--set", action="store_true"); p.add_argument("--wid", default="w1", help="waypoint id used with --set")
+    dadd("validate", "check a guide's quest ids, class/race gates and [G] coordinates: --guide NAME [--class Warlock --race Human]", "guide", "klass", "race")
     p = add("align", cmd_align, "audit the guides ahead of the player against the live quest log and Questie's completed list (STALE / HAVE / MISSING / FOCUS)"); p.add_argument("guide", nargs="?", help="current guide (default: read from the game)")
     p.add_argument("--ahead", type=int, default=2, help="how many guides after it to check"); p.add_argument("--also", help="comma list of extra guides (side trips off the [NX] chain)"); p.add_argument("--completed", help="extra completed quest ids")
     p = add("pin", cmd_pin, "put an urgent task at the top of what is left in the current guide AND add it to the overlay panel, so they agree"); p.add_argument("text", help="a Guidelime step, e.g. 'Buy 2 Linen Cloth [AH]'")

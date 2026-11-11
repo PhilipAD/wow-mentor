@@ -907,6 +907,9 @@ local function runAction(a)
 	end
 end
 
+-- item ids the agent asked to have reported (ITEM_WATCH in WoWFeed.lua)
+function UI.watchList() return S.watch or {} end
+
 -- what Coach.lua needs from this file
 UI.showToast = showToast
 UI.runAction = runAction
@@ -1074,6 +1077,7 @@ local function applyDoc(doc)
 		end
 	end
 	S.rules = type(doc.rules) == "table" and doc.rules or {}
+	S.watch = type(doc.watch) == "table" and doc.watch or {}
 	S.inbox = type(doc.inbox) == "table" and doc.inbox or {}
 	S.docNow = nowEpoch
 	local coach = WoWFeedCoach

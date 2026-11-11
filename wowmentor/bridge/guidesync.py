@@ -201,7 +201,19 @@ class GuideSync(object):
             self._call("reloaded", {"boot": boot})
             self.pending_reload = False
 
+    def resume_pending(self):
+        """After a bridge restart: the server still holds an unanswered reload prompt. Pick it up so it clears at the next reload."""
+        st = self._call("status")
+        r = (st or {}).get("reload") or {}
+        if r.get("needed"):
+            self.pending_reload, self.boot_at_edit = True, r.get("boot")
+            self.log("guidesync: resumed a pending reload prompt")
+
     def run(self):
+        try:
+            self.resume_pending()
+        except Exception as e:
+            self.log("guidesync resume error: %r" % (e,))
         while True:
             try:
                 if time.time() - self.last_scan > 6:

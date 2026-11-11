@@ -548,5 +548,7 @@ def run(cfg):
     start("config", config_watch)
     start("uisync", lambda: uisync.UISync(CFG["ui_secret"], _kv, _ui_lines, _game_age, log=log).run())
     start("guidesync", lambda: guidesync.GuideSync(CFG["ui_secret"], _kv, _game_age, log=log).run())
+    from . import dbsync
+    start("dbsync", lambda: dbsync.DbSync(os.path.join(CFG["wow_dir"], "Interface", "AddOns"), CFG["local_url"], CFG["ui_secret"], CFG["data_dir"], log=log).run())
     start("capture", tail)
     push()

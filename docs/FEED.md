@@ -50,6 +50,9 @@ source: screen capture of WoWFeed pixel strip
 | `STATS` | addon | 2 min | Attributes, ratings |
 | `EQUIPMENT` | addon | 5 min | Every slot, with durability and empty slots |
 | `BAGS` | addon | 5 min | Every bag item |
+| `ITEM_WATCH` **new** | addon | 15 s | Details, stats, vendor and Auctionator prices and owned count for items the agent asked about (`wowui watch`) |
+| `MERCHANT` **new** | addon | 15 s | The open vendor window: items, prices, item ids |
+| `FLIGHTPATHS` **new** | addon | 5 min | Flight nodes seen the last time the taxi map was open |
 | `GUIDES` **new** | addon | 2 min or on change | Live Guidelime progress and options, Questie focus and completed quest ids, TomTom arrow |
 | `QUESTS` | addon | 5 min | Quest log with objectives |
 | `COOLDOWNS` | addon | 30 s | Spells on cooldown |

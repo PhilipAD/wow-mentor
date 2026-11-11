@@ -836,6 +836,16 @@ local function sProfessions()
 	return L
 end
 
+-- Flight paths: the node list is only readable while the taxi map is open, so it is saved when the map opens.
+local function captureTaxi()
+	if not NumTaxiNodes then return end
+	local nodes = {}
+	for i = 1, (num(try(NumTaxiNodes)) or 0) do
+		local nm, ty = try(TaxiNodeName, i), try(TaxiNodeGetType, i)
+		if nm then nodes[#nodes+1] = { n = clean(nm), t = tostring(ty) } end
+	end
+	if #nodes > 0 and WoWFeedDB then WoWFeedDB.taxi = { t = time(), zone = clean(GetRealZoneText and GetRealZoneText() or ""), nodes = nodes } end
+end
 local recipes = {}
 local function captureTradeSkill()
 	local L = {}
@@ -856,11 +866,21 @@ local function captureTradeSkill()
 		if name then L[#L+1] = strfmt("  [craft %s] %s %s", tostring(kind), clean(name), clean(sub or "")) end
 	end
 	recipes[clean(line)] = L
+	-- keep them across /reload and logout: the window is rarely open when the agent wants to know a recipe
+	if WoWFeedDB then WoWFeedDB.recipes = WoWFeedDB.recipes or {}; WoWFeedDB.recipes[clean(line)] = { t = time(), lines = L } end
 end
 local function sRecipes()
 	local L = {}
 	local any = false
 	for k, v in pairs(recipes) do any = true; for _, l in ipairs(v) do L[#L+1] = l end; L[#L+1] = "" end
+	for k, rec in pairs(WoWFeedDB and WoWFeedDB.recipes or {}) do      -- saved from an earlier session: shown until the window is opened again
+		if not recipes[k] and type(rec) == "table" and type(rec.lines) == "table" then
+			any = true
+			L[#L+1] = strfmt("(saved %s ago, from an earlier session)", rec.t and (floor((time() - rec.t) / 3600) .. "h") or "?")
+			for _, l in ipairs(rec.lines) do L[#L+1] = l end
+			L[#L+1] = ""
+		end
+	end
 	if not any then L[1] = "(open each profession window once, recipes are captured when the window is shown)" end
 	return L
 end
@@ -1034,6 +1054,7 @@ local function onEventBody(e, a1, a2, a3, a4)
 	elseif not noisy[e] then
 		ev(e, clean(a1))
 	end
+	if e == "TAXIMAP_OPENED" then C_Timer.After(0.3, function() pcall(captureTaxi) end) end
 	if e == "TRADE_SKILL_SHOW" or e == "TRADE_SKILL_UPDATE" or e == "CRAFT_SHOW" or e == "CRAFT_UPDATE" then C_Timer.After(0.3, function() pcall(captureTradeSkill); last.recipes = nil end) end
 	if e ~= "PLAYER_TARGET_CHANGED" and e ~= "UNIT_SPELLCAST_SUCCEEDED" then dirty.slow = true end
 end
@@ -1115,15 +1136,71 @@ local function sGuides()
 	return L
 end
 
+-- Items the agent asked about (doc.watch): details, stats, prices and how many the player owns. Item data may not be cached yet:
+-- we ask the client to load it and report "(loading)" until it arrives (the next tick shows it).
+local function sItemWatch()
+	local L = {}
+	local ids = WoWFeedUI and WoWFeedUI.watchList and WoWFeedUI.watchList() or {}
+	if #ids == 0 then return { "(empty: the agent has not asked about any item; `wowui watch <ids>`)" } end
+	local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+	local getStats = (C_Item and C_Item.GetItemStats) or GetItemStats
+	local getCount = (C_Item and C_Item.GetItemCount) or GetItemCount
+	local ah = Auctionator and Auctionator.API and Auctionator.API.v1 and Auctionator.API.v1.GetAuctionPriceByItemID
+	local function money(c) if not c then return "?" end return c >= 10000 and strfmt("%dg%02ds", c // 10000, (c % 10000) // 100) or (c >= 100 and strfmt("%ds%02dc", c // 100, c % 100) or (c .. "c")) end
+	for _, id in ipairs(ids) do
+		local name, link, quality, ilvl, minLevel, itype, subtype, stack, equipLoc, _, sell = getInfo(id)
+		if not name then
+			if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+			L[#L+1] = strfmt("#%d (loading: item data not cached yet)", id)
+		else
+			local stats = {}
+			local st = link and try(getStats, link)
+			if type(st) == "table" then for k, v in pairs(st) do stats[#stats+1] = strfmt("%s=%s", tostring(k):gsub("^ITEM_MOD_", ""):gsub("_SHORT$", ""), tostring(v)) end end
+			table.sort(stats)
+			local price = ah and num(try(ah, "WoWFeed", id)) or nil
+			local have = num(try(getCount, id, true))
+			L[#L+1] = strfmt("#%d %s | quality %s | ilvl %s | req level %s | %s %s%s | stack %s | vendor sells for %s | AH %s | owned %s%s",
+				id, clean(name), tostring(quality), tostring(ilvl), tostring(minLevel), clean(itype or ""), clean(subtype or ""), (equipLoc and equipLoc ~= "") and (" " .. equipLoc) or "",
+				tostring(stack), money(num(sell)), ah and money(price) or "(Auctionator not loaded)", tostring(have or "?"), #stats > 0 and (" | stats: " .. tconcat(stats, " ")) or "")
+		end
+	end
+	return L
+end
+
+-- Flight paths: the node list is only readable while the taxi map is open, so it is saved when the map opens and reported from the saved copy.
+local function sFlightPaths()
+	local T = WoWFeedDB and WoWFeedDB.taxi
+	local L = {}
+	if UnitOnTaxi and tb(try(UnitOnTaxi, "player")) then L[#L+1] = "IN FLIGHT right now (destination is not exposed by the game)" end
+	if not T then L[#L+1] = "(no flight map seen yet: opens when the player talks to a flight master)"; return L end
+	L[#L+1] = strfmt("Nodes seen when the map was last opened (%dh ago, from %s). CURRENT = here, REACHABLE = known and flyable from here, DISTANT = known but needs another stop, NONE = not usable.", floor((time() - (T.t or 0)) / 3600), T.zone or "?")
+	for _, nd in ipairs(T.nodes or {}) do L[#L+1] = strfmt("  %s [%s]", nd.n, nd.t) end
+	return L
+end
+
+-- The open vendor window: what is for sale, the price, and the item ids (feed them to `wowui watch` for stats and AH prices).
+local function sMerchant()
+	if not (MerchantFrame and MerchantFrame:IsShown() and GetMerchantNumItems) then return { "(no vendor window open)" } end
+	local L = { "Vendor: " .. clean(try(UnitName, "npc") or "?") }
+	for i = 1, (num(try(GetMerchantNumItems)) or 0) do
+		local name, _, price, qty, avail = try(GetMerchantItemInfo, i)
+		local link = try(GetMerchantItemLink, i)
+		local id = link and tonumber(tostring(link):match("item:(%d+)"))
+		if name then L[#L+1] = strfmt("  %d. %s #%s | %s%s%s", i, clean(name), tostring(id or "?"), (num(price) and num(price) > 0) and (num(price) >= 10000 and strfmt("%dg%02ds", num(price) // 10000, (num(price) % 10000) // 100) or strfmt("%ds%02dc", num(price) // 100, num(price) % 100)) or "free",
+			(num(qty) and num(qty) > 1) and (" x" .. num(qty)) or "", (num(avail) and num(avail) >= 0) and (" | " .. num(avail) .. " left") or "") end
+	end
+	return L
+end
+
 local tickN = 0
 local function tickBody()
 	tickN = tickN + 1
 	push("summary", safe(sSummary), 5); push("fast", safe(sPlayerFast), 5)
-	if tickN % 3 == 0 then push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
+	if tickN % 3 == 0 then push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
 	if tickN % 15 == 0 or dirty.slow then
 		dirty.slow = false
 		push("stats", safe(sStats), 120); push("equipment", safe(sEquipment), 300); push("bags", safe(sBags), 300)
-		push("quests", safe(sQuests), 300); push("guides", safe(sGuides), 120); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
+		push("quests", safe(sQuests), 300); push("guides", safe(sGuides), 120); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("flightpaths", safe(sFlightPaths), 300); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
 	end
 	if tickN % 60 == 1 then
 		push("talents", safe(sTalents), 600); push("skills", safe(sSkills), 600); push("reputation", safe(sRep), 600); push("currency", safe(sCurrency), 600)
