@@ -63,6 +63,14 @@ class AgentCliTests(unittest.TestCase):
         self.assertIn('"count"', self.wowui("deaths", "--compact").stdout)
         self.wowui("tug", "route")      # no feed token here: falls back to the start of the chain instead of failing
 
+    def test_require_fresh_refuses_missing_or_stale_sections(self):
+        feed = "--- GUIDES (updated 2s ago) ---\nx\n--- QUESTS (updated 400s ago) ---\ny\n"
+        wowui.require_fresh(feed, ["GUIDES"])
+        for names in (["QUESTS"], ["GUIDES", "MARKS"]):
+            with self.assertRaises(SystemExit):
+                with mock.patch("sys.stderr"):
+                    wowui.require_fresh(feed, names)
+
     def test_errors_are_json_on_stderr(self):
         r = self.wowui("plan", "bad", "--task", "x", "--anchor", "MIDDLE", ok=False)
         self.assertFalse(json.loads(r.stderr)["ok"])

@@ -28,7 +28,7 @@ COMBAT = ("show", "dim", "hide")
 FONTS = ("default", "friz", "arial", "morpheus", "skurri")
 SOUNDS = ("none", "ping", "warning", "quest", "levelup", "ready")
 ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi")
-GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh")
+GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh", "unskip")
 MARK_ICONS = ("star", "circle", "diamond", "triangle", "moon", "square", "cross", "skull", "quest", "turnin", "talk")
 MAX_MARKS = 30
 BINDS = ("bags", "durability")        # XP and level are never shown on the overlay
@@ -643,6 +643,8 @@ class Doc:
             errs.append("action.cmd: required for guidelime (one of %s)" % ", ".join(GUIDELIME_CMDS))
         elif a["name"] == "tomtom_poi" and "on" not in a:
             errs.append("action.on: required for tomtom_poi (true = TomTom draws its own arrow to the focused quest, false = it does not)")
+        elif a.get("cmd") == "unskip" and "step" not in a:
+            errs.append("action.step: required for unskip (the step number to un-skip)")
         elif a.get("cmd") == "skip_to" and "step" not in a:
             errs.append("action.step: required for skip_to (skips every unresolved step before this step number)")
         elif a.get("cmd") == "open_guide" and "guide" not in a:
@@ -1240,7 +1242,7 @@ WHY TWO ARROWS APPEAR: focusing a quest in Questie makes the game's super-tracke
 then draws its OWN arrow ("Turn in: ...") to that quest while Guidelime draws another to its current step. Turn it off once with
 `wowui action tomtom_poi --on false` (set it back with `--on true`). With it off there is one arrow: Guidelime's (or TomTom showing Guidelime's step).
 WHY THE ARROW IS WRONG: Guidelime points at its first unresolved step. If the player did steps that were never ticked (a revamped guide, side trips,
-quests done out of order) that step is far behind where he is. `wowui action guidelime --cmd refresh` re-loads the guide and ticks what the quest log proves done (often enough on its own). The loaded guide may also
+quests done out of order) that step is far behind where he is. `wowui action guidelime --cmd unskip --step N` un-skips a step that was skipped by mistake. `wowui action guidelime --cmd refresh` re-loads the guide and ticks what the quest log proves done (often enough on its own). The loaded guide may also
 be the wrong one (he is in Westfall but 9-11 is loaded): `open_guide` now switches live, no /reload. `wowui sync` shows the first step about a quest he holds and how many steps
 sit before it, or which nearby guide holds the quests he has; `wowui sync --apply` marks those steps skipped (never completed) so Guidelime's step, arrow and Questie focus all match
 reality. Run `wowui verify` afterwards. Only do this when the quest log proves he is ahead.

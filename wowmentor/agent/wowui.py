@@ -484,6 +484,7 @@ def _quest_units(a, qid, kind, cache):
 def cmd_marks_auto(a):
     """Mark the units the next guide steps are about (givers, turn-ins, kill targets) so they get an icon as soon as they come into view."""
     feed = read_feed(a)
+    require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_marks_auto" != "cmd_marks_auto" else ["GUIDES"])
     st = live_guide_state(feed)
     guide = a.guide or tug_name_for_title(a, st["title"])
     if not guide:
@@ -522,6 +523,7 @@ def cmd_marks_auto(a):
 def cmd_sync(a):
     """Catch Guidelime's position up with where the player really is: skip the unresolved steps before the first step about a quest he holds."""
     feed = read_feed(a)
+    require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_sync" != "cmd_marks_auto" else ["GUIDES"])
     st = live_guide_state(feed)
     guide = tug_name_for_title(a, st["title"]) if st["title"] else None
     if not guide:
@@ -713,6 +715,19 @@ def cmd_db(a):
 
 
 # ---------------------------------------------------------------- awareness helpers: sections, contradiction guard, route, autopsy, debrief
+def require_fresh(feed, names, max_age=90):
+    """Refuse to answer from a missing or stale feed section (GUIDES and QUESTS take 2 to 3 minutes to come back after a /reload)."""
+    bad = []
+    for n in names:
+        m = re.search(r"^--- %s \(updated (\d+)s ago\)" % re.escape(n), feed, re.M)
+        if not m:
+            bad.append("%s is missing from the feed" % n)
+        elif int(m.group(1)) > max_age:
+            bad.append("%s is %ss old" % (n, m.group(1)))
+    if bad:
+        fail(["not enough fresh data: " + "; ".join(bad) + ". After a /reload GUIDES and QUESTS take 2 to 3 minutes to return: wait and retry, do not act on old data."])
+
+
 def cmd_section(a):
     feed = read_feed(a)
     for name in a.names:
@@ -735,6 +750,7 @@ def _quest_log(feed):
 def cmd_verify(a):
     """Contradiction guard: compare Guidelime's next step, the overlay tasks, the waypoint and Questie's focus before you say anything."""
     feed = read_feed(a)
+    require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_verify" != "cmd_marks_auto" else ["GUIDES"])
     st = live_guide_state(feed)
     problems, info = [], []
     guide = tug_name_for_title(a, st["title"]) if st["title"] else None
@@ -1076,6 +1092,7 @@ def tug_name_for_title(a, title):
 def cmd_align(a):
     """Cross-check the guides ahead of the player against the live quest log and Questie's completed list."""
     feed = read_feed(a)
+    require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_align" != "cmd_marks_auto" else ["GUIDES"])
     st = live_guide_state(feed)
     qs = feed_section(feed, "QUESTS")
     log = {int(i): (s, t) for s, t, i in re.findall(r"\[(COMPLETE|in progress|failed)\] (.+?) \(L\d+\) #(\d+)", qs)}
@@ -1453,7 +1470,7 @@ def main():
     p.add_argument("--title"); p.add_argument("--track", action="store_true", help="make it the active arrow"); p.add_argument("--clear", action="store_true")
     p.add_argument("--quest", type=int, help="also focus this quest in Questie's tracker (questID)")
     p = add("action", cmd_action, "one-shot client actions: flash, sound, chat, track_quest (focus in Questie), unfocus_quest, guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi"])
-    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh"]); p.add_argument("--guide"); p.add_argument("--step", type=int); p.add_argument("--on", choices=["true", "false"])
+    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh", "unskip"]); p.add_argument("--guide"); p.add_argument("--step", type=int); p.add_argument("--on", choices=["true", "false"])
     p.add_argument("--text"); p.add_argument("--sound", choices=["none", "ping", "warning", "quest", "levelup", "ready"]); p.add_argument("--quest", type=int)
     p = add("theme", cmd_theme, "change global style tokens")
     for f in ("accent", "bg", "border", "text", "muted", "good", "warn", "bad", "font"):

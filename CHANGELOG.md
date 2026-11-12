@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Marks diagnostics, unskip, fresh-data guard
+
+- `MARKS` prints a debug line (plates scanned, matched, shown, parent, last error); icons fall back to a screen-parented frame if a nameplate refuses a child; enemy nameplates are switched on (and restored) while kill-target marks exist.
+- `guidelime --cmd unskip --step N` un-skips a step skipped by mistake.
+- `verify`, `align`, `sync` and `marks-auto` refuse to run when GUIDES (or QUESTS) is missing or older than 90 s, since they take 2 to 3 minutes to return after a /reload.
+
 ### One arrow, a guide that matches reality, unit marks
 
 - Why two arrows appeared: TomTom's "closest quest objective" feature (poi.setClosest) draws its own arrow to the focused quest next to Guidelime's. New action `tomtom_poi {on}` turns it off; arrow source switches (`arrow_tomtom`, `arrow_builtin`, `arrow_show`, `arrow_hide`) now apply at once without a /reload.
