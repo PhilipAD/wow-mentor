@@ -1154,8 +1154,10 @@ def cmd_align(a):
         if qid not in seen:
             hits = []
             try:    # a side-trip guide off the [NX] chain may still hand it in: search every guide before calling it missing
+                exact = re.compile(r"\[(QT|QC)%d(?!\d)" % qid)    # [QT65 must not match [QT659
                 for h in tug_get(a, "search", q="[QT%d" % qid).get("hits", []) + tug_get(a, "search", q="[QC%d" % qid).get("hits", []):
-                    hits.append("%s:%d" % (h["guide"], h["line"]))
+                    if exact.search(h.get("text", "")):
+                        hits.append("%s:%d" % (h["guide"], h["line"]))
             except SystemExit:
                 pass
             if hits:

@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### OFFCHAIN matches whole quest ids
+
+- `wowui align` OFFCHAIN no longer treats `[QT659` as a hand-in for quest 65.
+
 ### Off-chain quests and honest step indexes
 
 - `wowui align` no longer reports a logged quest as MISSING when a guide outside the `[NX]` chain hands it in; it prints OFFCHAIN with the guide and line.
