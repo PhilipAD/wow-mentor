@@ -71,6 +71,16 @@ class AgentCliTests(unittest.TestCase):
                 with mock.patch("sys.stderr"):
                     wowui.require_fresh(feed, names)
 
+    def test_live_step_is_worked_out_from_the_quest_log(self):
+        text = "Guidelime.registerGuide(\n[[\n[GA Alliance]\n[NLive Guide]\nGo north\nAccept [QA1]\nKill things [QC1]\nTurn in [QT1]\nAccept [QA2]\nTurn in [QT2]\n]], \"P\")"
+        jhttp(self.s.ui + "/tug/file", {"name": "Zone/Live Guide", "text": text})
+        args = type("A", (), {"url": self.s.ui})()
+        feed = "--- QUESTS (updated 1s ago) ---\n[in progress] Two (L5) #2\n"
+        st = {"resolved": set(), "completed": {1}}
+        with mock.patch.object(wowui, "tug_get", side_effect=lambda a, what, **kw: json.loads(json.dumps(
+                {"text": "\n".join("%d %s" % (i + 1, t) for i, t in enumerate(["[GA Alliance]", "[NLive Guide]", "Go north", "Accept [QA1]", "Kill things [QC1]", "Turn in [QT1]", "Accept [QA2]", "Turn in [QT2]"]))}))):
+            self.assertEqual(wowui.live_open_line(args, "Zone/Live Guide", st, feed), 8)       # 1 handed in, 2 accepted: next is the turn-in of 2
+
     def test_errors_are_json_on_stderr(self):
         r = self.wowui("plan", "bad", "--task", "x", "--anchor", "MIDDLE", ok=False)
         self.assertFalse(json.loads(r.stderr)["ok"])

@@ -1068,7 +1068,13 @@ local function safe(fn) local ok, r = pcall(fn); if ok then return r end return 
 -- Live state of the guide stack: Guidelime (progress, options, arrow mode), Questie (completed ids, focused quest, tracker) and
 -- TomTom (the arrow). All three keep their state in global tables, so this is the live truth, not the SavedVariables file
 -- (which only updates on /reload). Every read is guarded: a missing or changed addon just leaves its lines out.
+local doneIds = {}
+local function sGuidesDone()
+	return { strfmt("Questie completed quest ids (%d): %s", #doneIds, tconcat(doneIds, ",")) }
+end
+
 local function sGuides()
+	doneIds = {}
 	local L = {}
 	local gc = rawget(_G, "GuidelimeDataChar")
 	local gd = rawget(_G, "GuidelimeData")
@@ -1100,7 +1106,7 @@ local function sGuides()
 			if a0 then rng[#rng+1] = (a0 == b0) and tostring(a0) or (a0 .. "-" .. b0) end
 			L[#L+1] = "Guidelime resolved step indexes (done or skipped): " .. (tconcat(rng, ",") ~= "" and tconcat(rng, ",") or "none")
 			L[#L+1] = strfmt("Guidelime progress in this guide: %d steps completed, %d skipped; highest resolved step index %s (step numbers match `wowui tug show`)", done, skipped, tostring(idx[#idx] or 0))
-			for k = math.max(1, #idx - 4), #idx do
+			for k = math.max(1, #idx - 2), #idx do
 				local st = prog[idx[k]]
 				L[#L+1] = strfmt("  step %d %s: %s", idx[k], st.completed and "done" or (st.skip and "skipped" or "?"), clean(st.stepText or ""):sub(1, 110))
 			end
@@ -1108,6 +1114,7 @@ local function sGuides()
 	else
 		L[#L+1] = "Guidelime: not loaded"
 	end
+	if WoWFeedUI and WoWFeedUI.lastGuideAction then L[#L+1] = "Last guide action: " .. clean(WoWFeedUI.lastGuideAction()) end
 	local Q = rawget(_G, "Questie")
 	if Q and Q.db and Q.db.char then
 		local ch, pr = Q.db.char, Q.db.profile or {}
@@ -1117,7 +1124,8 @@ local function sGuides()
 		local hidden = 0
 		for _ in pairs(ch.TrackerHiddenQuests or {}) do hidden = hidden + 1 end
 		L[#L+1] = strfmt("Questie %s | focused quest: %s | tracker enabled: %s | hidden-from-tracker quests: %d", clean(Q.Version or Q.version or "?"), tostring(ch.TrackerFocus or "none"), tostring(pr.trackerEnabled), hidden)
-		L[#L+1] = strfmt("Questie completed quest ids (%d): %s", #ids, tconcat(ids, ","))
+		L[#L+1] = strfmt("Questie completed quest ids: %d (the list is in feed section GUIDES_DONE)", #ids)
+		doneIds = ids
 	else
 		L[#L+1] = "Questie: not loaded"
 	end
@@ -1302,7 +1310,7 @@ local tickN = 0
 local function tickBody()
 	tickN = tickN + 1
 	push("summary", safe(sSummary), 5); push("fast", safe(sPlayerFast), 5)
-	if tickN % 3 == 0 then push("guides", safe(sGuides), 90); push("readiness", safe(sReadiness), 30); push("spell_watch", safe(sSpellWatch), 30); push("marks", safe(sMarks), 30); push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
+	if tickN % 3 == 0 then push("guides", safe(sGuides), 40); push("guides_done", safe(sGuidesDone), 120); push("readiness", safe(sReadiness), 30); push("spell_watch", safe(sSpellWatch), 30); push("marks", safe(sMarks), 30); push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
 	if tickN % 15 == 0 or dirty.slow then
 		dirty.slow = false
 		push("stats", safe(sStats), 120); push("equipment", safe(sEquipment), 300); push("bags", safe(sBags), 300)
