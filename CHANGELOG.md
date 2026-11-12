@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+### Off-chain quests and honest step indexes
+
+- `wowui align` no longer reports a logged quest as MISSING when a guide outside the `[NX]` chain hands it in; it prints OFFCHAIN with the guide and line.
+- GUIDES lists skipped steps with their text, and the docs now say step indexes are Guidelime's own, not `tug show` line numbers.
+
 ### align uses the live step; kill-or-talk marks
 
 - `wowui align` only checks the steps from the live step on (steps behind him are no longer flagged STALE).

@@ -1152,6 +1152,15 @@ def cmd_align(a):
                     n += 1; print("STALE   %s:%d %s #%d already turned in: %s" % (g, num, kind, qid, text[:90]))
     for qid, (s, t) in sorted(log.items()):
         if qid not in seen:
+            hits = []
+            try:    # a side-trip guide off the [NX] chain may still hand it in: search every guide before calling it missing
+                for h in tug_get(a, "search", q="[QT%d" % qid).get("hits", []) + tug_get(a, "search", q="[QC%d" % qid).get("hits", []):
+                    hits.append("%s:%d" % (h["guide"], h["line"]))
+            except SystemExit:
+                pass
+            if hits:
+                print("OFFCHAIN #%d %s [%s] is handled in a guide outside the checked chain: %s" % (qid, t, s, ", ".join(hits[:3])))
+                continue
             n += 1; print("MISSING #%d %s [%s] is in your log but in none of the checked guides" % (qid, t, s))
     if st["focus"] and st["focus"] not in log:
         n += 1; print("FOCUS   Questie focus #%d is not in your log: wowui action unfocus_quest" % st["focus"])
