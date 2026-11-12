@@ -28,7 +28,7 @@ COMBAT = ("show", "dim", "hide")
 FONTS = ("default", "friz", "arial", "morpheus", "skurri")
 SOUNDS = ("none", "ping", "warning", "quest", "levelup", "ready")
 ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi")
-GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to")
+GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh")
 MARK_ICONS = ("star", "circle", "diamond", "triangle", "moon", "square", "cross", "skull", "quest", "turnin", "talk")
 MAX_MARKS = 30
 BINDS = ("bags", "durability")        # XP and level are never shown on the overlay
@@ -1240,8 +1240,9 @@ WHY TWO ARROWS APPEAR: focusing a quest in Questie makes the game's super-tracke
 then draws its OWN arrow ("Turn in: ...") to that quest while Guidelime draws another to its current step. Turn it off once with
 `wowui action tomtom_poi --on false` (set it back with `--on true`). With it off there is one arrow: Guidelime's (or TomTom showing Guidelime's step).
 WHY THE ARROW IS WRONG: Guidelime points at its first unresolved step. If the player did steps that were never ticked (a revamped guide, side trips,
-quests done out of order) that step is far behind where he is. `wowui sync` shows the first step about a quest he holds and how many steps
-sit before it; `wowui sync --apply` marks those steps skipped (never completed) so Guidelime's step, arrow and Questie focus all match
+quests done out of order) that step is far behind where he is. `wowui action guidelime --cmd refresh` re-loads the guide and ticks what the quest log proves done (often enough on its own). The loaded guide may also
+be the wrong one (he is in Westfall but 9-11 is loaded): `open_guide` now switches live, no /reload. `wowui sync` shows the first step about a quest he holds and how many steps
+sit before it, or which nearby guide holds the quests he has; `wowui sync --apply` marks those steps skipped (never completed) so Guidelime's step, arrow and Questie focus all match
 reality. Run `wowui verify` afterwards. Only do this when the quest log proves he is ahead.
 UNIT MARKS: `wowui marks-auto [--steps 12]` puts an icon over every unit the next guide steps are about (quest giver = quest, turn-in = turnin,
 kill targets and what drops a quest item = skull) the moment it comes into view; `wowui mark ID --name N [--npc ID] --icon quest|turnin|talk|skull|star|circle|diamond|triangle|moon|square|cross [--text T]`,
