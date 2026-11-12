@@ -1055,6 +1055,10 @@ local function runAction(a)
 			local okr, did = pcall(refreshLime)
 			if okr and did then showToast({ text = "Guide switched to " .. name, level = "good", ttl = 6 })
 			else showToast({ text = "Guide set to " .. name .. ": type /reload to load it.", level = "info", ttl = 12 }) end
+		elseif c == "unskip" and a.step and gc then
+			local prog = gc.progress and gc.progress[gc.currentGuide]
+			local st = type(prog) == "table" and prog[tonumber(a.step)]
+			if type(st) == "table" and st.skip then st.skip = nil; pcall(refreshLime) end
 		elseif c == "refresh" then
 			pcall(refreshLime)     -- re-load the current guide and tick what the quest log shows is done
 		end
@@ -1098,7 +1102,10 @@ end
 local function markFrameFor(plate)
 	local f = S.markFrames[plate]
 	if f then return f end
-	f = CreateFrame("Frame", nil, plate)
+	local ok, fr = pcall(CreateFrame, "Frame", nil, plate)
+	if ok and fr then S.markParent = "plate"
+	else ok, fr = pcall(CreateFrame, "Frame", nil, UIParent); S.markParent = "UIParent (the nameplate refused a child frame)" end
+	f = fr
 	f:SetSize(28, 28)
 	f:SetFrameStrata("HIGH")
 	f.tex = f:CreateTexture(nil, "OVERLAY")
@@ -1109,14 +1116,17 @@ local function markFrameFor(plate)
 	return f
 end
 
-local function applyMark(unit)
-	if not (C_NamePlate and C_NamePlate.GetNamePlateForUnit) then return end
+S.markDiag = S.markDiag or { scanned = 0, matched = 0, shown = 0 }
+local function applyMarkInner(unit)
+	if not (C_NamePlate and C_NamePlate.GetNamePlateForUnit) then S.markDiag.err = "no C_NamePlate.GetNamePlateForUnit"; return end
 	local okp, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
-	if not okp or not plate then return end
+	S.markDiag.scanned = S.markDiag.scanned + 1
+	if not okp or not plate then S.markDiag.err = "no nameplate frame for " .. tostring(unit); return end
 	S.markUnits[unit] = plate
 	local m = matchMark(unit)
 	local f = S.markFrames[plate]
 	if not m then if f then f:Hide() end; return end
+	S.markDiag.matched = S.markDiag.matched + 1
 	f = markFrameFor(plate)
 	local tex = MARK_TEX[m.icon]
 	if tex then
@@ -1129,9 +1139,16 @@ local function applyMark(unit)
 	end
 	f.txt:SetText(m.text or "")
 	f:ClearAllPoints()
-	f:SetPoint("BOTTOM", plate, "TOP", 0, 14)
+	local oka, erra = pcall(f.SetPoint, f, "BOTTOM", plate, "TOP", 0, 14)
+	if not oka then S.markDiag.err = "anchor to nameplate failed: " .. tostring(erra):sub(1, 80); pcall(f.SetPoint, f, "CENTER", UIParent, "CENTER", 0, 0) end
 	f:Show()
+	S.markDiag.shown = S.markDiag.shown + 1
 	S.markSeen[m.id] = (S.docNow or 0)
+end
+
+local function applyMark(unit)
+	local ok, err = pcall(applyMarkInner, unit)
+	if not ok then S.markDiag.err = tostring(err):sub(1, 120) end
 end
 
 local function refreshMarks()
@@ -1144,22 +1161,30 @@ local function refreshMarks()
 	end
 end
 
-local function markCvars(wantFriendly)
+local function markCvars(wantFriendly, wantEnemies)
 	if not (GetCVar and SetCVar) then return end
 	if truthy(call(UnitAffectingCombat, "player")) or truthy(call(InCombatLockdown)) then return end
-	if wantFriendly then
-		local cur = GetCVar("nameplateShowFriendlyNPCs")
-		if cur ~= "1" then S.markCvarOrig = S.markCvarOrig or cur; pcall(SetCVar, "nameplateShowFriendlyNPCs", "1") end
-	elseif S.markCvarOrig then
-		pcall(SetCVar, "nameplateShowFriendlyNPCs", S.markCvarOrig); S.markCvarOrig = nil
+	S.markCvarOrig = S.markCvarOrig or {}
+	local function want(name, on)
+		local cur = GetCVar(name)
+		if on then
+			if cur ~= "1" then if S.markCvarOrig[name] == nil then S.markCvarOrig[name] = cur end; pcall(SetCVar, name, "1") end
+		elseif S.markCvarOrig[name] ~= nil then
+			pcall(SetCVar, name, S.markCvarOrig[name]); S.markCvarOrig[name] = nil
+		end
 	end
+	want("nameplateShowFriendlyNPCs", wantFriendly)
+	want("nameplateShowEnemies", wantEnemies)
 end
 
 function UI.applyMarks(list)
 	S.marks = type(list) == "table" and list or {}
 	local friendly = false
-	for _, m in ipairs(S.marks) do if m.icon == "quest" or m.icon == "turnin" or m.icon == "talk" then friendly = true end end
-	pcall(markCvars, friendly)
+	local enemies = false
+	for _, m in ipairs(S.marks) do
+		if m.icon == "quest" or m.icon == "turnin" or m.icon == "talk" then friendly = true else enemies = true end
+	end
+	pcall(markCvars, friendly, enemies)
 	for _, f in pairs(S.markFrames) do f:Hide() end
 	if #S.marks > 0 then
 		if not S.markEv then
@@ -1182,6 +1207,8 @@ function UI.markLines()
 	local vis = {}
 	for plate, f in pairs(S.markFrames) do if f:IsShown() and f.txt then vis[#vis + 1] = (f.txt:GetText() or "?") end end
 	L[#L + 1] = strfmt("marks loaded: %d | icons visible now: %d%s", n, #vis, #vis > 0 and (" (" .. tconcat(vis, ", ") .. ")") or "")
+	local d = S.markDiag or {}
+	L[#L + 1] = strfmt("marks debug: plates scanned=%d matched=%d shown=%d parent=%s%s", d.scanned or 0, d.matched or 0, d.shown or 0, tostring(S.markParent or "-"), d.err and (" | last error: " .. d.err) or "")
 	for _, m in ipairs(S.marks or {}) do L[#L + 1] = strfmt("  %s %s%s%s", m.id, m.icon, m.name and (" " .. m.name) or "", m.npc and (" #" .. m.npc) or "") end
 	return L
 end

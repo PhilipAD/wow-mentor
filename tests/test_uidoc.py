@@ -123,11 +123,12 @@ class AwarenessOpTests(unittest.TestCase):
         uidoc.apply_ops(d, {"op": "mark", "id": "g1", "remove": True})
         self.assertEqual([m["id"] for m in d.marks], ["g2"])
         for bad in ({"op": "mark", "id": "x"}, {"op": "mark", "id": "x", "name": "A", "icon": "banana"}, {"op": "action", "name": "tomtom_poi"},
-                    {"op": "action", "name": "guidelime", "cmd": "skip_to"}):
+                    {"op": "action", "name": "guidelime", "cmd": "skip_to"}, {"op": "action", "name": "guidelime", "cmd": "unskip"}):
             with self.assertRaises(uidoc.OpError):
                 uidoc.apply_ops(d, bad)
         uidoc.apply_ops(d, {"op": "mark", "clear": True})
         self.assertEqual(d.marks, [])
+        uidoc.apply_ops(d, {"op": "action", "name": "guidelime", "cmd": "unskip", "step": 11})
 
     def test_verdict_spells_ctx_voice_and_new_rule_types(self):
         d = uidoc.Doc()
