@@ -164,7 +164,14 @@ AUTO_TYPES = {
     "skill_gte": {"skill": (_str, True), "value": (_int(1, 600), True)},
     "item_in_bags": {"item": (_int(1, 10_000_000), True), "count": (_int(1, 1000), False)},
     "zone": {"zone": (_str, True)},
+    "quest_group": {"quests": (lambda v: _questlist(v), True), "mode": (_enum(("all", "any")), False)},
 }
+
+
+def _questlist(v):
+    if not isinstance(v, list) or not 1 <= len(v) <= 12:
+        raise ValueError("quests: a list of 1 to 12 quest ids")
+    return [_int(1, 10_000_000)(x) for x in v]
 
 
 def _auto(v):
@@ -339,6 +346,8 @@ WHEN_TYPES = {
     "target_elite": {"level_diff": (_int(-20, 20), False), "rare": (_bool, False)},
     "item_looted": {"min_quality": (_int(0, 5), False)},
     "item_equipped": {},
+    "returned_active": {},
+    "readiness_changed": {"ready": (_bool, False)},
 }
 DO_TYPES = {
     "toast": {"text": (_str, True), "level": (_enum(LEVELS), False), "sound": (_enum(SOUNDS), False), "title": (_str, False)},
@@ -389,7 +398,7 @@ def normalize_rule(r, errs, path):
         out["id"] = _id(r.get("id"))
     except ValueError as e:
         errs.append("%s.id: %s" % (path, e))
-    for key, fn in (("cooldown_s", _num(0, 86400)), ("once", _bool), ("enabled", _bool)):
+    for key, fn in (("cooldown_s", _num(0, 86400)), ("once", _bool), ("enabled", _bool), ("active_only", _bool), ("defer_max_s", _num(10, 3600))):
         if key in r:
             try:
                 out[key] = fn(r[key])
@@ -409,7 +418,7 @@ def normalize_rule(r, errs, path):
                 out["then"].append(_typed(a, DO_TYPES, "do", "do"))
             except ValueError as e:
                 errs.append("%s.then[%d]: %s" % (path, i, e))
-    extra = set(r) - {"id", "when", "then", "cooldown_s", "once", "enabled"}
+    extra = set(r) - {"id", "when", "then", "cooldown_s", "once", "enabled", "active_only", "defer_max_s"}
     if extra:
         errs.append("%s: unknown field(s) %s" % (path, ", ".join(sorted(extra))))
     out.setdefault("cooldown_s", 60)
@@ -1017,11 +1026,12 @@ Task spec: 'Text', 'id::Text', 'id::Text::note'; prefix ! high priority, ~ mediu
 
 ## 2b. React instantly: rules, coach messages, events (this is what replaces polling)
 Do not wait for your next poll to react to something the game already knows. Put RULES into the game: the addon evaluates them locally the moment a
-condition becomes true and runs the actions, with no round trip. A rule is {{id, when:{{type,...}}, then:[{{do,...}}], cooldown_s (default 60), once, enabled}}.
+condition becomes true and runs the actions, with no round trip. A rule is {{id, when:{{type,...}}, then:[{{do,...}}], cooldown_s (default 60), once, enabled, active_only, defer_max_s}}.
+active_only:true holds the rule while the player is AFK or on a loading screen and runs it (if the condition still holds, or for event rules if the event is under defer_max_s old, default 900) the moment the player is active again, so nothing fires at an empty chair.
 Edge triggered: it fires when the condition goes false to true (event rules: on each matching event), then waits for its cooldown. `once` rules fire once per game session.
 Conditions (when.type): bags_free_lte{{n}}, durability_lte{{pct}}, deaths_in_subzone{{count, minutes}}, buff_missing{{name|spell, pet, ooc}}, pet_missing{{ooc}} (no pet of ANY kind is out; use it instead of checking one pet's buff), pet_dead, item_count_lte{{n, item|name}} (soul shards, Healthstones, potions in the bags), hostiles_near_gte{{n, players}} (attackable nameplates), enemy_player{{class, min_level, flagged}} (an attackable enemy player appeared; {{class}} {{level}} {{race}} in the text), level_up, death, logout,
 entering_world, merchant_show, trainer_show, quest_reward, loot_opened, lower_rank_on_bar, spell_learned{{name}}, quest_complete{{quest}}, zone_changed{{zone, subzone}},
-target_elite{{level_diff, rare}}, item_looted{{min_quality}}, item_equipped; combine 2 to 4 with {{"type":"all"|"any","of":[...]}} (not nested).
+target_elite{{level_diff, rare}}, item_looted{{min_quality}}, item_equipped, returned_active (the player came back from AFK; {{away_s}} in the text), readiness_changed{{ready}} (the READINESS verdict flipped; {{missing}} lists what is lacking); combine 2 to 4 with {{"type":"all"|"any","of":[...]}} (not nested).
 Actions (then[].do, 1 to 4): toast{{text, level, sound, title}}, chat{{text, sound}}, check{{panel, item, done}}, waypoint{{...}}, panel_text{{panel, child, text}}, sound{{sound}}, flash.
 Text placeholders filled from what fired: {{count}} {{subzone}} {{zone}} {{name}} {{free}} {{pct}} {{slot}} {{spell}} {{rank}} {{killer}} (unknown ones stay literal).
 Rules never move or restyle panels. Max 40 rules. Every fire is recorded (feed section RULES) and sent as a `rule_fired` event.
@@ -1030,7 +1040,7 @@ Rules never move or restyle panels. Max 40 rules. Every fire is recorded (feed s
     wowui rule list      wowui rule remove <id>      wowui rule clear        (HTTP twin: ops rule / rule_remove / rules_clear)
 Presets: bags-full (n, default 2 free slots), durability (pct, default 20), deaths (count 2 in minutes 10 in one subzone), buff (name or spell, out of combat), lower-rank
 (an old spell rank is still on the action bar). Change a preset's wording with --set text=... and its timing with --set cooldown_s=...
-Checklist items can complete themselves: item.auto = {{type: quest_done{{quest}} | spell_known{{spell|name}} | skill_gte{{skill, value}} | item_in_bags{{item, count}} | zone{{zone}}}}.
+Checklist items can complete themselves: item.auto = {{type: quest_done{{quest}} | spell_known{{spell|name}} | skill_gte{{skill, value}} | item_in_bags{{item, count}} | zone{{zone}} | quest_group{{quests:[ids], mode: all (default) | any}}}}.
 The addon ticks them exactly like a player click (once), so they show up as `tick` lines and your `check` bookkeeping stays right. Prefer `auto` over polling for "did they do X yet".
 
 Coach inbox. `wowui coach "text"` puts a message in the player's coach inbox panel (the newest 3 are kept), prints it in chat (--no-chat to skip), and shows a banner with

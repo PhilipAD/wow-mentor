@@ -614,6 +614,38 @@ UI.apply(J.encode({ v = 1, rev = rev + 50, now = W.epoch, panels = {}, rules = {
 rev = rev + 50
 w.zone = "Elwynn Forest"
 
+---------------------------------------------------------------- quest_group auto ticks, active_only rules, returned_active, readiness_changed
+applyDoc({ panels = { { id = "grp", title = "Group", w = 280, children = { { type = "checklist", items = {
+	{ id = "all", text = "All", auto = { type = "quest_group", quests = { 600, 601 } } },
+	{ id = "any", text = "Any", auto = { type = "quest_group", quests = { 600, 601 }, mode = "any" } },
+} } } } }, rules = {} })
+step(3)
+check(not US.ticks["grp/all"] and not US.ticks["grp/any"], "quest_group stays open with no quest done")
+w.flagged[600] = true; step(3)
+check(US.ticks["grp/any"] and not US.ticks["grp/all"], "quest_group any ticks on one quest, all waits")
+w.flagged[601] = true; step(3)
+check(US.ticks["grp/all"], "quest_group all ticks when every quest is done")
+applyDoc({ panels = {}, rules = { { id = "held", active_only = true, cooldown_s = 0, when = { type = "level_up" }, ["then"] = { { ["do"] = "chat", text = "held fired" } } },
+	{ id = "free", cooldown_s = 0, when = { type = "level_up" }, ["then"] = { { ["do"] = "chat", text = "free fired" } } } } })
+W.printed = {}
+w.afk = true; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(1)
+W.fire("PLAYER_LEVEL_UP", 9); step(1)
+check(chatLog():find("free fired", 1, true) and not chatLog():find("held fired", 1, true), "active_only rule is held while AFK, others run")
+check(next(R.deferred) ~= nil, "held rule is queued")
+W.printed = {}
+w.afk = false; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(1)
+check(chatLog():find("held fired", 1, true), "held rule runs when the player is back")
+check(next(R.deferred) == nil, "queue is empty after the flush")
+local ra
+for _, x in ipairs(pump()) do if x.type == "returned_active" then ra = x end end
+check(ra and ra.data.away_s ~= nil, "returned_active event emitted")
+applyDoc({ panels = {}, rules = { { id = "back", cooldown_s = 0, when = { type = "returned_active" }, ["then"] = { { ["do"] = "chat", text = "back after {away_s}" } } } } })
+W.printed = {}
+w.afk = true; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(5)
+w.afk = false; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(1)
+check(chatLog():find("back after", 1, true), "returned_active rule fires")
+applyDoc({ panels = {}, rules = {} })
+
 ---------------------------------------------------------------- inbox, acks, toasts
 applyDoc({ panels = {}, rules = {}, toasts = { { id = 50, t = W.epoch, text = "Agent toast", level = "info" } } })
 local acks = {}
