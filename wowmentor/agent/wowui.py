@@ -642,6 +642,11 @@ def cmd_verify(a):
         d = ((w["x"] - gx) ** 2 + (w["y"] - gy) ** 2) ** 0.5
         if d > 6:
             problems.append("ARROW_MISMATCH waypoint %s at %.1f,%.1f is %.0f units from Guidelime's next [G] %.1f,%.1f (same map not checked): align them or use track=false" % (w["id"], w["x"], w["y"], d, gx, gy))
+    if nxt:
+        for tagtxt in re.findall(r"\[A\s+([^\]]+)\]", nxt[1]):
+            parts = {x.strip().lower() for x in tagtxt.split(",")}
+            if not any(x.startswith("!") for x in parts) and not ({"human", "warlock", "alliance"} & parts):
+                problems.append("HIDDEN_NEXT_STEP step %d is gated to [A %s], so it never shows for a Human Warlock and Guidelime's real next step is a later one: delete it or re-gate it (`wowui tug delete`), or use `--cmd skip`" % (nxt[0], tagtxt.strip()))
     log = _quest_log(feed)
     for qid in sorted(first_q):
         if qid in log and log[qid][0] == "COMPLETE":
@@ -793,7 +798,13 @@ def cmd_tug_search(a):
 
 
 def cmd_tug_route(a):
-    r = tug_get(a, "route", start=a.start)
+    start = a.start
+    if not start:      # default to the guide the player has loaded now, not the start of the chain
+        try:
+            start = tug_name_for_title(a, live_guide_state(read_feed(a))["title"])
+        except SystemExit:
+            start = None
+    r = tug_get(a, "route", start=start)
     print(json.dumps(r["route"], indent=2))
 
 
@@ -818,6 +829,26 @@ def cmd_tug_delete(a):
     if a.count:
         op["count"] = a.count
     tug_send(a, [{"guide": a.guide, "ops": [op], "note": a.note or ""}])
+
+
+def cmd_tug_move(a):
+    """Move step(s) to another place in one atomic edit (insert the copy, then delete the original)."""
+    k = max(1, a.count or 1)
+    src, end = a.line, a.line + k - 1
+    if (a.after_line is None) == (a.before_line is None):
+        fail(["give exactly one of --after-line or --before-line (the target)"])
+    tgt_after = a.after_line if a.after_line is not None else a.before_line - 1
+    if src - 1 <= tgt_after <= end:
+        fail(["the target is inside, or right next to, the steps being moved (nothing would change)"])
+    shown = tug_get(a, "show", name=a.guide, **{"from": src, "to": end})["text"].splitlines()
+    rows = [re.match(r"\s*(\d+)\s+(.*)", l) for l in shown]
+    rows = [(int(m.group(1)), m.group(2)) for m in rows if m]
+    if [n for n, _ in rows] != list(range(src, end + 1)):
+        fail(["could not read steps %d to %d of %s" % (src, end, a.guide)])
+    text = "\n".join(t for _, t in rows)
+    del_line = src + k if tgt_after < src else src
+    ops = [{"op": "insert", "text": text, "after_line": tgt_after}, {"op": "delete", "line": del_line, "count": k, "expect": rows[0][1][:30]}]
+    tug_send(a, [{"guide": a.guide, "ops": ops, "note": a.note or "move steps %d-%d after step %d" % (src, end, tgt_after)}])
 
 
 def cmd_tug_sub(a):
@@ -919,6 +950,15 @@ def cmd_align(a):
     route = tug_get(a, "route", start=start)["route"]
     names = [r if isinstance(r, str) else r.get("name") for r in route][: a.ahead + 1] + [x.strip() for x in (a.also or "").split(",") if x.strip()]
     print("# current guide: %s | quest log: %d | Questie completed: %d | focused quest: %s | arrow: %s | checking: %s" % (start, len(log), len(done), st["focus"] or "none", st["arrow"], ", ".join(names)))
+    try:     # where the guide wants him next versus where he physically is
+        line = first_open_line(a, start, st["resolved"])
+        t2 = tug_get(a, "show", name=start, **{"from": line, "to": line + 14})["text"] if line else ""
+        gz = re.search(r"\[G\s*[\d.]+\s*,\s*[\d.]+\s*([^\]\d][^\]]*)\]", t2)
+        here = _fast(feed)
+        if gz and here and gz.group(1).strip().lower() not in here[3].lower() and here[3].lower() not in gz.group(1).strip().lower():
+            print("DRIFT   Guidelime's next located step is in %s but he is in %s: he is off the guide (side trip?). Do not change his ticks; adjust the guide ahead or pin a step" % (gz.group(1).strip(), here[3]))
+    except SystemExit:
+        pass
     tag, seen, n = re.compile(r"\[(QA|QC|QT|QS)(\d+)"), set(), 0
     for gi, g in enumerate(names):
         for ln in tug_get(a, "show", name=g)["text"].splitlines():
@@ -1200,6 +1240,27 @@ def cmd_events(a):
         return
 
 
+def cmd_deaths(a):
+    """His death history from the event stream: killer, place, level, what he was doing (events are kept in order; this reads them all)."""
+    out, since = [], None
+    for _ in range(40):
+        res = get_ok(a, "events?types=death&limit=200" + ("&since=%s" % since if since is not None else ""))
+        out += [e for e in res["events"] if e.get("type") == "death"]
+        if not res["events"] or res["next"] == since:
+            break
+        since = res["next"]
+    rows = []
+    for e in out[-a.limit:]:
+        d = e.get("data") or {}
+        rows.append({"t": e.get("t"), "killer": d.get("killer"), "zone": d.get("zone"), "subzone": d.get("subzone"), "level": d.get("level"), "attackers": d.get("attackers"),
+                     "last_hits": d.get("last_hits")})
+    by = {}
+    for r in rows:
+        key = "%s / %s" % (r["zone"], r["subzone"])
+        by[key] = by.get(key, 0) + 1
+    print(json.dumps({"deaths": rows, "by_place": dict(sorted(by.items(), key=lambda x: -x[1])), "count": len(rows)}, indent=None if a.compact else 2, ensure_ascii=False))
+
+
 def cmd_npcs(a):
     route = "npcs" + ("?" + urllib.parse.urlencode({"name": a.name}) if a.name else "")
     print(json.dumps(get_ok(a, route), indent=None if a.compact else 2))
@@ -1335,6 +1396,8 @@ def main():
     p.add_argument("--after-line", type=int); p.add_argument("--after-match"); p.add_argument("--before-line", type=int); p.add_argument("--before-match")
     p.add_argument("--at", choices=["start", "end"]); p.add_argument("--nth", type=int); p.add_argument("--note")
     p = tadd("delete", cmd_tug_delete, "delete a step (or --count of them)"); p.add_argument("guide"); addr_flags(p); p.add_argument("--count", type=int); p.add_argument("--note")
+    p = tadd("move", cmd_tug_move, "move step(s) --line N [--count K] to --after-line M or --before-line M, atomically (use this to reorder)"); p.add_argument("guide")
+    p.add_argument("--line", type=int, required=True); p.add_argument("--count", type=int); p.add_argument("--after-line", type=int); p.add_argument("--before-line", type=int); p.add_argument("--note")
     p = tadd("sub", cmd_tug_sub, "replace text inside a step (or everywhere with --all)"); p.add_argument("guide"); p.add_argument("find"); p.add_argument("replace")
     addr_flags(p); p.add_argument("--all", action="store_true"); p.add_argument("--note")
     p = tadd("set", cmd_tug_set, "replace the whole guide body from a file or stdin"); p.add_argument("guide"); p.add_argument("-f", "--file"); p.add_argument("--note")
@@ -1363,6 +1426,7 @@ def main():
     dadd("spots", "where to find the creatures a quest wants (densest spawn clusters): --quest ID or --npc NAME", "quest", "npc")
     dadd("training", "spells a class can train with cost (names via `wowui watch --spells`): --class Warlock [--level N] [--from M]", "klass", "level", "frm")
     dadd("validate", "check a guide's quest ids, class/race gates and [G] coordinates: --guide NAME [--class Warlock --race Human]", "guide", "klass", "race")
+    p = add("deaths", cmd_deaths, "his death history (killer, place, level) and a count per place, from the event stream"); p.add_argument("--limit", type=int, default=50); p.add_argument("--compact", action="store_true")
     p = add("section", cmd_section, "print feed sections by name (e.g. wowui section FAST PVP TALENTS_TRAITS): no raw feed link needed"); p.add_argument("names", nargs="+")
     p = add("verify", cmd_verify, "contradiction guard: Guidelime's next step vs overlay tasks, waypoint and Questie focus; run it before every message that names a next step")
     p = add("route", cmd_route, "order the quests in the log into stops (turn-ins first), nearest first; --set N pins the first N stops (the first one with the arrow and quest focus)"); p.add_argument("--set", type=int); p.add_argument("--only", help="comma list of quest ids")

@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Agent tooling round 2
+
+- `wowui tug move` reorders steps in one atomic edit; `wowui tug route` defaults to the guide loaded in the game; `wowui deaths` lists his deaths with a count per place.
+- `wowui verify` flags a next step gated to another race or class (HIDDEN_NEXT_STEP); `wowui align` prints a DRIFT line when he is not where the guide expects.
+- `zone_changed` rules take `skill` and `skill_lt` (only while a skill is below a number). Memory summary limit is now 6000 characters and notes 1000. The skill page documents `WOWUI_READ_TOKEN`.
+
 ### AFK-aware rules and finer ticks
 
 - Rules take `active_only` (and `defer_max_s`): while the player is AFK or on a loading screen the rule is held, then runs when they are active again if it still applies. The RULES section shows how many are held.

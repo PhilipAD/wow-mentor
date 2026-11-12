@@ -43,6 +43,26 @@ class AgentCliTests(unittest.TestCase):
         doc = json.loads(self.wowui("doc").stdout)
         self.assertEqual(doc["builtin"], {"me": False})
 
+    def test_tug_move_reorders_atomically_and_deaths_and_route_default_work(self):
+        text = "Guidelime.registerGuide(\n[[\n[GA Alliance]\n[NMove Guide]\nOne [QA1]\nTwo [QA2]\nThree [QA3]\nFour [QA4]\nFive [QA5]\n]], \"P\")"
+        jhttp(self.s.ui + "/tug/file", {"name": "Zone/Move Guide", "text": text})
+
+        def body():
+            return [l.split(None, 1)[1] for l in self.wowui("tug", "show", "Zone/Move Guide").stdout.splitlines() if l.strip()[:1].isdigit()]
+
+        before = body()
+        i = next(n for n, t in enumerate(before) if t.startswith("Two"))
+        self.wowui("tug", "move", "Zone/Move Guide", "--line", str(i + 1), "--count", "2", "--after-line", str(len(before)), "--note", "test")
+        after = body()
+        self.assertEqual([t.split()[0] for t in after][-2:], ["Two", "Three"])
+        self.assertEqual(len(after), len(before))
+        j = next(n for n, t in enumerate(after) if t.startswith("Five"))
+        self.wowui("tug", "move", "Zone/Move Guide", "--line", str(j + 1), "--before-line", str(i + 1), "--note", "test")
+        self.assertEqual(body()[i].split()[0], "Five")
+        self.wowui("tug", "move", "Zone/Move Guide", "--line", str(i + 1), "--after-line", str(i + 1), ok=False)
+        self.assertIn('"count"', self.wowui("deaths", "--compact").stdout)
+        self.wowui("tug", "route")      # no feed token here: falls back to the start of the chain instead of failing
+
     def test_errors_are_json_on_stderr(self):
         r = self.wowui("plan", "bad", "--task", "x", "--anchor", "MIDDLE", ok=False)
         self.assertFalse(json.loads(r.stderr)["ok"])

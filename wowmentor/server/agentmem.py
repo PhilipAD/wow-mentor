@@ -11,8 +11,8 @@ from .. import config as cfgmod
 from . import events as eventsmod
 
 MAX_NOTES = 200                 # the oldest note is dropped past this; the reply warns when the list is nearly full
-MAX_NOTE = 600
-MAX_SUMMARY = 3000
+MAX_NOTE = 1000
+MAX_SUMMARY = 6000
 SECTIONS = ["SUMMARY", "SESSION", "FAST", "VITALS", "PROFESSIONS", "EQUIPMENT", "BAG_VALUE", "QUESTS", "GUIDES", "TALENTS_TRAITS", "PVP", "UI_STATE", "GROUP"]
 
 

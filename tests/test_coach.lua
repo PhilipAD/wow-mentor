@@ -654,6 +654,14 @@ w.afk = false; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(1)
 check(chatLog():find("long away", 1, true), "min_away_s fires after a long AFK")
 applyDoc({ panels = {}, rules = {} })
 
+applyDoc({ panels = {}, rules = { { id = "zs", cooldown_s = 0, when = { type = "zone_changed", zone = "Duskwood", skill = "Cooking", skill_lt = 50 }, ["then"] = { { ["do"] = "chat", text = "low {skill} {rank} here" } } },
+	{ id = "zs2", cooldown_s = 0, when = { type = "zone_changed", zone = "Duskwood", skill = "Cooking", skill_lt = 3 }, ["then"] = { { ["do"] = "chat", text = "never {skill}" } } } } })
+W.printed = {}
+w.zone, w.subzone = "Duskwood", "Darkshire"; W.fire("ZONE_CHANGED"); step(1)
+check(chatLog():find("low Cooking 5 here", 1, true) and not chatLog():find("never", 1, true), "zone_changed skill gate: below skill_lt fires, at or above does not")
+w.zone, w.subzone = "Elwynn Forest", "Goldshire"
+applyDoc({ panels = {}, rules = {} })
+
 ---------------------------------------------------------------- inbox, acks, toasts
 applyDoc({ panels = {}, rules = {}, toasts = { { id = 50, t = W.epoch, text = "Agent toast", level = "info" } } })
 local acks = {}
