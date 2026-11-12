@@ -1197,6 +1197,7 @@ end
 
 -- Are we ready for a fight? One verdict line plus the facts it is built from: pet, armour buff, shards, Healthstone, potions and bandages,
 -- durability, bags, hearthstone location, and where we are (town, wild, contested ...). Out-of-combat facts only; anything the game hides is "unknown".
+local readySig
 local function sReadiness()
 	local L = {}
 	local ctx = WoWFeedUI and WoWFeedUI.context and WoWFeedUI.context() or "?"
@@ -1249,6 +1250,12 @@ local function sReadiness()
 	if low < 25 then bad[#bad+1] = "durability " .. math.floor(low + 0.5) .. "%" end
 	L[#L+1] = "Hearthstone bound to: " .. clean(try(GetBindLocation) or "?")
 	L[#L+1] = (#bad == 0) and "VERDICT: READY" or ("VERDICT: NOT READY: " .. tconcat(bad, ", "))
+	-- tell the agent and the rules when the verdict flips or the list of gaps changes (not on the first reading)
+	local sig = tconcat(bad, "|")
+	if readySig ~= nil and readySig ~= sig and WoWFeedCoach and WoWFeedCoach.event then
+		pcall(WoWFeedCoach.event, "readiness_changed", { ready = (#bad == 0), missing = (#bad == 0) and "nothing" or tconcat(bad, ", ") })
+	end
+	readySig = sig
 	return L
 end
 

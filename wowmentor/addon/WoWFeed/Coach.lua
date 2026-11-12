@@ -943,7 +943,19 @@ H.ZONE_CHANGED = zoneChanged
 H.ZONE_CHANGED_INDOORS = zoneChanged
 H.ZONE_CHANGED_NEW_AREA = zoneChanged
 
-H.PLAYER_FLAGS_CHANGED = function(unit) if not secret(unit) and unit == "player" then S.afk = U.bool(try(UnitIsAFK, "player")) or false end end
+H.PLAYER_FLAGS_CHANGED = function(unit)
+	if secret(unit) or unit ~= "player" then return end
+	local was = S.afk
+	S.afk = U.bool(try(UnitIsAFK, "player")) or false
+	if S.afk and not was then S.afkSince = U.now() end
+	if was and not S.afk then
+		-- back from AFK: tell the agent and run the rules that were held while the chair was empty
+		local away = S.afkSince and math.floor(U.now() - S.afkSince) or 0
+		S.afkSince = nil
+		C.event("returned_active", { away_s = away })
+		if C.rules and C.rules.flushDeferred then pcall(C.rules.flushDeferred) end
+	end
+end
 H.PLAYER_TARGET_CHANGED = function()
 	S.dirtyTarget = true
 	if C.rules and C.rules.onTarget then pcall(C.rules.onTarget) end

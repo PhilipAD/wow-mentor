@@ -91,6 +91,27 @@ if __name__ == "__main__":
 
 
 class AwarenessOpTests(unittest.TestCase):
+    def test_afk_aware_rules_events_and_quest_group_ticks(self):
+        d = uidoc.Doc()
+        uidoc.apply_ops(d, [
+            {"op": "rule", "id": "a", "active_only": True, "defer_max_s": 300, "when": {"type": "pet_missing"}, "then": [{"do": "toast", "text": "pet"}]},
+            {"op": "rule", "id": "b", "when": {"type": "returned_active"}, "then": [{"do": "chat", "text": "back after {away_s}"}]},
+            {"op": "rule", "id": "c", "when": {"type": "readiness_changed", "ready": False}, "then": [{"do": "toast", "text": "{missing}"}]},
+            {"op": "panel", "id": "p", "title": "T", "children": [{"type": "checklist", "id": "l", "items": [
+                {"id": "g", "text": "Group", "auto": {"type": "quest_group", "quests": [22, 12, 102], "mode": "all"}}]}]}])
+        self.assertTrue(d.rules[0]["active_only"] and d.rules[0]["defer_max_s"] == 300)
+        uidoc.apply_ops(d, {"op": "rule", "id": "x", "defer_max_s": 1, "when": {"type": "pet_missing"}, "then": [{"do": "flash"}]})
+        self.assertEqual(next(r for r in d.rules if r["id"] == "x")["defer_max_s"], 10)      # numbers clamp to their range
+        for bad in ({"op": "rule", "id": "y", "active_only": "yes", "when": {"type": "pet_missing"}, "then": [{"do": "flash"}]},
+                    {"op": "panel", "id": "q", "title": "T", "children": [{"type": "checklist", "id": "l", "items": [
+                        {"id": "g", "text": "G", "auto": {"type": "quest_group", "quests": []}}]}]}):
+            with self.assertRaises(uidoc.OpError):
+                uidoc.apply_ops(d, bad)
+        text = uidoc.skill_text if hasattr(uidoc, "skill_text") else None
+        if text:
+            page = text(None) if callable(text) else str(text)
+            self.assertIn("active_only", page)
+
     def test_verdict_spells_ctx_voice_and_new_rule_types(self):
         d = uidoc.Doc()
         uidoc.apply_ops(d, [{"op": "verdict", "item": 6543, "text": "keep for AH"}, {"op": "watch", "spells": [348, 5782]}, {"op": "builtin", "voice": True},

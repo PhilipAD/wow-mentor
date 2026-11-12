@@ -210,9 +210,22 @@ local function runActions(acts, ctx)
 	return names
 end
 
-local function fire(e, ctx)
+R.deferred = {}      -- rule id -> { e, ctx, t } held while the player is AFK or loading (rules with active_only)
+
+local function inactive()
+	return S.afk == true or S.loading == true
+end
+
+local function fire(e, ctx, replay)
 	local st, def = e.st, e.def
 	if def.enabled == false then return false end
+	if def.active_only and not replay and inactive() then
+		local copy = {}
+		for k, v in pairs(ctx) do copy[k] = v end
+		R.deferred[tostring(def.id)] = { e = e, ctx = copy, t = U.now() }
+		R.dirty = true
+		return false
+	end
 	local now = U.now()
 	if def.once and st.onceFired then return false end
 	local cd = def.cooldown_s
@@ -234,6 +247,31 @@ local function fire(e, ctx)
 	R.dirty = true
 	C.emit("rule_fired", { rule = def.id, actions = J.array(names), ctx = summary })
 	return true
+end
+
+-- The player is active again: run what was held. State rules are re-checked (the condition may have cleared meanwhile);
+-- event rules run with the context they were held with unless it is older than defer_max_s (default 900 s).
+function R.flushDeferred()
+	if inactive() then return 0 end
+	local n = 0
+	local held = R.deferred
+	R.deferred = {}
+	local now = U.now()
+	for id, d in pairs(held) do
+		local e = d.e
+		local maxAge = tonumber(e.def.defer_max_s) or 900
+		if now - d.t <= maxAge and R.byId[id] == e.st then
+			local go, ctx = true, d.ctx
+			if e.kind == "state" then
+				local okp, ok, c2 = pcall(evalWhen, e.def.when, nil)
+				go = okp and ok == true
+				if go and c2 then ctx = c2 end
+			end
+			if go and fire(e, ctx, true) then n = n + 1 end
+		end
+	end
+	R.dirty = true
+	return n
 end
 
 ---------------------------------------------------------------- loading and evaluating rules
@@ -274,6 +312,7 @@ end
 
 -- polled conditions: edge triggered (false -> true), unknown keeps the previous state
 function R.evalState()
+	if next(R.deferred) ~= nil then R.flushDeferred() end      -- also catches the end of a loading screen
 	for _, e in ipairs(R.list) do
 		if e.kind == "state" then
 			local okp, ok, ctx = pcall(evalWhen, e.def.when, nil)
@@ -332,6 +371,16 @@ local function autoOk(a, cache)
 		if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then return try(C_QuestLog.IsQuestFlaggedCompleted, a.quest) == true end
 		local done = try(GetQuestsCompleted)
 		return type(done) == "table" and done[a.quest] == true
+	elseif t == "quest_group" then
+		local qs = type(a.quests) == "table" and a.quests or {}
+		if #qs == 0 then return false end
+		local any = a.mode == "any"
+		for _, q in ipairs(qs) do
+			local done = autoOk({ type = "quest_done", quest = q }, cache)
+			if any and done then return true end
+			if not any and not done then return false end
+		end
+		return not any
 	elseif t == "spell_known" then
 		if a.spell then
 			if IsPlayerSpell and try(IsPlayerSpell, a.spell) == true then return true end
@@ -627,7 +676,9 @@ end
 
 ---------------------------------------------------------------- sections
 function R.ruleLines()
-	local L = { strfmt("rules loaded: %d | fires this session: %d", #R.list, R.fired) }
+	local nd = 0
+	for _ in pairs(R.deferred) do nd = nd + 1 end
+	local L = { strfmt("rules loaded: %d | fires this session: %d | held until active: %d", #R.list, R.fired, nd) }
 	local now = U.now()
 	for _, e in ipairs(R.list) do
 		local d, st = e.def, e.st

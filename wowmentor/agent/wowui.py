@@ -1069,7 +1069,7 @@ def _take(settings, allowed):
         fail(["unknown --set key(s) %s (this preset accepts: %s)" % (", ".join(unknown), ", ".join(sorted(allowed)))])
 
 
-COMMON_SET = ("id", "cooldown_s", "once", "enabled", "text", "level", "sound", "toast", "chat", "title")
+COMMON_SET = ("id", "cooldown_s", "once", "enabled", "active_only", "defer_max_s", "text", "level", "sound", "toast", "chat", "title")
 
 
 def preset_rule(name, st):
@@ -1114,7 +1114,7 @@ def preset_rule(name, st):
     if not acts:
         fail(["toast=false and chat=false would leave the rule with nothing to do"])
     rule = {"id": st.get("id", default_id), "when": when, "then": acts, "cooldown_s": st.get("cooldown_s", spec["cooldown"])}
-    for k in ("once", "enabled"):
+    for k in ("once", "enabled", "active_only", "defer_max_s"):
         if k in st:
             rule[k] = st[k]
     return rule
