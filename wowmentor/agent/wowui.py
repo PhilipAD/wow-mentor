@@ -482,7 +482,8 @@ def _quest_units(a, qid, kind, cache):
         out = [(n["id"], n["name"], "turnin") for n in (q.get("finishedBy") or {}).get("npcs", [])]
     elif kind == "QC":
         obj = q.get("objectives") or {}
-        out = [(n.get("id"), n.get("name"), "skull") for n in obj.get("npc", []) if n.get("name")]
+        kills = (obj.get("kill or talk") or []) + (obj.get("npc") or []) + (obj.get("kill") or [])
+        out = [(n.get("id"), n.get("name"), "skull") for n in kills if n.get("name")]
         for it in obj.get("item", []):
             code, res = get_json(base_url(a), "db/item?" + urllib.parse.urlencode({"id": it["id"]}))
             item = (res.get("items") or [res])[0] if code == 200 else {}
@@ -493,8 +494,8 @@ def _quest_units(a, qid, kind, cache):
 def cmd_marks_auto(a):
     """Mark the units the next guide steps are about (givers, turn-ins, kill targets) so they get an icon as soon as they come into view."""
     feed = read_feed(a)
-    require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_marks_auto" != "cmd_marks_auto" else ["GUIDES"])
-    require_fresh(feed, ["GUIDES_DONE"], 400)
+    require_fresh(feed, ["GUIDES"])
+    require_fresh(feed, ["GUIDES_DONE"])
     st = live_guide_state(feed)
     guide = a.guide or tug_name_for_title(a, st["title"])
     if not guide:
@@ -540,7 +541,7 @@ def cmd_sync(a):
     done, or none is about a quest he holds, recommend the nearby guide that holds his quests and switch to it live."""
     feed = read_feed(a)
     require_fresh(feed, ["GUIDES", "QUESTS"])
-    require_fresh(feed, ["GUIDES_DONE"], 400)
+    require_fresh(feed, ["GUIDES_DONE"])
     st = live_guide_state(feed)
     guide = tug_name_for_title(a, st["title"]) if st["title"] else None
     if not guide:
@@ -725,14 +726,17 @@ def cmd_db(a):
 
 
 # ---------------------------------------------------------------- awareness helpers: sections, contradiction guard, route, autopsy, debrief
-def require_fresh(feed, names, max_age=90):
+FRESH_LIMITS = {"GUIDES": 120, "QUESTS": 300, "GUIDES_DONE": 400}
+
+
+def require_fresh(feed, names, max_age=None):
     """Refuse to answer from a missing or stale feed section (GUIDES and QUESTS take 2 to 3 minutes to come back after a /reload)."""
     bad = []
     for n in names:
         m = re.search(r"^--- %s \(updated (\d+)s ago\)" % re.escape(n), feed, re.M)
         if not m:
             bad.append("%s is missing from the feed" % n)
-        elif int(m.group(1)) > max_age:
+        elif int(m.group(1)) > (max_age or FRESH_LIMITS.get(n, 90)):
             bad.append("%s is %ss old" % (n, m.group(1)))
     if bad:
         fail(["not enough fresh data: " + "; ".join(bad) + ". After a /reload GUIDES and QUESTS take 2 to 3 minutes to return: wait and retry, do not act on old data."])
@@ -760,8 +764,8 @@ def _quest_log(feed):
 def cmd_verify(a):
     """Contradiction guard: compare Guidelime's next step, the overlay tasks, the waypoint and Questie's focus before you say anything."""
     feed = read_feed(a)
-    require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_verify" != "cmd_marks_auto" else ["GUIDES"])
-    require_fresh(feed, ["GUIDES_DONE"], 400)
+    require_fresh(feed, ["GUIDES", "QUESTS"])
+    require_fresh(feed, ["GUIDES_DONE"])
     st = live_guide_state(feed)
     problems, info = [], []
     guide = tug_name_for_title(a, st["title"]) if st["title"] else None
@@ -1103,8 +1107,8 @@ def tug_name_for_title(a, title):
 def cmd_align(a):
     """Cross-check the guides ahead of the player against the live quest log and Questie's completed list."""
     feed = read_feed(a)
-    require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_align" != "cmd_marks_auto" else ["GUIDES"])
-    require_fresh(feed, ["GUIDES_DONE"], 400)
+    require_fresh(feed, ["GUIDES", "QUESTS"])
+    require_fresh(feed, ["GUIDES_DONE"])
     st = live_guide_state(feed)
     qs = feed_section(feed, "QUESTS")
     log = {int(i): (s, t) for s, t, i in re.findall(r"\[(COMPLETE|in progress|failed)\] (.+?) \(L\d+\) #(\d+)", qs)}
@@ -1124,6 +1128,10 @@ def cmd_align(a):
             print("DRIFT   Guidelime's next located step is in %s but he is in %s: he is off the guide (side trip?). Do not change his ticks; adjust the guide ahead or pin a step" % (gz.group(1).strip(), here[3]))
     except SystemExit:
         pass
+    try:
+        live_line = live_open_line(a, start, st, feed)
+    except SystemExit:
+        live_line = None
     tag, seen, n = re.compile(r"\[(QA|QC|QT|QS)(\d+)"), set(), 0
     for gi, g in enumerate(names):
         for ln in tug_get(a, "show", name=g)["text"].splitlines():
@@ -1131,7 +1139,7 @@ def cmd_align(a):
             if not m:
                 continue
             num, text = int(m.group(1)), m.group(2)
-            resolved = gi == 0 and num in st["resolved"]
+            resolved = gi == 0 and (num in st["resolved"] or (live_line is not None and num < live_line))      # behind the live step: he is past it
             for kind, qid in tag.findall(text):
                 qid = int(qid); seen.add(qid)
                 if resolved:

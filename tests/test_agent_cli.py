@@ -81,6 +81,14 @@ class AgentCliTests(unittest.TestCase):
                 {"text": "\n".join("%d %s" % (i + 1, t) for i, t in enumerate(["[GA Alliance]", "[NLive Guide]", "Go north", "Accept [QA1]", "Kill things [QC1]", "Turn in [QT1]", "Accept [QA2]", "Turn in [QT2]"]))}))):
             self.assertEqual(wowui.live_open_line(args, "Zone/Live Guide", st, feed), 8)       # 1 handed in, 2 accepted: next is the turn-in of 2
 
+    def test_marks_include_kill_or_talk_objectives_and_freshness_limits(self):
+        res = {"ok": True, "quests": [{"id": 92745, "objectives": {"kill or talk": [{"id": 1236, "name": "Kobold Digger"}, {"id": 1426, "name": "Riverpaw Miner"}]}}]}
+        with mock.patch.object(wowui, "get_json", return_value=(200, res)):
+            units = wowui._quest_units(type("A", (), {"url": "x"})(), 92745, "QC", {})
+        self.assertEqual([(u[1], u[2]) for u in units], [("Kobold Digger", "skull"), ("Riverpaw Miner", "skull")])
+        feed = "--- QUESTS (updated 250s ago) ---\nx\n--- GUIDES (updated 100s ago) ---\ny\n"
+        wowui.require_fresh(feed, ["QUESTS", "GUIDES"])        # inside the per-section limits (300 s and 120 s)
+
     def test_errors_are_json_on_stderr(self):
         r = self.wowui("plan", "bad", "--task", "x", "--anchor", "MIDDLE", ok=False)
         self.assertFalse(json.loads(r.stderr)["ok"])

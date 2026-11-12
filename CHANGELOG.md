@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### align uses the live step; kill-or-talk marks
+
+- `wowui align` only checks the steps from the live step on (steps behind him are no longer flagged STALE).
+- `marks-auto` includes the database's "kill or talk" objectives (skulls for kobolds, miners, Defias and so on).
+- Freshness guards allow QUESTS 300 s, GUIDES 120 s, GUIDES_DONE 400 s. `MARKS` also prints the state of the last icon that was shown.
+
 ### Rule text placeholders
 
 - Fixed a chat line that showed "Missing: {missing}": `readiness_changed` and `returned_active` events did not fill their placeholders (`{missing}`, `{ready}`, `{away_s}`, `{away_min}`), and placeholders with an underscore were never filled.
