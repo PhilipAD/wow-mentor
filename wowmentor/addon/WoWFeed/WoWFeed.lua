@@ -1126,6 +1126,12 @@ local function sGuides()
 		local arrow = rawget(_G, "TomTomCrazyArrow")
 		local shown = arrow and arrow.IsShown and tb(try(arrow.IsShown, arrow))
 		local line = strfmt("TomTom arrow: %s", shown and "visible" or "hidden")
+		do      -- why a second arrow may exist: TomTom's own quest-objective arrow (poi) and whether its module is running
+			local pv = rawget(TT, "private")
+			local mod = pv and pv.GetModule and try(pv.GetModule, "QuestObjectives")
+			local poi = TT.db and TT.db.profile and TT.db.profile.poi
+			L[#L+1] = strfmt("TomTom poi: setClosest=%s module=%s", tostring(poi and poi.setClosest), mod and (mod.enabled and "RUNNING" or "stopped") or "not found")
+		end
 		local uid = TT.GetClosestWaypoint and try(TT.GetClosestWaypoint, TT)
 		if uid and TT.GetDistanceToWaypoint then
 			local d = num(try(TT.GetDistanceToWaypoint, TT, uid))

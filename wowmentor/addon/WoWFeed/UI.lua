@@ -1004,6 +1004,7 @@ local function runAction(a)
 				local mod = pv and pv.GetModule and pv.GetModule("QuestObjectives")
 				if mod and pv.UpdateModule then pv.UpdateModule(mod) end
 				-- disabling the module leaves its last arrow behind; its own setting-changed hook removes that waypoint
+				if mod and a.on ~= true and mod.enabled then mod.enabled = false; pcall(mod.OnDisable, mod) end      -- still running: stop it by hand
 				if mod and a.on ~= true and mod.OnSettingChanged then pcall(mod.OnSettingChanged, mod, "target") end
 			end
 		end)
