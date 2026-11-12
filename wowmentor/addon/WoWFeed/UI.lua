@@ -998,6 +998,11 @@ local function runAction(a)
 				tt.db.profile.poi = tt.db.profile.poi or {}
 				tt.db.profile.poi.setClosest = (a.on == true)
 				if tt.ReloadOptions then tt:ReloadOptions() end
+				-- ReloadOptions does not re-evaluate TomTom's modules: ask the quest-objectives module itself to start or stop, which
+				-- also clears the arrow it set (TomTom shares its internals as TomTom.private)
+				local pv = tt.private
+				local mod = pv and pv.GetModule and pv.GetModule("QuestObjectives")
+				if mod and pv.UpdateModule then pv.UpdateModule(mod) end
 			end
 		end)
 	elseif a.name == "unfocus_quest" then
