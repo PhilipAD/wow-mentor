@@ -1261,6 +1261,11 @@ end
 
 -- Spells the agent asked about (doc.watch_spells): known, cooldown, usable, in range of the target. Cooldown and range can be hidden by the game
 -- in combat; those fields then say "hidden".
+local function sMarks()
+	if WoWFeedUI and WoWFeedUI.markLines then return WoWFeedUI.markLines() end
+	return { "(marks unavailable)" }
+end
+
 local function sSpellWatch()
 	local ids = WoWFeedUI and WoWFeedUI.watchSpells and WoWFeedUI.watchSpells() or {}
 	if #ids == 0 then return { "(empty: the agent has not asked about any spell; `wowui watch --spells <ids>`)" } end
@@ -1291,7 +1296,7 @@ local tickN = 0
 local function tickBody()
 	tickN = tickN + 1
 	push("summary", safe(sSummary), 5); push("fast", safe(sPlayerFast), 5)
-	if tickN % 3 == 0 then push("guides", safe(sGuides), 90); push("readiness", safe(sReadiness), 30); push("spell_watch", safe(sSpellWatch), 30); push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
+	if tickN % 3 == 0 then push("guides", safe(sGuides), 90); push("readiness", safe(sReadiness), 30); push("spell_watch", safe(sSpellWatch), 30); push("marks", safe(sMarks), 30); push("item_watch", safe(sItemWatch), 60); push("merchant", safe(sMerchant), 30); push("auras", safe(sAuras), 20); push("group", safe(sGroup), 30); push("nearby", safe(sNearby), 30) end
 	if tickN % 15 == 0 or dirty.slow then
 		dirty.slow = false
 		push("stats", safe(sStats), 120); push("equipment", safe(sEquipment), 300); push("bags", safe(sBags), 300)

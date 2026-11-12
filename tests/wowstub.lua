@@ -156,7 +156,9 @@ function W.installCoach()
 		GetMapInfo = function() return { name = w.zone } end,
 		GetMapWorldSize = function() return w.mapSize[1], w.mapSize[2] end,
 	}
-	G.C_NamePlate = { GetNamePlates = function() local t = {}; for i, tok in ipairs(w.plates) do t[i] = { namePlateUnitToken = tok } end; return t end }
+	w.plateFrames = {}
+	G.C_NamePlate = { GetNamePlates = function() local t = {}; for i, tok in ipairs(w.plates) do t[i] = { namePlateUnitToken = tok } end; return t end,
+		GetNamePlateForUnit = function(tok) for _, t in ipairs(w.plates) do if t == tok then w.plateFrames[tok] = w.plateFrames[tok] or newStub("Frame"); return w.plateFrames[tok] end end return nil end }
 	G.C_Spell = {
 		GetSpellName = function(id) return w.spells[id] and w.spells[id].name end,
 		GetSpellSubtext = function(id) return w.spells[id] and w.spells[id].rank end,

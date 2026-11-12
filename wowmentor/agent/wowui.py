@@ -434,10 +434,129 @@ def cmd_waypoint(a):
 
 def cmd_action(a):
     op = {"op": "action", "name": a.name}
-    for k in ("text", "sound", "quest", "cmd", "guide"):
+    for k in ("text", "sound", "quest", "cmd", "guide", "step"):
         if getattr(a, k, None) is not None:
             op[k] = getattr(a, k)
+    if getattr(a, "on", None) is not None:
+        op["on"] = a.on == "true"
     run(a, op)
+
+
+def cmd_mark(a):
+    if a.clear:
+        run(a, {"op": "mark", "clear": True})
+    elif a.remove:
+        run(a, {"op": "mark", "id": a.id, "remove": True})
+    else:
+        op = {"op": "mark", "id": a.id, "icon": a.icon}
+        if a.name:
+            op["name"] = a.name
+        if a.npc:
+            op["npc"] = a.npc
+        if a.text:
+            op["text"] = a.text
+        run(a, op)
+
+
+def _quest_units(a, qid, kind, cache):
+    """Names and npc ids a quest tag points at: QA = giver, QT = turn-in, QC = what to kill (or what drops the item)."""
+    if qid not in cache:
+        code, res = get_json(base_url(a), "db/quest?" + urllib.parse.urlencode({"id": qid}))
+        cache[qid] = (res.get("quests") or [None])[0] if code == 200 and res.get("ok", True) else None
+    q = cache[qid]
+    out = []
+    if not q:
+        return out
+    if kind == "QA":
+        out = [(n["id"], n["name"], "quest") for n in (q.get("startedBy") or {}).get("npcs", [])]
+    elif kind == "QT":
+        out = [(n["id"], n["name"], "turnin") for n in (q.get("finishedBy") or {}).get("npcs", [])]
+    elif kind == "QC":
+        obj = q.get("objectives") or {}
+        out = [(n.get("id"), n.get("name"), "skull") for n in obj.get("npc", []) if n.get("name")]
+        for it in obj.get("item", []):
+            code, res = get_json(base_url(a), "db/item?" + urllib.parse.urlencode({"id": it["id"]}))
+            item = (res.get("items") or [res])[0] if code == 200 else {}
+            out += [(n.get("id"), n.get("name"), "skull") for n in (item.get("droppedBy") or [])[:4] if n.get("name")]
+    return out
+
+
+def cmd_marks_auto(a):
+    """Mark the units the next guide steps are about (givers, turn-ins, kill targets) so they get an icon as soon as they come into view."""
+    feed = read_feed(a)
+    st = live_guide_state(feed)
+    guide = a.guide or tug_name_for_title(a, st["title"])
+    if not guide:
+        fail(["could not tell the current guide; pass --guide"])
+    first = first_open_line(a, guide, st["resolved"])
+    if not first:
+        fail(["the guide has no unresolved steps"])
+    text = tug_get(a, "show", name=guide, **{"from": first, "to": first + max(1, a.steps) - 1})["text"]
+    cache, seen, ops = {}, set(), []
+    for ln in text.splitlines():
+        m = re.match(r"\s*(\d+)\s+(.*)", ln)
+        if not m:
+            continue
+        for kind, qid in re.findall(r"\[(QA|QC|QT)(\d+)", m.group(2)):
+            for nid, name, icon in _quest_units(a, int(qid), kind, cache):
+                key = (nid or name, icon)
+                if key in seen or len(ops) >= 28:
+                    continue
+                seen.add(key)
+                op = {"op": "mark", "id": "g%d" % (len(ops) + 1), "icon": icon, "name": name, "text": "%s %s" % (kind, qid)}
+                if nid:
+                    op["npc"] = nid
+                ops.append(op)
+        for name in re.findall(r"\[TAR\s*([^\]]+)\]", m.group(2)):
+            name = name.strip()
+            if ("t", name) not in seen and len(ops) < 28:
+                seen.add(("t", name))
+                ops.append({"op": "mark", "id": "g%d" % (len(ops) + 1), "icon": "skull", "name": name, "text": "target"})
+    if not ops:
+        print("# no units found in steps %d-%d of %s" % (first, first + a.steps - 1, guide))
+        return
+    print("# marking %d units from %s steps %d-%d: %s" % (len(ops), guide, first, first + a.steps - 1, ", ".join("%s(%s)" % (o["name"], o["icon"]) for o in ops)))
+    run(a, [{"op": "mark", "clear": True}] + ops)
+
+
+def cmd_sync(a):
+    """Catch Guidelime's position up with where the player really is: skip the unresolved steps before the first step about a quest he holds."""
+    feed = read_feed(a)
+    st = live_guide_state(feed)
+    guide = tug_name_for_title(a, st["title"]) if st["title"] else None
+    if not guide:
+        fail(["no Guidelime guide is loaded, or the GUIDES section is missing"])
+    log = _quest_log(feed)
+    first = first_open_line(a, guide, st["resolved"])
+    if not first:
+        fail(["the guide has no unresolved steps"])
+    target = None
+    for ln in tug_get(a, "show", name=guide, **{"from": first})["text"].splitlines():
+        m = re.match(r"\s*(\d+)\s+(.*)", ln)
+        if not m:
+            continue
+        for kind, qid in re.findall(r"\[(QA|QC|QT)(\d+)", m.group(2)):
+            if int(qid) in log and not (kind == "QA"):
+                target = (int(m.group(1)), kind, int(qid), m.group(2)[:100])
+                break
+        if target:
+            break
+    if not target:
+        print("# no step ahead is about a quest in his log: nothing to sync")
+        return
+    n, kind, qid, txt = target
+    skip = n - first
+    print("# Guidelime's next step is line %d; the first step about a quest he holds is line %d (%s #%d: %s)" % (first, n, kind, qid, txt))
+    if skip <= 0:
+        print("# aligned: nothing to skip")
+        return
+    print("# %d step(s) would be skipped (marked skipped, not completed)" % skip)
+    if not a.apply:
+        print("# dry run: add --apply to send `skip_to %d`" % n)
+        return
+    if skip > a.max_skip:
+        fail(["refusing to skip %d steps (limit %d): check `wowui tug show` and raise --max-skip if you are sure" % (skip, a.max_skip)])
+    run(a, {"op": "action", "name": "guidelime", "cmd": "skip_to", "step": n})
 
 
 def cmd_theme(a):
@@ -1316,8 +1435,8 @@ def main():
     p.add_argument("--map", type=int, help="uiMapID, e.g. 1429 Elwynn Forest"); p.add_argument("--x", type=float); p.add_argument("--y", type=float)
     p.add_argument("--title"); p.add_argument("--track", action="store_true", help="make it the active arrow"); p.add_argument("--clear", action="store_true")
     p.add_argument("--quest", type=int, help="also focus this quest in Questie's tracker (questID)")
-    p = add("action", cmd_action, "one-shot client actions: flash, sound, chat, track_quest (focus in Questie), unfocus_quest, guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak"])
-    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide"]); p.add_argument("--guide")
+    p = add("action", cmd_action, "one-shot client actions: flash, sound, chat, track_quest (focus in Questie), unfocus_quest, guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi"])
+    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to"]); p.add_argument("--guide"); p.add_argument("--step", type=int); p.add_argument("--on", choices=["true", "false"])
     p.add_argument("--text"); p.add_argument("--sound", choices=["none", "ping", "warning", "quest", "levelup", "ready"]); p.add_argument("--quest", type=int)
     p = add("theme", cmd_theme, "change global style tokens")
     for f in ("accent", "bg", "border", "text", "muted", "good", "warn", "bad", "font"):
@@ -1426,6 +1545,11 @@ def main():
     dadd("spots", "where to find the creatures a quest wants (densest spawn clusters): --quest ID or --npc NAME", "quest", "npc")
     dadd("training", "spells a class can train with cost (names via `wowui watch --spells`): --class Warlock [--level N] [--from M]", "klass", "level", "frm")
     dadd("validate", "check a guide's quest ids, class/race gates and [G] coordinates: --guide NAME [--class Warlock --race Human]", "guide", "klass", "race")
+    p = add("mark", cmd_mark, "put an icon over a unit as soon as it is in view: wowui mark ID --name 'Salma Saldean' [--npc 235] --icon quest|turnin|talk|skull|star|... ; --remove / --clear"); p.add_argument("id", nargs="?", default="x")
+    p.add_argument("--name"); p.add_argument("--npc", type=int); p.add_argument("--icon", default="star", choices=["star", "circle", "diamond", "triangle", "moon", "square", "cross", "skull", "quest", "turnin", "talk"])
+    p.add_argument("--text"); p.add_argument("--remove", action="store_true"); p.add_argument("--clear", action="store_true")
+    p = add("marks-auto", cmd_marks_auto, "mark every unit the next guide steps are about (quest givers, turn-ins, kill targets) from the Forever database"); p.add_argument("--guide"); p.add_argument("--steps", type=int, default=12)
+    p = add("sync", cmd_sync, "catch Guidelime's position up with the quests he holds (dry run; --apply skips the steps before the first one about a quest in his log)"); p.add_argument("--apply", action="store_true"); p.add_argument("--max-skip", type=int, default=40)
     p = add("deaths", cmd_deaths, "his death history (killer, place, level) and a count per place, from the event stream"); p.add_argument("--limit", type=int, default=50); p.add_argument("--compact", action="store_true")
     p = add("section", cmd_section, "print feed sections by name (e.g. wowui section FAST PVP TALENTS_TRAITS): no raw feed link needed"); p.add_argument("names", nargs="+")
     p = add("verify", cmd_verify, "contradiction guard: Guidelime's next step vs overlay tasks, waypoint and Questie focus; run it before every message that names a next step")
