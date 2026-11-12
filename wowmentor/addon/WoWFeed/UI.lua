@@ -1017,6 +1017,7 @@ local function runAction(a)
 	elseif a.name == "guidelime" then
 		local gc, gd = rawget(_G, "GuidelimeDataChar"), rawget(_G, "GuidelimeData")
 		local c = a.cmd
+		S.lastGuideAction = strfmt("%s%s applied (action #%s)", tostring(c), a.step and (" " .. a.step) or "", tostring(a.id or "?"))
 		if c == "skip" or c == "complete" then
 			if SlashCmdList and SlashCmdList.Guidelime then pcall(SlashCmdList.Guidelime, c) end
 		elseif c == "toggle_window" then
@@ -1055,6 +1056,14 @@ local function runAction(a)
 			local okr, did = pcall(refreshLime)
 			if okr and did then showToast({ text = "Guide switched to " .. name, level = "good", ttl = 6 })
 			else showToast({ text = "Guide set to " .. name .. ": type /reload to load it.", level = "info", ttl = 12 }) end
+		elseif (c == "skip_step" or c == "complete_step") and a.step and a.text and gc then
+			gc.progress = gc.progress or {}
+			gc.progress[gc.currentGuide] = gc.progress[gc.currentGuide] or {}
+			local st = gc.progress[gc.currentGuide][tonumber(a.step)] or {}
+			st.stepText = a.text
+			if c == "skip_step" then st.skip = true else st.completed = true end
+			gc.progress[gc.currentGuide][tonumber(a.step)] = st
+			pcall(refreshLime)
 		elseif c == "unskip" and a.step and gc then
 			local prog = gc.progress and gc.progress[gc.currentGuide]
 			local st = type(prog) == "table" and prog[tonumber(a.step)]
@@ -1096,6 +1105,7 @@ local function matchMark(unit)
 	for _, m in ipairs(S.marks) do
 		if (m.npc and id and m.npc == id) or (m.name and nm and m.name:lower() == nm) then return m end
 	end
+	if not id and not nm then return nil, "unreadable" end      -- the game hid both: say so, do not read it as "not a match"
 	return nil
 end
 
@@ -1123,9 +1133,13 @@ local function applyMarkInner(unit)
 	S.markDiag.scanned = S.markDiag.scanned + 1
 	if not okp or not plate then S.markDiag.err = "no nameplate frame for " .. tostring(unit); return end
 	S.markUnits[unit] = plate
-	local m = matchMark(unit)
+	local m, why = matchMark(unit)
 	local f = S.markFrames[plate]
-	if not m then if f then f:Hide() end; return end
+	if not m then
+		if why == "unreadable" then S.markDiag.hidden = (S.markDiag.hidden or 0) + 1; return end      -- keep whatever the icon shows now (names go secret in combat)
+		if f then f:Hide() end
+		return
+	end
 	S.markDiag.matched = S.markDiag.matched + 1
 	f = markFrameFor(plate)
 	local tex = MARK_TEX[m.icon]
@@ -1201,6 +1215,8 @@ function UI.applyMarks(list)
 	end
 end
 
+function UI.lastGuideAction() return S.lastGuideAction or "(none yet)" end
+
 function UI.markLines()
 	local L = {}
 	local n = type(S.marks) == "table" and #S.marks or 0
@@ -1208,7 +1224,14 @@ function UI.markLines()
 	for plate, f in pairs(S.markFrames) do if f:IsShown() and f.txt then vis[#vis + 1] = (f.txt:GetText() or "?") end end
 	L[#L + 1] = strfmt("marks loaded: %d | icons visible now: %d%s", n, #vis, #vis > 0 and (" (" .. tconcat(vis, ", ") .. ")") or "")
 	local d = S.markDiag or {}
-	L[#L + 1] = strfmt("marks debug: plates scanned=%d matched=%d shown=%d parent=%s%s", d.scanned or 0, d.matched or 0, d.shown or 0, tostring(S.markParent or "-"), d.err and (" | last error: " .. d.err) or "")
+	do      -- the first icon frame's real state, to tell "hidden" from "attached but invisible"
+		for plate, f in pairs(S.markFrames) do
+			local okf, info = pcall(function() return strfmt("shown=%s alpha=%.2f size=%dx%d strata-order=%s parentShown=%s", tostring(f:IsShown()), f:GetAlpha() or -1, f:GetWidth() or 0, f:GetHeight() or 0, tostring(f:GetFrameLevel()), tostring(plate:IsShown())) end)
+			L[#L + 1] = "marks frame sample: " .. (okf and info or "unreadable")
+			break
+		end
+	end
+	L[#L + 1] = strfmt("marks debug: plates scanned=%d matched=%d shown=%d unreadable=%d parent=%s%s", d.scanned or 0, d.matched or 0, d.shown or 0, d.hidden or 0, tostring(S.markParent or "-"), d.err and (" | last error: " .. d.err) or "")
 	for _, m in ipairs(S.marks or {}) do L[#L + 1] = strfmt("  %s %s%s%s", m.id, m.icon, m.name and (" " .. m.name) or "", m.npc and (" #" .. m.npc) or "") end
 	return L
 end

@@ -442,6 +442,15 @@ def cmd_action(a):
     run(a, op)
 
 
+def cmd_step(a):
+    """Skip or complete ONE guide step by number (Guidelime keeps the mark by step number and text)."""
+    text = tug_get(a, "show", name=a.guide, **{"from": a.n, "to": a.n})["text"]
+    m = re.match(r"\s*(\d+)\s+(.*)", text.splitlines()[0]) if text.strip() else None
+    if not m or int(m.group(1)) != a.n:
+        fail(["no step %d in %s" % (a.n, a.guide)])
+    run(a, {"op": "action", "name": "guidelime", "cmd": "skip_step" if a.what == "skip" else "complete_step", "step": a.n, "text": m.group(2)[:300]})
+
+
 def cmd_mark(a):
     if a.clear:
         run(a, {"op": "mark", "clear": True})
@@ -485,20 +494,25 @@ def cmd_marks_auto(a):
     """Mark the units the next guide steps are about (givers, turn-ins, kill targets) so they get an icon as soon as they come into view."""
     feed = read_feed(a)
     require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_marks_auto" != "cmd_marks_auto" else ["GUIDES"])
+    require_fresh(feed, ["GUIDES_DONE"], 400)
     st = live_guide_state(feed)
     guide = a.guide or tug_name_for_title(a, st["title"])
     if not guide:
         fail(["could not tell the current guide; pass --guide"])
-    first = first_open_line(a, guide, st["resolved"])
+    first = live_open_line(a, guide, st, feed)
     if not first:
         fail(["the guide has no unresolved steps"])
     text = tug_get(a, "show", name=guide, **{"from": first, "to": first + max(1, a.steps) - 1})["text"]
     cache, seen, ops = {}, set(), []
+    qlog = _quest_log(feed)
     for ln in text.splitlines():
         m = re.match(r"\s*(\d+)\s+(.*)", ln)
         if not m:
             continue
         for kind, qid in re.findall(r"\[(QA|QC|QT)(\d+)", m.group(2)):
+            q = int(qid)      # skip what he has already done: accepted, finished or handed in
+            if (kind == "QA" and (q in st["completed"] or q in qlog)) or (kind == "QC" and (q in st["completed"] or (q in qlog and qlog[q][0] == "COMPLETE"))) or (kind == "QT" and q in st["completed"]):
+                continue
             for nid, name, icon in _quest_units(a, int(qid), kind, cache):
                 key = (nid or name, icon)
                 if key in seen or len(ops) >= 28:
@@ -521,30 +535,27 @@ def cmd_marks_auto(a):
 
 
 def cmd_sync(a):
-    """Catch Guidelime's position up with where the player really is: skip the unresolved steps before the first step about a quest he holds."""
+    """Catch Guidelime's position up with where the player really is. Guidelime's own step is its first unresolved step; the live step is
+    worked out from the quest log. Steps in between are skipped (marked skipped, never completed). If every step of the loaded guide is
+    done, or none is about a quest he holds, recommend the nearby guide that holds his quests and switch to it live."""
     feed = read_feed(a)
-    require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_sync" != "cmd_marks_auto" else ["GUIDES"])
+    require_fresh(feed, ["GUIDES", "QUESTS"])
+    require_fresh(feed, ["GUIDES_DONE"], 400)
     st = live_guide_state(feed)
     guide = tug_name_for_title(a, st["title"]) if st["title"] else None
     if not guide:
         fail(["no Guidelime guide is loaded, or the GUIDES section is missing"])
     log = _quest_log(feed)
-    first = first_open_line(a, guide, st["resolved"])
-    if not first:
-        fail(["the guide has no unresolved steps"])
-    target = None
-    for ln in tug_get(a, "show", name=guide, **{"from": first})["text"].splitlines():
-        m = re.match(r"\s*(\d+)\s+(.*)", ln)
-        if not m:
-            continue
-        for kind, qid in re.findall(r"\[(QA|QC|QT)(\d+)", m.group(2)):
-            if int(qid) in log and not (kind == "QA"):
-                target = (int(m.group(1)), kind, int(qid), m.group(2)[:100])
+    gfirst = first_open_line(a, guide, st["resolved"])
+    live = live_open_line(a, guide, st, feed) if gfirst else None
+    has_tag = False
+    if gfirst:
+        for ln in tug_get(a, "show", name=guide, **{"from": gfirst})["text"].splitlines():
+            m = re.match(r"\s*(\d+)\s+(.*)", ln)
+            if m and any(int(q) in log for k, q in re.findall(r"\[(QA|QC|QT)(\d+)", m.group(2))):
+                has_tag = True
                 break
-        if target:
-            break
-    if not target:
-        # maybe the wrong guide is loaded: count the log quests each guide on the route holds and recommend the best
+    if not gfirst or not has_tag:
         route = tug_get(a, "route", start=guide)["route"]
         names = [r if isinstance(r, str) else r.get("name") for r in route][:7]
         best = None
@@ -557,25 +568,24 @@ def cmd_sync(a):
         if not best:
             print("# no step ahead, and no nearby guide, is about a quest in his log: nothing to sync")
             return
-        print("# the loaded guide has no step about a quest he holds, but %s holds %d of his %d logged quests" % (best[0], best[1], len(log)))
+        print("# the loaded guide has no open step about a quest he holds, but %s holds %d of his %d logged quests" % (best[0], best[1], len(log)))
         if not a.apply:
             print("# dry run: add --apply to switch Guidelime to it live (no /reload)")
             return
         run(a, [{"op": "action", "name": "guidelime", "cmd": "open_guide", "guide": best[0]}])
         return
-    n, kind, qid, txt = target
-    skip = n - first
-    print("# Guidelime's next step is line %d; the first step about a quest he holds is line %d (%s #%d: %s)" % (first, n, kind, qid, txt))
+    print("# Guidelime's own next step is line %d; the live step (from the quest log) is line %s" % (gfirst, live))
+    skip = (live or gfirst) - gfirst
     if skip <= 0:
         print("# aligned: nothing to skip")
         return
-    print("# %d step(s) would be skipped (marked skipped, not completed)" % skip)
+    print("# %d step(s) between them would be skipped (marked skipped, not completed)" % skip)
     if not a.apply:
-        print("# dry run: add --apply to send `skip_to %d`" % n)
+        print("# dry run: add --apply to send `skip_to %d`" % live)
         return
     if skip > a.max_skip:
         fail(["refusing to skip %d steps (limit %d): check `wowui tug show` and raise --max-skip if you are sure" % (skip, a.max_skip)])
-    run(a, {"op": "action", "name": "guidelime", "cmd": "skip_to", "step": n})
+    run(a, {"op": "action", "name": "guidelime", "cmd": "skip_to", "step": live})
 
 
 def cmd_theme(a):
@@ -751,12 +761,13 @@ def cmd_verify(a):
     """Contradiction guard: compare Guidelime's next step, the overlay tasks, the waypoint and Questie's focus before you say anything."""
     feed = read_feed(a)
     require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_verify" != "cmd_marks_auto" else ["GUIDES"])
+    require_fresh(feed, ["GUIDES_DONE"], 400)
     st = live_guide_state(feed)
     problems, info = [], []
     guide = tug_name_for_title(a, st["title"]) if st["title"] else None
     if not guide:
         fail(["no Guidelime guide is loaded in the game, or the GUIDES section is missing (older addon?)"])
-    line = first_open_line(a, guide, st["resolved"])
+    line = live_open_line(a, guide, st, feed)
     text = tug_get(a, "show", name=guide, **{"from": line, "to": line + 14})["text"] if line else ""
     steps = [re.match(r"\s*(\d+)\s+(.*)", l) for l in text.splitlines()]
     steps = [(int(m.group(1)), m.group(2)) for m in steps if m]
@@ -764,7 +775,7 @@ def cmd_verify(a):
     next_q = {int(i) for n, t in steps for i in re.findall(r"\[Q[ACT](\d+)", t)}
     first_q = {int(i) for i in re.findall(r"\[Q[ACT](\d+)", nxt[1])} if nxt else set()
     m = re.search(r"\[G\s*([\d.]+)\s*,\s*([\d.]+)", nxt[1]) if nxt else None
-    info.append("Guidelime next step (%s line %s): %s" % (guide, nxt[0] if nxt else "?", (nxt[1][:110] if nxt else "(none: guide finished?)")))
+    info.append("Guidelime live step (worked out from the quest log; the feed cannot report it) (%s line %s): %s" % (guide, nxt[0] if nxt else "?", (nxt[1][:110] if nxt else "(none: guide finished?)")))
     info.append("Questie focus: %s | arrow source: %s | resolved steps: %d" % (st["focus"] or "none", st["arrow"], len(st["resolved"])))
     doc = current_doc(a)
     open_items, task_q = [], set()
@@ -1069,7 +1080,7 @@ def live_guide_state(feed):
                 out["resolved"].update(range(int(lo), int(hi or lo) + 1))
     if size:
         out["resolved"] = {i for i in out["resolved"] if i <= size}
-    m = re.search(r"completed quest ids \(\d+\): ([\d,]*)", sec)
+    m = re.search(r"completed quest ids \(\d+\): ([\d,]*)", sec) or re.search(r"completed quest ids \(\d+\): ([\d,]*)", feed_section(feed, "GUIDES_DONE"))
     if m:
         out["completed"] = {int(x) for x in m.group(1).split(",") if x}
     m = re.search(r"focused quest: (\d+)", sec)
@@ -1093,6 +1104,7 @@ def cmd_align(a):
     """Cross-check the guides ahead of the player against the live quest log and Questie's completed list."""
     feed = read_feed(a)
     require_fresh(feed, ["GUIDES", "QUESTS"] if "cmd_align" != "cmd_marks_auto" else ["GUIDES"])
+    require_fresh(feed, ["GUIDES_DONE"], 400)
     st = live_guide_state(feed)
     qs = feed_section(feed, "QUESTS")
     log = {int(i): (s, t) for s, t, i in re.findall(r"\[(COMPLETE|in progress|failed)\] (.+?) \(L\d+\) #(\d+)", qs)}
@@ -1104,7 +1116,7 @@ def cmd_align(a):
     names = [r if isinstance(r, str) else r.get("name") for r in route][: a.ahead + 1] + [x.strip() for x in (a.also or "").split(",") if x.strip()]
     print("# current guide: %s | quest log: %d | Questie completed: %d | focused quest: %s | arrow: %s | checking: %s" % (start, len(log), len(done), st["focus"] or "none", st["arrow"], ", ".join(names)))
     try:     # where the guide wants him next versus where he physically is
-        line = first_open_line(a, start, st["resolved"])
+        line = live_open_line(a, start, st, feed)
         t2 = tug_get(a, "show", name=start, **{"from": line, "to": line + 14})["text"] if line else ""
         gz = re.search(r"\[G\s*[\d.]+\s*,\s*[\d.]+\s*([^\]\d][^\]]*)\]", t2)
         here = _fast(feed)
@@ -1136,6 +1148,32 @@ def cmd_align(a):
     if st["focus"] and st["focus"] not in log:
         n += 1; print("FOCUS   Questie focus #%d is not in your log: wowui action unfocus_quest" % st["focus"])
     print("# %d finding(s). Edit only steps ahead of the player; `wowui tug show` before every edit." % n)
+
+
+def live_open_line(a, guide, st, feed):
+    """The step the player is really on, worked out from the quest log: Guidelime saves only skips and works completion out live, so
+    the feed cannot say which step is current. The first unresolved step with a quest tag that is not yet done (accepted / objectives
+    complete / handed in) is the live step; steps without quest tags are ignored."""
+    log = _quest_log(feed)
+    done = st["completed"]
+
+    def tag_done(kind, qid):
+        if kind == "QA":
+            return qid in done or qid in log
+        if kind == "QC":
+            return qid in done or (qid in log and log[qid][0] == "COMPLETE")
+        return qid in done
+    first = first_open_line(a, guide, st["resolved"])
+    if not first:
+        return None
+    for ln in tug_get(a, "show", name=guide, **{"from": first})["text"].splitlines():
+        m = re.match(r"\s*(\d+)\s+(.*)", ln)
+        if not m or int(m.group(1)) in st["resolved"]:
+            continue
+        tags = [(k, int(q)) for k, q in re.findall(r"\[(QA|QC|QT)(\d+)", m.group(2))]
+        if tags and not all(tag_done(k, q) for k, q in tags):
+            return int(m.group(1))
+    return first
 
 
 def first_open_line(a, guide, resolved):
@@ -1470,7 +1508,7 @@ def main():
     p.add_argument("--title"); p.add_argument("--track", action="store_true", help="make it the active arrow"); p.add_argument("--clear", action="store_true")
     p.add_argument("--quest", type=int, help="also focus this quest in Questie's tracker (questID)")
     p = add("action", cmd_action, "one-shot client actions: flash, sound, chat, track_quest (focus in Questie), unfocus_quest, guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi"])
-    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh", "unskip"]); p.add_argument("--guide"); p.add_argument("--step", type=int); p.add_argument("--on", choices=["true", "false"])
+    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh", "unskip", "skip_step", "complete_step"]); p.add_argument("--guide"); p.add_argument("--step", type=int); p.add_argument("--on", choices=["true", "false"])
     p.add_argument("--text"); p.add_argument("--sound", choices=["none", "ping", "warning", "quest", "levelup", "ready"]); p.add_argument("--quest", type=int)
     p = add("theme", cmd_theme, "change global style tokens")
     for f in ("accent", "bg", "border", "text", "muted", "good", "warn", "bad", "font"):
@@ -1582,6 +1620,7 @@ def main():
     p = add("mark", cmd_mark, "put an icon over a unit as soon as it is in view: wowui mark ID --name 'Salma Saldean' [--npc 235] --icon quest|turnin|talk|skull|star|... ; --remove / --clear"); p.add_argument("id", nargs="?", default="x")
     p.add_argument("--name"); p.add_argument("--npc", type=int); p.add_argument("--icon", default="star", choices=["star", "circle", "diamond", "triangle", "moon", "square", "cross", "skull", "quest", "turnin", "talk"])
     p.add_argument("--text"); p.add_argument("--remove", action="store_true"); p.add_argument("--clear", action="store_true")
+    p = add("step", cmd_step, "skip or complete one guide step by number: wowui step skip|complete GUIDE N (the guide must be the one loaded in the game)"); p.add_argument("what", choices=["skip", "complete"]); p.add_argument("guide"); p.add_argument("n", type=int)
     p = add("marks-auto", cmd_marks_auto, "mark every unit the next guide steps are about (quest givers, turn-ins, kill targets) from the Forever database"); p.add_argument("--guide"); p.add_argument("--steps", type=int, default=12)
     p = add("sync", cmd_sync, "catch Guidelime's position up with the quests he holds (dry run; --apply skips the steps before the first one about a quest in his log)"); p.add_argument("--apply", action="store_true"); p.add_argument("--max-skip", type=int, default=40)
     p = add("deaths", cmd_deaths, "his death history (killer, place, level) and a count per place, from the event stream"); p.add_argument("--limit", type=int, default=50); p.add_argument("--compact", action="store_true")

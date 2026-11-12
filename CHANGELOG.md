@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### Live step, per-step commands, hostile marks
+
+- `verify`, `sync` and `marks-auto` work out the player's live guide step from the quest log (Guidelime saves only skips), and marks-auto skips quests already done. `sync` skips only between Guidelime's own step and the live one.
+- `wowui step skip|complete GUIDE N` for one step; `GUIDES` shows "Last guide action"; completed quest ids moved to a small `GUIDES_DONE` section so `GUIDES` arrives faster.
+- Marks keep their icon when the game hides a unit's name (it goes secret in combat) instead of hiding it; `MARKS` prints a sample of the icon frame state and an unreadable count.
+
 ### Marks diagnostics, unskip, fresh-data guard
 
 - `MARKS` prints a debug line (plates scanned, matched, shown, parent, last error); icons fall back to a screen-parented frame if a nameplate refuses a child; enemy nameplates are switched on (and restored) while kill-target marks exist.

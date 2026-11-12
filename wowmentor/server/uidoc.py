@@ -28,7 +28,7 @@ COMBAT = ("show", "dim", "hide")
 FONTS = ("default", "friz", "arial", "morpheus", "skurri")
 SOUNDS = ("none", "ping", "warning", "quest", "levelup", "ready")
 ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi")
-GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh", "unskip")
+GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh", "unskip", "skip_step", "complete_step")
 MARK_ICONS = ("star", "circle", "diamond", "triangle", "moon", "square", "cross", "skull", "quest", "turnin", "talk")
 MAX_MARKS = 30
 BINDS = ("bags", "durability")        # XP and level are never shown on the overlay
@@ -643,6 +643,8 @@ class Doc:
             errs.append("action.cmd: required for guidelime (one of %s)" % ", ".join(GUIDELIME_CMDS))
         elif a["name"] == "tomtom_poi" and "on" not in a:
             errs.append("action.on: required for tomtom_poi (true = TomTom draws its own arrow to the focused quest, false = it does not)")
+        elif a.get("cmd") in ("skip_step", "complete_step") and ("step" not in a or "text" not in a):
+            errs.append("action.step and action.text: required for skip_step / complete_step (use `wowui step skip|complete GUIDE N`)")
         elif a.get("cmd") == "unskip" and "step" not in a:
             errs.append("action.step: required for unskip (the step number to un-skip)")
         elif a.get("cmd") == "skip_to" and "step" not in a:
@@ -1246,6 +1248,9 @@ quests done out of order) that step is far behind where he is. `wowui action gui
 be the wrong one (he is in Westfall but 9-11 is loaded): `open_guide` now switches live, no /reload. `wowui sync` shows the first step about a quest he holds and how many steps
 sit before it, or which nearby guide holds the quests he has; `wowui sync --apply` marks those steps skipped (never completed) so Guidelime's step, arrow and Questie focus all match
 reality. Run `wowui verify` afterwards. Only do this when the quest log proves he is ahead.
+LIVE STEP: Guidelime saves only skips and works completion out live, so the feed cannot say which step is current. `verify`, `sync` and `marks-auto` work it out from the
+quest log (first step whose quest tags are not yet done: accepted, objectives complete, handed in). The completed quest ids are in feed section GUIDES_DONE (small and separate so GUIDES arrives faster).
+`wowui step skip|complete GUIDE N` skips or completes ONE step by number; `GUIDES` ends with "Last guide action: ..." so you can see that an action was applied.
 UNIT MARKS: `wowui marks-auto [--steps 12]` puts an icon over every unit the next guide steps are about (quest giver = quest, turn-in = turnin,
 kill targets and what drops a quest item = skull) the moment it comes into view; `wowui mark ID --name N [--npc ID] --icon quest|turnin|talk|skull|star|circle|diamond|triangle|moon|square|cross [--text T]`,
 `--remove`, `--clear` (max 30). Feed section MARKS shows what is loaded and which icons are visible. Re-run marks-auto whenever the next step changes.
