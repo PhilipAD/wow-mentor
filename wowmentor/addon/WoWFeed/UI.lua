@@ -990,6 +990,16 @@ local function runAction(a)
 	elseif a.name == "track_quest" and a.quest then
 		focusQuest(a.quest)
 	elseif a.name == "speak" then UI.speak(a.text)
+	elseif a.name == "tomtom_poi" then
+		-- TomTom's own "closest quest objective" arrow follows the super-tracked quest and fights Guidelime's arrow; on/off here
+		pcall(function()
+			local tt = rawget(_G, "TomTom")
+			if tt and tt.db and tt.db.profile then
+				tt.db.profile.poi = tt.db.profile.poi or {}
+				tt.db.profile.poi.setClosest = (a.on == true)
+				if tt.ReloadOptions then tt:ReloadOptions() end
+			end
+		end)
 	elseif a.name == "unfocus_quest" then
 		pcall(function()
 			local TU = QuestieLoader and QuestieLoader:ImportModule("TrackerUtils")
@@ -1004,9 +1014,31 @@ local function runAction(a)
 		elseif c == "toggle_window" then
 			if Guidelime and Guidelime.toggleMainFrame then pcall(Guidelime.toggleMainFrame) end
 		elseif c == "arrow_tomtom" or c == "arrow_builtin" then
-			if gd then gd.useTomTomArrow = (c == "arrow_tomtom"); showToast({ text = "Guidelime arrow source changed: type /reload to apply.", level = "info", ttl = 10 }) end
+			-- Guidelime reads this flag on every arrow update, so it takes effect at once (no /reload)
+			if gd then gd.useTomTomArrow = (c == "arrow_tomtom") end
 		elseif c == "arrow_show" or c == "arrow_hide" then
-			if gc then gc.showArrow = (c == "arrow_show"); showToast({ text = "Guidelime arrow setting changed: type /reload to apply.", level = "info", ttl = 10 }) end
+			if gc then gc.showArrow = (c == "arrow_show") end
+		elseif c == "skip_to" and a.step and gc then
+			-- skip the unresolved steps before a step number with Guidelime's own skip (current steps), stopping at the target
+			local target = tonumber(a.step)
+			local function hiBelow()
+				local prog = gc.progress and gc.progress[gc.currentGuide]
+				local hi = 0
+				if type(prog) == "table" then
+					for i, st in pairs(prog) do
+						if type(i) == "number" and i < target and type(st) == "table" and (st.completed or st.skip) and i > hi then hi = i end
+					end
+				end
+				return hi
+			end
+			local n = 0
+			while SlashCmdList and SlashCmdList.Guidelime and n < 60 and hiBelow() < target - 1 do
+				local before = hiBelow()
+				pcall(SlashCmdList.Guidelime, "skip")
+				n = n + 1
+				if hiBelow() == before then break end
+			end
+			S.skipToResult = strfmt("skip_to %s: %d skip(s), steps up to %d resolved", tostring(target), n, hiBelow())
 		elseif c == "open_guide" and gc and a.guide then
 			local name = a.guide
 			if not name:find("^TUGs ") then name = "TUGs The Ultimate (Leveling) Guides " .. name:gsub("^%a+/", "") end
@@ -1014,6 +1046,131 @@ local function runAction(a)
 			showToast({ text = "Guide set to " .. name .. ": type /reload to load it.", level = "info", ttl = 12 })
 		end
 	end
+end
+
+---------------------------------------------------------------- unit marks (doc.marks): an icon over the units the guide is about
+-- The agent lists the units a guide step is about (quest giver, turn-in NPC, kill target) by npc id and/or name. When one of them gets a
+-- nameplate (comes into view) it gets an icon above it. Names and ids that the game hides from addons ("secret" values) are skipped,
+-- never guessed. Friendly NPCs only get nameplates when the nameplateShowFriendlyNPCs setting is on, so it is switched on while marks
+-- with a quest, turn-in or talk icon exist, and put back when they are gone.
+local MARK_TEX = { quest = "Interface\\GossipFrame\\AvailableQuestIcon", turnin = "Interface\\GossipFrame\\ActiveQuestIcon", talk = "Interface\\GossipFrame\\ChatBubbleGossipIcon" }
+local RAID = { star = 1, circle = 2, diamond = 3, triangle = 4, moon = 5, square = 6, cross = 7, skull = 8 }
+S.markFrames, S.markUnits, S.markSeen = S.markFrames or {}, S.markUnits or {}, S.markSeen or {}
+
+local function readable(v) return v ~= nil and not (issecretvalue and issecretvalue(v)) end
+
+local function npcIdOf(unit)
+	local ok, g = pcall(UnitGUID, unit)
+	if not ok or type(g) ~= "string" or not readable(g) then return nil end
+	local kind, id = g:match("^(%a+)%-[^-]*%-[^-]*%-[^-]*%-[^-]*%-(%d+)")
+	if kind == "Creature" or kind == "Vehicle" then return tonumber(id) end
+	return nil
+end
+
+local function matchMark(unit)
+	if type(S.marks) ~= "table" or #S.marks == 0 then return nil end
+	local okp, isPlayer = pcall(UnitIsPlayer, unit)
+	if okp and readable(isPlayer) and isPlayer then return nil end
+	local okd, dead = pcall(UnitIsDead, unit)
+	if okd and readable(dead) and dead then return nil end
+	local id = npcIdOf(unit)
+	local okn, nm = pcall(UnitName, unit)
+	nm = (okn and type(nm) == "string" and readable(nm)) and nm:lower() or nil
+	for _, m in ipairs(S.marks) do
+		if (m.npc and id and m.npc == id) or (m.name and nm and m.name:lower() == nm) then return m end
+	end
+	return nil
+end
+
+local function markFrameFor(plate)
+	local f = S.markFrames[plate]
+	if f then return f end
+	f = CreateFrame("Frame", nil, plate)
+	f:SetSize(28, 28)
+	f:SetFrameStrata("HIGH")
+	f.tex = f:CreateTexture(nil, "OVERLAY")
+	f.tex:SetAllPoints()
+	f.txt = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	f.txt:SetPoint("BOTTOM", f, "TOP", 0, 1)
+	S.markFrames[plate] = f
+	return f
+end
+
+local function applyMark(unit)
+	if not (C_NamePlate and C_NamePlate.GetNamePlateForUnit) then return end
+	local okp, plate = pcall(C_NamePlate.GetNamePlateForUnit, unit)
+	if not okp or not plate then return end
+	S.markUnits[unit] = plate
+	local m = matchMark(unit)
+	local f = S.markFrames[plate]
+	if not m then if f then f:Hide() end; return end
+	f = markFrameFor(plate)
+	local tex = MARK_TEX[m.icon]
+	if tex then
+		f.tex:SetTexture(tex); f.tex:SetTexCoord(0, 1, 0, 1)
+	else
+		local i = RAID[m.icon] or 1
+		f.tex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+		local col, row = (i - 1) % 4, floor((i - 1) / 4)
+		f.tex:SetTexCoord(col * 0.25, (col + 1) * 0.25, row * 0.25, (row + 1) * 0.25)
+	end
+	f.txt:SetText(m.text or "")
+	f:ClearAllPoints()
+	f:SetPoint("BOTTOM", plate, "TOP", 0, 14)
+	f:Show()
+	S.markSeen[m.id] = (S.docNow or 0)
+end
+
+local function refreshMarks()
+	if not (C_NamePlate and C_NamePlate.GetNamePlates) then return end
+	local okl, plates = pcall(C_NamePlate.GetNamePlates)
+	if not okl or type(plates) ~= "table" then return end
+	for _, pl in ipairs(plates) do
+		local unit = pl.namePlateUnitToken or (pl.UnitFrame and pl.UnitFrame.unit)
+		if unit then applyMark(unit) end
+	end
+end
+
+local function markCvars(wantFriendly)
+	if not (GetCVar and SetCVar) then return end
+	if truthy(call(UnitAffectingCombat, "player")) or truthy(call(InCombatLockdown)) then return end
+	if wantFriendly then
+		local cur = GetCVar("nameplateShowFriendlyNPCs")
+		if cur ~= "1" then S.markCvarOrig = S.markCvarOrig or cur; pcall(SetCVar, "nameplateShowFriendlyNPCs", "1") end
+	elseif S.markCvarOrig then
+		pcall(SetCVar, "nameplateShowFriendlyNPCs", S.markCvarOrig); S.markCvarOrig = nil
+	end
+end
+
+function UI.applyMarks(list)
+	S.marks = type(list) == "table" and list or {}
+	local friendly = false
+	for _, m in ipairs(S.marks) do if m.icon == "quest" or m.icon == "turnin" or m.icon == "talk" then friendly = true end end
+	pcall(markCvars, friendly)
+	for _, f in pairs(S.markFrames) do f:Hide() end
+	if #S.marks > 0 then
+		if not S.markEv then
+			S.markEv = CreateFrame("Frame")
+			pcall(S.markEv.RegisterEvent, S.markEv, "NAME_PLATE_UNIT_ADDED")
+			pcall(S.markEv.RegisterEvent, S.markEv, "NAME_PLATE_UNIT_REMOVED")
+			S.markEv:SetScript("OnEvent", function(_, event, unit)
+				if event == "NAME_PLATE_UNIT_ADDED" then pcall(applyMark, unit)
+				else local pl = S.markUnits[unit]; local f = pl and S.markFrames[pl]; if f then f:Hide() end; S.markUnits[unit] = nil end
+			end)
+			if C_Timer and C_Timer.NewTicker then C_Timer.NewTicker(2, function() if type(S.marks) == "table" and #S.marks > 0 then pcall(refreshMarks) end end) end
+		end
+		pcall(refreshMarks)
+	end
+end
+
+function UI.markLines()
+	local L = {}
+	local n = type(S.marks) == "table" and #S.marks or 0
+	local vis = {}
+	for plate, f in pairs(S.markFrames) do if f:IsShown() and f.txt then vis[#vis + 1] = (f.txt:GetText() or "?") end end
+	L[#L + 1] = strfmt("marks loaded: %d | icons visible now: %d%s", n, #vis, #vis > 0 and (" (" .. tconcat(vis, ", ") .. ")") or "")
+	for _, m in ipairs(S.marks or {}) do L[#L + 1] = strfmt("  %s %s%s%s", m.id, m.icon, m.name and (" " .. m.name) or "", m.npc and (" #" .. m.npc) or "") end
+	return L
 end
 
 -- item ids the agent asked to have reported (ITEM_WATCH in WoWFeed.lua)
@@ -1189,6 +1346,10 @@ local function applyDoc(doc)
 	S.watch = type(doc.watch) == "table" and doc.watch or {}
 	S.watchSpells = type(doc.watch_spells) == "table" and doc.watch_spells or {}
 	S.verdicts = type(doc.verdicts) == "table" and doc.verdicts or {}
+	do      -- unit marks: only touch the nameplates when the list actually changed
+		local msig = (WoWFeedJSON and WoWFeedJSON.encode and WoWFeedJSON.encode(doc.marks or {})) or tostring(#(doc.marks or {}))
+		if msig ~= S.marksSig then S.marksSig = msig; pcall(UI.applyMarks, doc.marks) end
+	end
 	S.voice = type(doc.builtin) == "table" and doc.builtin.voice == true
 	if next(S.verdicts) ~= nil then pcall(hookTooltips) end
 	if type(doc.guide_live) == "table" and #doc.guide_live > 0 then local okg, eg = pcall(UI.applyGuideLive, doc.guide_live); if not okg then lerr("guide live: " .. tostring(eg)) end end

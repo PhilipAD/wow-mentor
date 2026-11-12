@@ -27,8 +27,10 @@ PRIORITIES = ("high", "med", "low")
 COMBAT = ("show", "dim", "hide")
 FONTS = ("default", "friz", "arial", "morpheus", "skurri")
 SOUNDS = ("none", "ping", "warning", "quest", "levelup", "ready")
-ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak")
-GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide")
+ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi")
+GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to")
+MARK_ICONS = ("star", "circle", "diamond", "triangle", "moon", "square", "cross", "skull", "quest", "turnin", "talk")
+MAX_MARKS = 30
 BINDS = ("bags", "durability")        # XP and level are never shown on the overlay
 COLOR_NAMES = {
     "white": "#ffffff", "black": "#000000", "red": "#ff4040", "green": "#40d060", "blue": "#4090ff", "yellow": "#ffd100",
@@ -444,11 +446,12 @@ class Doc:
         self.guide_live = [g for g in d.get("guide_live", []) if isinstance(g, dict)][:MAX_GUIDE_LIVE]
         self.watch_spells = [int(i) for i in d.get("watch_spells", []) if isinstance(i, int)][:MAX_WATCH]
         self.verdicts = {str(k): str(v)[:160] for k, v in dict(d.get("verdicts", {})).items()}
+        self.marks = [m for m in d.get("marks", []) if isinstance(m, dict)][:MAX_MARKS]
         self.updated = d.get("updated", time.time())
 
     def to_dict(self):
         return {"v": VERSION, "rev": self.rev, "updated": self.updated, "theme": self.theme, "panels": self.panels,
-                "waypoints": self.waypoints, "toasts": self.toasts, "actions": self.actions, "builtin": self.builtin, "rules": self.rules, "inbox": self.inbox, "watch": self.watch, "guide_live": self.guide_live, "watch_spells": self.watch_spells, "verdicts": self.verdicts}
+                "waypoints": self.waypoints, "toasts": self.toasts, "actions": self.actions, "builtin": self.builtin, "rules": self.rules, "inbox": self.inbox, "watch": self.watch, "guide_live": self.guide_live, "watch_spells": self.watch_spells, "verdicts": self.verdicts, "marks": self.marks}
 
     def wire(self):
         d = self.to_dict()
@@ -625,7 +628,8 @@ class Doc:
             self.toasts = (self.toasts + [t])[-MAX_HISTORY:]
 
     def _op_action(self, b, errs, warns):
-        spec = {"name": _enum(ACTIONS), "text": _str, "sound": _enum(SOUNDS), "quest": _int(1, 10_000_000), "cmd": _enum(GUIDELIME_CMDS), "guide": _str}
+        spec = {"name": _enum(ACTIONS), "text": _str, "sound": _enum(SOUNDS), "quest": _int(1, 10_000_000), "cmd": _enum(GUIDELIME_CMDS), "guide": _str,
+                "step": _int(1, 5000), "on": _bool}
         a = _apply_fields(spec, b, errs, "action")
         if "name" not in a:
             errs.append("action.name: required (one of %s)" % ", ".join(ACTIONS))
@@ -637,6 +641,10 @@ class Doc:
             errs.append("action.text: required for speak")
         elif a["name"] == "guidelime" and "cmd" not in a:
             errs.append("action.cmd: required for guidelime (one of %s)" % ", ".join(GUIDELIME_CMDS))
+        elif a["name"] == "tomtom_poi" and "on" not in a:
+            errs.append("action.on: required for tomtom_poi (true = TomTom draws its own arrow to the focused quest, false = it does not)")
+        elif a.get("cmd") == "skip_to" and "step" not in a:
+            errs.append("action.step: required for skip_to (skips every unresolved step before this step number)")
         elif a.get("cmd") == "open_guide" and "guide" not in a:
             errs.append("action.guide: required for open_guide (the guide title, as `tug list` prints it)")
         if not errs:
@@ -681,6 +689,44 @@ class Doc:
             errs.append("verdict: at most %d items (remove one first)" % MAX_VERDICTS)
             return
         self.verdicts[str(item)] = text.strip()[:160]
+
+    def _op_mark(self, b, errs, warns):
+        """Put an icon over a unit (by name or npc id) the moment it comes into view: the quest giver, the mob to kill, the turn-in NPC."""
+        if b.get("clear"):
+            self.marks = []
+            return
+        try:
+            mid = _id(b.get("id"))
+        except ValueError as e:
+            errs.append("mark.id: %s (or pass clear=true)" % e)
+            return
+        if b.get("remove"):
+            self.marks = [m for m in self.marks if m["id"] != mid]
+            return
+        out = {"id": mid}
+        if "name" in b:
+            out["name"] = _str(b["name"])[:60]
+        if "npc" in b:
+            try:
+                out["npc"] = _int(1, 10_000_000)(b["npc"])
+            except ValueError as e:
+                errs.append("mark.npc: %s" % e)
+                return
+        if "name" not in out and "npc" not in out:
+            errs.append("mark: needs name (the unit's name) or npc (its id)")
+            return
+        try:
+            out["icon"] = _enum(MARK_ICONS)(b.get("icon", "star"))
+        except ValueError as e:
+            errs.append("mark.icon: %s" % e)
+            return
+        if "text" in b:
+            out["text"] = _str(b["text"])[:60]
+        rest = [m for m in self.marks if m["id"] != mid]
+        if len(rest) >= MAX_MARKS:
+            errs.append("mark: at most %d marks (remove one first)" % MAX_MARKS)
+            return
+        self.marks = rest + [out]
 
     def _op_guide_live(self, b, errs, warns):
         """From the bridge, not the agent: a guide file that was just edited, for the addon to register with Guidelime in the running game."""
@@ -777,6 +823,7 @@ class Doc:
 
     def _op_reset(self, b, errs, warns):
         self.panels, self.waypoints, self.theme, self.toasts, self.actions, self.rules, self.inbox = [], [], {}, [], [], [], []
+        self.marks = []
 
 
 def apply_ops(doc, payload):
@@ -997,7 +1044,7 @@ With partial the valid ops are applied and the bad ones come back as `rejected:[
 
 ### Model: one document, changed by ops
 Ops: panel (upsert), child (upsert a component by id), check (tick an item), remove, theme, toast, waypoint, waypoint_clear,
-action (flash | sound | chat | track_quest | unfocus_quest | guidelime with cmd = skip, complete, toggle_window, arrow_tomtom, arrow_builtin, arrow_show, arrow_hide or open_guide), builtin (me on/off), watch (item ids to report in ITEM_WATCH), rule, rule_remove, rules_clear, coach, coach_answer, set (replace all), clear, reset.
+action (flash | sound | chat | track_quest | unfocus_quest | guidelime with cmd = skip, complete, toggle_window, arrow_tomtom, arrow_builtin, arrow_show, arrow_hide, open_guide or skip_to{{step}}; tomtom_poi{{on}}), mark (an icon over a unit), builtin (me on/off), watch (item ids to report in ITEM_WATCH), rule, rule_remove, rules_clear, coach, coach_answer, set (replace all), clear, reset.
 Panel: id, title, subtitle, anchor (TOPLEFT..CENTER), x, y, w, maxH, scale, alpha, bg, bgAlpha, border, accent, fontSize, font,
 padding, gap, collapsed, collapsible, draggable, interactive, header, ttl, pin, visibility {{combat: show|dim|hide, dim, mouseover,
 idleFade, idleAlpha, hideWhenMounted, hideInInstance, minLevel, maxLevel}}, children[].
@@ -1187,8 +1234,18 @@ Awareness and UX toolbox (use these instead of describing things in text):
     Not possible here: a combat log, exact damage or enemy cooldowns (the game hides them from addons), automatic input, anything that plays for the player.
 Arrow rules: Guidelime points its own arrow at the first unresolved step that has a [G x,y Zone]; that is the arrow the player follows, so
 edit the [G] coordinates of the guide step to change it. Only use `waypoint --track` (TomTom crazy arrow) when it is the same place, or
-the player sees two arrows. Pick one arrow source (`arrow_tomtom` or `arrow_builtin`, applies after /reload). Questie pins cannot be edited;
+the player sees two arrows. Pick one arrow source (`arrow_tomtom` or `arrow_builtin`; both apply at once, no /reload). Questie pins cannot be edited;
 focusing a quest (`--quest`, `track_quest`) fades the others. skip and complete only act on Guidelime's current step, like the player's own click.
+WHY TWO ARROWS APPEAR: focusing a quest in Questie makes the game's super-tracked quest, and TomTom's "closest quest objective" feature (poi.setClosest)
+then draws its OWN arrow ("Turn in: ...") to that quest while Guidelime draws another to its current step. Turn it off once with
+`wowui action tomtom_poi --on false` (set it back with `--on true`). With it off there is one arrow: Guidelime's (or TomTom showing Guidelime's step).
+WHY THE ARROW IS WRONG: Guidelime points at its first unresolved step. If the player did steps that were never ticked (a revamped guide, side trips,
+quests done out of order) that step is far behind where he is. `wowui sync` shows the first step about a quest he holds and how many steps
+sit before it; `wowui sync --apply` marks those steps skipped (never completed) so Guidelime's step, arrow and Questie focus all match
+reality. Run `wowui verify` afterwards. Only do this when the quest log proves he is ahead.
+UNIT MARKS: `wowui marks-auto [--steps 12]` puts an icon over every unit the next guide steps are about (quest giver = quest, turn-in = turnin,
+kill targets and what drops a quest item = skull) the moment it comes into view; `wowui mark ID --name N [--npc ID] --icon quest|turnin|talk|skull|star|circle|diamond|triangle|moon|square|cross [--text T]`,
+`--remove`, `--clear` (max 30). Feed section MARKS shows what is loaded and which icons are visible. Re-run marks-auto whenever the next step changes.
 """
 
 def _profile_section(profile):

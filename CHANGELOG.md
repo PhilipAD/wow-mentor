@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+### One arrow, a guide that matches reality, unit marks
+
+- Why two arrows appeared: TomTom's "closest quest objective" feature (poi.setClosest) draws its own arrow to the focused quest next to Guidelime's. New action `tomtom_poi {on}` turns it off; arrow source switches (`arrow_tomtom`, `arrow_builtin`, `arrow_show`, `arrow_hide`) now apply at once without a /reload.
+- `wowui sync` finds the first guide step about a quest he holds and, with `--apply`, marks the steps before it skipped (new `skip_to` Guidelime action), so Guidelime's step, arrow and focus match where he really is.
+- Unit marks: `wowui mark` and `wowui marks-auto` put an icon (quest giver, turn-in, kill target, raid icons) over the units the next guide steps are about, the moment they get a nameplate. New feed section `MARKS`.
+
 ### Agent tooling round 2
 
 - `wowui tug move` reorders steps in one atomic edit; `wowui tug route` defaults to the guide loaded in the game; `wowui deaths` lists his deaths with a count per place.

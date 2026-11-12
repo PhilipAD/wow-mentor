@@ -112,6 +112,23 @@ class AwarenessOpTests(unittest.TestCase):
             page = text(None) if callable(text) else str(text)
             self.assertIn("active_only", page)
 
+    def test_marks_tomtom_poi_and_skip_to(self):
+        d = uidoc.Doc()
+        uidoc.apply_ops(d, [{"op": "mark", "id": "g1", "name": "Salma Saldean", "npc": 235, "icon": "quest", "text": "QA 22"},
+                            {"op": "mark", "id": "g2", "name": "Goretusk", "icon": "skull"},
+                            {"op": "action", "name": "tomtom_poi", "on": False},
+                            {"op": "action", "name": "guidelime", "cmd": "skip_to", "step": 20}])
+        self.assertEqual([m["id"] for m in d.marks], ["g1", "g2"])
+        self.assertEqual(d.to_dict()["marks"][0]["npc"], 235)
+        uidoc.apply_ops(d, {"op": "mark", "id": "g1", "remove": True})
+        self.assertEqual([m["id"] for m in d.marks], ["g2"])
+        for bad in ({"op": "mark", "id": "x"}, {"op": "mark", "id": "x", "name": "A", "icon": "banana"}, {"op": "action", "name": "tomtom_poi"},
+                    {"op": "action", "name": "guidelime", "cmd": "skip_to"}):
+            with self.assertRaises(uidoc.OpError):
+                uidoc.apply_ops(d, bad)
+        uidoc.apply_ops(d, {"op": "mark", "clear": True})
+        self.assertEqual(d.marks, [])
+
     def test_verdict_spells_ctx_voice_and_new_rule_types(self):
         d = uidoc.Doc()
         uidoc.apply_ops(d, [{"op": "verdict", "item": 6543, "text": "keep for AH"}, {"op": "watch", "spells": [348, 5782]}, {"op": "builtin", "voice": True},

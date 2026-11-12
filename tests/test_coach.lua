@@ -662,6 +662,20 @@ check(chatLog():find("low Cooking 5 here", 1, true) and not chatLog():find("neve
 w.zone, w.subzone = "Elwynn Forest", "Goldshire"
 applyDoc({ panels = {}, rules = {} })
 
+---------------------------------------------------------------- unit marks and the new actions
+w.plates = { "nameplate1", "nameplate2" }
+w.units.nameplate1 = { exists = true, name = "Goretusk", attackable = true, guid = "Creature-0-1-0-0-157-0009" }
+w.units.nameplate2 = { exists = true, name = "Defias Thug", attackable = true, guid = "Creature-0-1-0-0-38-0009" }
+applyDoc({ panels = {}, rules = {}, marks = { { id = "g1", icon = "skull", npc = 157, name = "Goretusk", text = "QC 22" }, { id = "g2", icon = "quest", name = "Salma Saldean", npc = 235 } } })
+local ml = table.concat(UI.markLines(), "\n")
+check(ml:find("marks loaded: 2", 1, true) and ml:find("icons visible now: 1", 1, true) and ml:find("QC 22", 1, true), "marks: only the matching unit gets an icon: " .. ml)
+w.units.nameplate1.name = "Hidden"; w.units.nameplate1.guid = "Creature-0-1-0-0-999-0009"
+UI.applyMarks({ { id = "g1", icon = "skull", npc = 157, name = "Goretusk" } })
+check(table.concat(UI.markLines(), "\n"):find("icons visible now: 0", 1, true), "marks: a unit that does not match gets no icon")
+applyDoc({ panels = {}, rules = {}, marks = {} })
+check(table.concat(UI.markLines(), "\n"):find("marks loaded: 0", 1, true), "marks cleared")
+w.plates = {}; w.units.nameplate1 = nil; w.units.nameplate2 = nil
+
 ---------------------------------------------------------------- inbox, acks, toasts
 applyDoc({ panels = {}, rules = {}, toasts = { { id = 50, t = W.epoch, text = "Agent toast", level = "info" } } })
 local acks = {}
