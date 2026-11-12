@@ -1003,6 +1003,8 @@ local function runAction(a)
 				local pv = tt.private
 				local mod = pv and pv.GetModule and pv.GetModule("QuestObjectives")
 				if mod and pv.UpdateModule then pv.UpdateModule(mod) end
+				-- disabling the module leaves its last arrow behind; its own setting-changed hook removes that waypoint
+				if mod and a.on ~= true and mod.OnSettingChanged then pcall(mod.OnSettingChanged, mod, "target") end
 			end
 		end)
 	elseif a.name == "unfocus_quest" then
