@@ -643,7 +643,7 @@ applyDoc({ panels = {}, rules = { { id = "back", cooldown_s = 0, when = { type =
 W.printed = {}
 w.afk = true; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(5)
 w.afk = false; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(1)
-check(chatLog():find("back after", 1, true), "returned_active rule fires")
+check(chatLog():find("back after 5", 1, true), "returned_active rule fires and {away_s} is filled: " .. chatLog())
 applyDoc({ panels = {}, rules = { { id = "back2", cooldown_s = 0, when = { type = "returned_active", min_away_s = 600 }, ["then"] = { { ["do"] = "chat", text = "long away" } } } } })
 W.printed = {}
 w.afk = true; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(5)
@@ -675,6 +675,12 @@ check(table.concat(UI.markLines(), "\n"):find("icons visible now: 0", 1, true), 
 applyDoc({ panels = {}, rules = {}, marks = {} })
 check(table.concat(UI.markLines(), "\n"):find("marks loaded: 0", 1, true), "marks cleared")
 w.plates = {}; w.units.nameplate1 = nil; w.units.nameplate2 = nil
+
+applyDoc({ panels = {}, rules = { { id = "rdy", cooldown_s = 0, when = { type = "readiness_changed", ready = false }, ["then"] = { { ["do"] = "chat", text = "Missing: {missing} ({ready})" } } } } })
+W.printed = {}
+C.event("readiness_changed", { ready = false, missing = "soul shards, no Healthstone" }); step(1)
+check(chatLog():find("Missing: soul shards, no Healthstone (not ready)", 1, true), "readiness_changed fills {missing}: " .. chatLog())
+applyDoc({ panels = {}, rules = {} })
 
 ---------------------------------------------------------------- inbox, acks, toasts
 applyDoc({ panels = {}, rules = {}, toasts = { { id = 50, t = W.epoch, text = "Agent toast", level = "info" } } })

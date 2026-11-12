@@ -73,6 +73,8 @@ local function ctxOf(name, d)
 		c.count = d.choices and #d.choices or d.count
 	elseif name == "entering_world" then c.zone = d.zone; c.subzone = d.subzone
 	elseif name == "enemy_player" then c.class = d.class; c.level = d.level; c.race = d.race; c.name = d.class
+	elseif name == "readiness_changed" then c.missing = d.missing; c.ready = d.ready and "ready" or "not ready"
+	elseif name == "returned_active" then c.away_s = d.away_s; c.away_min = d.away_s and math.floor(d.away_s / 60) or nil
 	end
 	return c
 end
@@ -182,7 +184,7 @@ end
 ---------------------------------------------------------------- firing
 local function fill(text, ctx)
 	if type(text) ~= "string" then return text end
-	return (text:gsub("{(%a+)}", function(k)
+	return (text:gsub("{([%a_]+)}", function(k)
 		local v = ctx[k]
 		if v == nil then return nil end                       -- unknown placeholders stay literal
 		return (tostring(v):gsub("[{}]", ""))

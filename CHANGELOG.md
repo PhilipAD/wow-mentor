@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Rule text placeholders
+
+- Fixed a chat line that showed "Missing: {missing}": `readiness_changed` and `returned_active` events did not fill their placeholders (`{missing}`, `{ready}`, `{away_s}`, `{away_min}`), and placeholders with an underscore were never filled.
+
 ### Live step, per-step commands, hostile marks
 
 - `verify`, `sync` and `marks-auto` work out the player's live guide step from the quest log (Guidelime saves only skips), and marks-auto skips quests already done. `sync` skips only between Guidelime's own step and the live one.
