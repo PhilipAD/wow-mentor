@@ -644,6 +644,14 @@ W.printed = {}
 w.afk = true; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(5)
 w.afk = false; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(1)
 check(chatLog():find("back after", 1, true), "returned_active rule fires")
+applyDoc({ panels = {}, rules = { { id = "back2", cooldown_s = 0, when = { type = "returned_active", min_away_s = 600 }, ["then"] = { { ["do"] = "chat", text = "long away" } } } } })
+W.printed = {}
+w.afk = true; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(5)
+w.afk = false; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(1)
+check(not chatLog():find("long away", 1, true), "min_away_s skips a short AFK")
+w.afk = true; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(700)
+w.afk = false; W.fire("PLAYER_FLAGS_CHANGED", "player"); step(1)
+check(chatLog():find("long away", 1, true), "min_away_s fires after a long AFK")
 applyDoc({ panels = {}, rules = {} })
 
 ---------------------------------------------------------------- inbox, acks, toasts

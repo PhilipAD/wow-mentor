@@ -95,7 +95,7 @@ class AwarenessOpTests(unittest.TestCase):
         d = uidoc.Doc()
         uidoc.apply_ops(d, [
             {"op": "rule", "id": "a", "active_only": True, "defer_max_s": 300, "when": {"type": "pet_missing"}, "then": [{"do": "toast", "text": "pet"}]},
-            {"op": "rule", "id": "b", "when": {"type": "returned_active"}, "then": [{"do": "chat", "text": "back after {away_s}"}]},
+            {"op": "rule", "id": "b", "when": {"type": "returned_active", "min_away_s": 600}, "then": [{"do": "chat", "text": "back after {away_s}"}]},
             {"op": "rule", "id": "c", "when": {"type": "readiness_changed", "ready": False}, "then": [{"do": "toast", "text": "{missing}"}]},
             {"op": "panel", "id": "p", "title": "T", "children": [{"type": "checklist", "id": "l", "items": [
                 {"id": "g", "text": "Group", "auto": {"type": "quest_group", "quests": [22, 12, 102], "mode": "all"}}]}]}])

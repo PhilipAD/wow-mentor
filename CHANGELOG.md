@@ -7,7 +7,7 @@
 ### AFK-aware rules and finer ticks
 
 - Rules take `active_only` (and `defer_max_s`): while the player is AFK or on a loading screen the rule is held, then runs when they are active again if it still applies. The RULES section shows how many are held.
-- New events and rule conditions: `returned_active` (back from AFK, with `{away_s}`) and `readiness_changed` (the READINESS verdict flipped, with `{missing}`).
+- New events and rule conditions: `returned_active` (back from AFK, with `{away_s}`; optional `min_away_s`) and `readiness_changed` (the READINESS verdict flipped, with `{missing}`).
 - Checklist items can tick on a group of quests: `auto: {type: quest_group, quests: [ids], mode: all|any}`.
 
 ### Guides, quest focus and arrows
