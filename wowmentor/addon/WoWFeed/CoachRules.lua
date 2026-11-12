@@ -136,7 +136,13 @@ local function evalLeaf(c, ev)
 	if t == "spell_learned" then return (c.name == nil or ci(c.name, d.name)), ctx
 	elseif t == "quest_complete" then return (c.quest == nil or c.quest == d.quest), ctx
 	elseif t == "zone_changed" then
-		return (c.zone == nil or ci(c.zone, d.zone)) and (c.subzone == nil or ci(c.subzone, d.subzone)), ctx
+		if not ((c.zone == nil or ci(c.zone, d.zone)) and (c.subzone == nil or ci(c.subzone, d.subzone))) then return false, ctx end
+		if c.skill then      -- optional skill gate: only when that skill is still below skill_lt (arrive somewhere without the recipe or rank)
+			local r = R.skillRank(c.skill)
+			if r == nil or r >= (c.skill_lt or 1e9) then return false, ctx end
+			ctx.skill, ctx.rank = c.skill, r
+		end
+		return true, ctx
 	elseif t == "item_looted" then
 		local q = d.quality
 		if c.min_quality and c.min_quality > 0 and not (q and q >= c.min_quality) then return false, ctx end
@@ -366,6 +372,9 @@ local function skillRanks()
 		end
 	end
 	return map
+end
+function R.skillRank(name)
+	return skillRanks()[tostring(name or ""):lower()]
 end
 
 local function autoOk(a, cache)

@@ -342,7 +342,7 @@ WHEN_TYPES = {
     "loot_opened": {}, "lower_rank_on_bar": {},
     "spell_learned": {"name": (_str, False)},
     "quest_complete": {"quest": (_int(1, 10_000_000), False)},
-    "zone_changed": {"zone": (_str, False), "subzone": (_str, False)},
+    "zone_changed": {"zone": (_str, False), "subzone": (_str, False), "skill": (_str, False), "skill_lt": (_int(1, 600), False)},
     "target_elite": {"level_diff": (_int(-20, 20), False), "rare": (_bool, False)},
     "item_looted": {"min_quality": (_int(0, 5), False)},
     "item_equipped": {},
@@ -983,6 +983,8 @@ Endpoint: {base}
 Install the CLI (Python 3, no dependencies):
     curl -s "{base}/cli?t=$RANDOM" -o wowui && chmod +x wowui && export WOWUI_URL="{base}"
     ./wowui guide        # short briefing      ./wowui schema   # every field      ./wowui state   # what is on screen
+Reading the game feed (`wowui feed`, `wowui section`, `align`, `verify`) also needs the read token from the player's private feed link: `export WOWUI_READ_TOKEN=<token>`.
+Without it those commands stop with "set WOWUI_READ_TOKEN". Keep the token in your environment or memory-free setup notes only, never in a file or a message.
 No shell? Use plain HTTP. Writes are GET requests because the public edge blocks POST bodies:
     GET {base}/ops?b=<base64url(JSON)>      where JSON is one op, a list of ops, or {{"ops":[...]}}  (about 5 KB per request)
     GET {base}/state?t=<n>   GET {base}/schema?t=<n>   GET {base}/doc?t=<n>
@@ -1030,7 +1032,7 @@ condition becomes true and runs the actions, with no round trip. A rule is {{id,
 active_only:true holds the rule while the player is AFK or on a loading screen and runs it (if the condition still holds, or for event rules if the event is under defer_max_s old, default 900) the moment the player is active again, so nothing fires at an empty chair.
 Edge triggered: it fires when the condition goes false to true (event rules: on each matching event), then waits for its cooldown. `once` rules fire once per game session.
 Conditions (when.type): bags_free_lte{{n}}, durability_lte{{pct}}, deaths_in_subzone{{count, minutes}}, buff_missing{{name|spell, pet, ooc}}, pet_missing{{ooc}} (no pet of ANY kind is out; use it instead of checking one pet's buff), pet_dead, item_count_lte{{n, item|name}} (soul shards, Healthstones, potions in the bags), hostiles_near_gte{{n, players}} (attackable nameplates), enemy_player{{class, min_level, flagged}} (an attackable enemy player appeared; {{class}} {{level}} {{race}} in the text), level_up, death, logout,
-entering_world, merchant_show, trainer_show, quest_reward, loot_opened, lower_rank_on_bar, spell_learned{{name}}, quest_complete{{quest}}, zone_changed{{zone, subzone}},
+entering_world, merchant_show, trainer_show, quest_reward, loot_opened, lower_rank_on_bar, spell_learned{{name}}, quest_complete{{quest}}, zone_changed{{zone, subzone, skill, skill_lt}} (skill+skill_lt: only while that skill is below the number; {{skill}} {{rank}} in the text),
 target_elite{{level_diff, rare}}, item_looted{{min_quality}}, item_equipped, returned_active{{min_away_s}} (the player came back from AFK, optionally only after that many seconds away; {{away_s}} in the text), readiness_changed{{ready}} (the READINESS verdict flipped; {{missing}} lists what is lacking); combine 2 to 4 with {{"type":"all"|"any","of":[...]}} (not nested).
 Actions (then[].do, 1 to 4): toast{{text, level, sound, title}}, chat{{text, sound}}, check{{panel, item, done}}, waypoint{{...}}, panel_text{{panel, child, text}}, sound{{sound}}, flash.
 Text placeholders filled from what fired: {{count}} {{subzone}} {{zone}} {{name}} {{free}} {{pct}} {{slot}} {{spell}} {{rank}} {{killer}} (unknown ones stay literal).
@@ -1109,10 +1111,11 @@ The player follows a leveling guide in the Guidelime addon (for example a TUGs p
 validated, written to the player's files by their computer with a backup, and the overlay then shows "Guide changed: type /reload"
 until they reload (the game only reads guide files at /reload; you cannot avoid that, so batch your edits).
     wowui tug list [--filter x]            wowui tug show <guide> [--from N --to M]      wowui tug search "text" [--guide x]
-    wowui tug route [--start guide]        wowui tug status                             wowui tug history <guide>
+    wowui tug route [--start guide]  (default: the guide loaded in the game now)       wowui tug status                             wowui tug history <guide>
     wowui tug replace <guide> --match "unique text" [--expect "text"] "new step"      (\\n inside text makes several steps)
     wowui tug insert  <guide> --after-match "text" | --before-match "text" | --after-line N | --at start|end  "new step(s)"
     wowui tug delete  <guide> --match "text" [--count 2]
+    wowui tug move    <guide> --line N [--count K] --after-line M | --before-line M     (reorder: one atomic edit, restore point kept)
     wowui tug sub     <guide> "find" "replace" [--match "line text"] [--all]
     wowui tug set     <guide> -f body.txt   (replace everything; avoid)       wowui tug restore <guide> orig|<version>
     wowui tug ops -f edits.json    ({"edits":[{"guide":"elwynn","note":"why","ops":[{"op":"insert","after_match":"...","text":"..."}]}]})
@@ -1166,7 +1169,8 @@ trainers, quest chains) is loaded on the server. Answers are offline and exact f
 HTTP twin: GET {BASE}/db/quest?id=97915, /db/npc?name=.., /db/find_quests?zone=..&level=.., /db/validate?guide=.., /db/status. Not in the database: item stats, prices, quality, quest text.
 Awareness and UX toolbox (use these instead of describing things in text):
     wowui section FAST PVP READINESS ...     print feed sections by name (no raw feed link needed)
-    wowui verify        contradiction guard: Guidelime next step vs overlay tasks, waypoint and Questie focus. Run it before EVERY message that names a next step.
+    wowui verify        contradiction guard: Guidelime next step vs overlay tasks, waypoint and Questie focus; also flags a next step gated to another race or class (HIDDEN_NEXT_STEP). Run it before EVERY message that names a next step.
+    wowui deaths        his death history (killer, place, last hits) with a count per place, from the event stream
     wowui route [--set 3]   order the quests in the log into stops (turn-ins first), nearest first; --set pins the first stops (arrow and quest focus on the first)
     wowui autopsy       after a death: events, fight, position, pet, buffs, bags, durability in one place; write the lesson with `wowui memory add --tag lesson ...`
     wowui debrief       session summary data (events by type, deaths, fights, quests, professions, your lesson notes); use it when the player logs out
