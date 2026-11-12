@@ -542,7 +542,24 @@ def cmd_sync(a):
         if target:
             break
     if not target:
-        print("# no step ahead is about a quest in his log: nothing to sync")
+        # maybe the wrong guide is loaded: count the log quests each guide on the route holds and recommend the best
+        route = tug_get(a, "route", start=guide)["route"]
+        names = [r if isinstance(r, str) else r.get("name") for r in route][:7]
+        best = None
+        for g in names:
+            if g == guide:
+                continue
+            hits = {int(q) for q in re.findall(r"\[Q[ACT](\d+)", tug_get(a, "show", name=g)["text"])} & set(log)
+            if hits and (best is None or len(hits) > best[1]):
+                best = (g, len(hits))
+        if not best:
+            print("# no step ahead, and no nearby guide, is about a quest in his log: nothing to sync")
+            return
+        print("# the loaded guide has no step about a quest he holds, but %s holds %d of his %d logged quests" % (best[0], best[1], len(log)))
+        if not a.apply:
+            print("# dry run: add --apply to switch Guidelime to it live (no /reload)")
+            return
+        run(a, [{"op": "action", "name": "guidelime", "cmd": "open_guide", "guide": best[0]}])
         return
     n, kind, qid, txt = target
     skip = n - first
@@ -1436,7 +1453,7 @@ def main():
     p.add_argument("--title"); p.add_argument("--track", action="store_true", help="make it the active arrow"); p.add_argument("--clear", action="store_true")
     p.add_argument("--quest", type=int, help="also focus this quest in Questie's tracker (questID)")
     p = add("action", cmd_action, "one-shot client actions: flash, sound, chat, track_quest (focus in Questie), unfocus_quest, guidelime --cmd skip|complete|toggle_window|arrow_tomtom|arrow_builtin|arrow_show|arrow_hide|open_guide"); p.add_argument("name", choices=["flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi"])
-    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to"]); p.add_argument("--guide"); p.add_argument("--step", type=int); p.add_argument("--on", choices=["true", "false"])
+    p.add_argument("--cmd", choices=["skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh"]); p.add_argument("--guide"); p.add_argument("--step", type=int); p.add_argument("--on", choices=["true", "false"])
     p.add_argument("--text"); p.add_argument("--sound", choices=["none", "ping", "warning", "quest", "levelup", "ready"]); p.add_argument("--quest", type=int)
     p = add("theme", cmd_theme, "change global style tokens")
     for f in ("accent", "bg", "border", "text", "muted", "good", "warn", "bad", "font"):

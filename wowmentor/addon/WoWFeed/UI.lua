@@ -1043,7 +1043,12 @@ local function runAction(a)
 			local name = a.guide
 			if not name:find("^TUGs ") then name = "TUGs The Ultimate (Leveling) Guides " .. name:gsub("^%a+/", "") end
 			gc.currentGuide = name
-			showToast({ text = "Guide set to " .. name .. ": type /reload to load it.", level = "info", ttl = 12 })
+			-- Guidelime's refresh (loadCurrentGuide + updateFromQuestLog) loads the new guide and ticks the steps the quest log proves done
+			local okr, did = pcall(refreshLime)
+			if okr and did then showToast({ text = "Guide switched to " .. name, level = "good", ttl = 6 })
+			else showToast({ text = "Guide set to " .. name .. ": type /reload to load it.", level = "info", ttl = 12 }) end
+		elseif c == "refresh" then
+			pcall(refreshLime)     -- re-load the current guide and tick what the quest log shows is done
 		end
 	end
 end
