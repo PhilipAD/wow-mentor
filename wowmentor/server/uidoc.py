@@ -1191,7 +1191,7 @@ Guide syntax: one step per line. Header lines first: [GA Alliance] [N<this guide
   `tick_impact` block and a warning when either happens: read it. Prefer editing ahead of the player (the GUIDES section lists their resolved steps).
 
 Stay aligned: Guidelime, Questie, TomTom and the overlay must agree. Read the GUIDES feed section first: it is the LIVE state (the Guidelime
-current guide, which step indexes are done or skipped (step numbers match `tug show` line numbers; GUIDES also prints `Guidelime guide steps: N` and drops leftover progress entries past N, which belong to an older version of the guide), the Questie focused quest and full
+current guide, which step indexes are done or skipped (step numbers are Guidelime's own step indexes and do NOT equal `tug show` line numbers (a guide line can make several steps, so never unskip by number: match the step text GUIDES prints); GUIDES also prints `Guidelime guide steps: N` and drops leftover progress entries past N, which belong to an older version of the guide), the Questie focused quest and full
 completed-quest id list, the Guidelime arrow source and TomTom's arrow). OFFLINE SAVEDVARIABLES is only refreshed at /reload.
     wowui align [guide] [--ahead 2] [--also "side trip guide"]    audits the guides ahead against the live log: STALE (quest already done),
         HAVE (accept step for a quest already in the log), MISSING (logged quest no guide mentions), FOCUS (Questie focus not in the log).

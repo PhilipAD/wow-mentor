@@ -1105,7 +1105,15 @@ local function sGuides()
 			end
 			if a0 then rng[#rng+1] = (a0 == b0) and tostring(a0) or (a0 .. "-" .. b0) end
 			L[#L+1] = "Guidelime resolved step indexes (done or skipped): " .. (tconcat(rng, ",") ~= "" and tconcat(rng, ",") or "none")
-			L[#L+1] = strfmt("Guidelime progress in this guide: %d steps completed, %d skipped; highest resolved step index %s (step numbers match `wowui tug show`)", done, skipped, tostring(idx[#idx] or 0))
+			L[#L+1] = strfmt("Guidelime progress in this guide: %d steps completed, %d skipped; highest resolved step index %s (indexes are Guidelime's own, not tug show line numbers; match by step text)", done, skipped, tostring(idx[#idx] or 0))
+			local shown = 0
+			for k = #idx, 1, -1 do
+				local st = prog[idx[k]]
+				if st.skip and not st.completed and shown < 10 then
+					shown = shown + 1
+					L[#L+1] = strfmt("  skipped step %d: %s", idx[k], clean(st.stepText or ""):sub(1, 90))
+				end
+			end
 			for k = math.max(1, #idx - 2), #idx do
 				local st = prog[idx[k]]
 				L[#L+1] = strfmt("  step %d %s: %s", idx[k], st.completed and "done" or (st.skip and "skipped" or "?"), clean(st.stepText or ""):sub(1, 110))
