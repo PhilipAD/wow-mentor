@@ -141,6 +141,9 @@ local function evalLeaf(c, ev)
 		local q = d.quality
 		if c.min_quality and c.min_quality > 0 and not (q and q >= c.min_quality) then return false, ctx end
 		return true, ctx
+	elseif t == "returned_active" then
+		if c.min_away_s and not (d.away_s and d.away_s >= c.min_away_s) then return false, ctx end
+		return true, ctx
 	elseif t == "enemy_player" then
 		if c.class and not ci(c.class, d.class) then return false, ctx end
 		if c.min_level and not (d.level and d.level >= c.min_level) then return false, ctx end

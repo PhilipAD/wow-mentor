@@ -346,7 +346,7 @@ WHEN_TYPES = {
     "target_elite": {"level_diff": (_int(-20, 20), False), "rare": (_bool, False)},
     "item_looted": {"min_quality": (_int(0, 5), False)},
     "item_equipped": {},
-    "returned_active": {},
+    "returned_active": {"min_away_s": (_int(0, 3600), False)},
     "readiness_changed": {"ready": (_bool, False)},
 }
 DO_TYPES = {
@@ -1031,7 +1031,7 @@ active_only:true holds the rule while the player is AFK or on a loading screen a
 Edge triggered: it fires when the condition goes false to true (event rules: on each matching event), then waits for its cooldown. `once` rules fire once per game session.
 Conditions (when.type): bags_free_lte{{n}}, durability_lte{{pct}}, deaths_in_subzone{{count, minutes}}, buff_missing{{name|spell, pet, ooc}}, pet_missing{{ooc}} (no pet of ANY kind is out; use it instead of checking one pet's buff), pet_dead, item_count_lte{{n, item|name}} (soul shards, Healthstones, potions in the bags), hostiles_near_gte{{n, players}} (attackable nameplates), enemy_player{{class, min_level, flagged}} (an attackable enemy player appeared; {{class}} {{level}} {{race}} in the text), level_up, death, logout,
 entering_world, merchant_show, trainer_show, quest_reward, loot_opened, lower_rank_on_bar, spell_learned{{name}}, quest_complete{{quest}}, zone_changed{{zone, subzone}},
-target_elite{{level_diff, rare}}, item_looted{{min_quality}}, item_equipped, returned_active (the player came back from AFK; {{away_s}} in the text), readiness_changed{{ready}} (the READINESS verdict flipped; {{missing}} lists what is lacking); combine 2 to 4 with {{"type":"all"|"any","of":[...]}} (not nested).
+target_elite{{level_diff, rare}}, item_looted{{min_quality}}, item_equipped, returned_active{{min_away_s}} (the player came back from AFK, optionally only after that many seconds away; {{away_s}} in the text), readiness_changed{{ready}} (the READINESS verdict flipped; {{missing}} lists what is lacking); combine 2 to 4 with {{"type":"all"|"any","of":[...]}} (not nested).
 Actions (then[].do, 1 to 4): toast{{text, level, sound, title}}, chat{{text, sound}}, check{{panel, item, done}}, waypoint{{...}}, panel_text{{panel, child, text}}, sound{{sound}}, flash.
 Text placeholders filled from what fired: {{count}} {{subzone}} {{zone}} {{name}} {{free}} {{pct}} {{slot}} {{spell}} {{rank}} {{killer}} (unknown ones stay literal).
 Rules never move or restyle panels. Max 40 rules. Every fire is recorded (feed section RULES) and sent as a `rule_fired` event.
