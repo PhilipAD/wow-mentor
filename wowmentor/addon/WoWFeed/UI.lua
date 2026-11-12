@@ -1157,6 +1157,7 @@ local function applyMarkInner(unit)
 	if not oka then S.markDiag.err = "anchor to nameplate failed: " .. tostring(erra):sub(1, 80); pcall(f.SetPoint, f, "CENTER", UIParent, "CENTER", 0, 0) end
 	f:Show()
 	S.markDiag.shown = S.markDiag.shown + 1
+	S.markDiag.lastShown = strfmt("%s on %s shown=%s alpha=%.2f size=%dx%d parentShown=%s", tostring(m.id), tostring(unit), tostring(f:IsShown()), f:GetAlpha() or -1, f:GetWidth() or 0, f:GetHeight() or 0, tostring(plate:IsShown()))
 	S.markSeen[m.id] = (S.docNow or 0)
 end
 
@@ -1224,6 +1225,7 @@ function UI.markLines()
 	for plate, f in pairs(S.markFrames) do if f:IsShown() and f.txt then vis[#vis + 1] = (f.txt:GetText() or "?") end end
 	L[#L + 1] = strfmt("marks loaded: %d | icons visible now: %d%s", n, #vis, #vis > 0 and (" (" .. tconcat(vis, ", ") .. ")") or "")
 	local d = S.markDiag or {}
+	if d.lastShown then L[#L + 1] = "marks last icon shown: " .. d.lastShown end
 	do      -- the first icon frame's real state, to tell "hidden" from "attached but invisible"
 		for plate, f in pairs(S.markFrames) do
 			local okf, info = pcall(function() return strfmt("shown=%s alpha=%.2f size=%dx%d strata-order=%s parentShown=%s", tostring(f:IsShown()), f:GetAlpha() or -1, f:GetWidth() or 0, f:GetHeight() or 0, tostring(f:GetFrameLevel()), tostring(plate:IsShown())) end)
