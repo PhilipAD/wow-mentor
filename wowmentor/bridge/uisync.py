@@ -12,6 +12,7 @@ from .. import host
 
 ADDONS = ""      # set by configure()
 POOL = 1000
+AHEAD = 60        # slots written ahead of the game's reported slot
 LOCAL = ""
 
 
@@ -64,6 +65,7 @@ class UISync:
         self.wire = None
         self.rev = None            # newest revision written to disk
         self.last_ring = 0.0
+        self.written_rev, self.written_lo, self.written_hi = None, 0, 0
         self.rung_door = 0         # highest doorbell we have raised
         self.tick_seen = {}
         self.last_report = 0.0
@@ -149,7 +151,17 @@ class UISync:
         slot, door, mode = to_int(kv.get("uislot")), to_int(kv.get("uidoor")), kv.get("uidb", "?")
         if slot >= POOL - 5:
             self.log("overlay slot pool nearly used up (%d/%d): /reload in game to refresh" % (slot, POOL))
-        self._write_payload(slot + 1, slot + 8)
+        # The slot counter in the strip lags the game by a few seconds and the game polls every 2 s, so write far
+        # ahead; for an unchanged revision only the newly reachable slots need writing.
+        lo, hi = slot + 1, slot + AHEAD
+        if self.written_rev == self.rev and self.written_lo <= lo <= self.written_hi:
+            lo = self.written_hi + 1          # same revision, already written from here on: only the new tail
+        if lo <= hi:
+            self._write_payload(lo, hi)
+        if self.written_rev == self.rev and self.written_lo <= slot + 1 <= self.written_hi:
+            self.written_hi = max(self.written_hi, hi)
+        else:
+            self.written_rev, self.written_lo, self.written_hi = self.rev, slot + 1, hi
         self.stats["deliveries"] += 1
         self.last_ring = now
 
