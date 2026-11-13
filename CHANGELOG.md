@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Faster overlay updates
+
+- The game now checks for new overlay documents every 2 s while the agent is working (for 90 s after each change) and every 15 s when idle, down from 6 s and 30 s. This client never re-reads the doorbell file or plays the sound doorbell (sound off), so polling is the only inbound channel; each poll uses one of 1000 slots, refilled by `/reload`.
+
 ### OFFCHAIN matches whole quest ids
 
 - `wowui align` OFFCHAIN no longer treats `[QT659` as a hand-in for quest 65.

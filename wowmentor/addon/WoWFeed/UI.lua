@@ -1496,8 +1496,9 @@ local function pollTick()
 	if S.hidden or truthy(call(UnitAffectingCombat, "player")) then return end
 	-- fallback: poll slots, quickly right after activity, slowly otherwise (each poll burns one slot)
 	if t >= S.nextPoll then
-		local hot = (t - S.lastApply) < 30
-		S.nextPoll = t + (hot and 6 or 30)
+		-- every poll burns one slot (pool of 1000, refilled by /reload): poll fast while the agent is working, slowly when idle
+		local hot = (t - S.lastApply) < 90
+		S.nextPoll = t + (hot and 2 or 15)
 		loadNext()
 	end
 end
