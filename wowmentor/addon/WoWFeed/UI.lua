@@ -210,7 +210,7 @@ local function nextSecure(P)
 	if not b then
 		local ok, bb = pcall(CreateFrame, "Button", nil, P.body, "SecureActionButtonTemplate")
 		if not ok or not bb then return nil end
-		bb:RegisterForClicks("AnyUp", "AnyDown"); bb:SetAttribute("type", "macro")
+		bb:RegisterForClicks("AnyUp", "AnyDown"); bb:SetAttribute("type", "macro"); bb.isSecure = true
 		if bb.SetMouseClickEnabled then bb:SetMouseClickEnabled(true) end
 		b = bb; P.secure[P.secN] = b
 	end
@@ -566,14 +566,17 @@ render.icon = function(P, c, x, w, y)
 		end
 		row:SetScript("OnEnter", function(self) pcall(function() if c.npc then hoverModel(self, c) else hoverTip(self, c) end end) end)
 		row:SetScript("OnLeave", hoverOff)
-		row:SetScript("OnClick", function()
-			pcall(function()
-				if c.item and IsModifiedClick and IsModifiedClick("CHATLINK") then
-					local _, link = GetItemInfo(c.item)
-					if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
-				end
+		-- never SetScript("OnClick") on the secure button: that replaces the template's handler and the target macro stops running
+		if not row.isSecure then
+			row:SetScript("OnClick", function()
+				pcall(function()
+					if c.item and IsModifiedClick and IsModifiedClick("CHATLINK") then
+						local _, link = GetItemInfo(c.item)
+						if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
+					end
+				end)
 			end)
-		end)
+		end
 	end
 	local th = 0
 	if c.text then
