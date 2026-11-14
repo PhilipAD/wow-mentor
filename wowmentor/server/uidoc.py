@@ -1058,7 +1058,9 @@ or value+max; label), kv (rows [[k,v]]), callout (level info|tip|good|warn|bad, 
 Preview squares (icon): `item` or `spell` shows that tooltip on hover; `npc` (creature id from `wowui db npc --name X`) shows a 3D model on hover and, when the
 player clicks it out of combat, targets the nearest living mob named `tip` (set tip to the exact creature name; texture = an Interface\\Icons name for the square).
 A row of two squares: `wowui component squares '{{"type":"row","id":"r1","children":[{{"type":"icon","npc":2237,"tip":"Moonstalker Sire","texture":"Ability_Hunter_Pet_Cat","iconSize":32}},{{"type":"icon","item":2589,"tip":"Linen Cloth","iconSize":32}}]}}'`
-(same id replaces it). Edit the squares with the zone: item ids from `wowui db item --name X`, never invent ids.
+(same id replaces it). Edit the squares with the zone, one row per enemy: the enemy square first, then what it drops for the player's quests
+(`wowui db quest --id N` lists the objective items, `wowui db spots --quest N` lists the creatures that hold them), then extra loot such as cloth
+from humanoids. Item ids from `wowui db item --name X`, never invent ids or drop tables; use {{"type":"spacer"}} for an empty cell.
 Text markup: [c=#ff8800]colour[/c]; live variables {{player}} {{class}} {{zone}} {{subzone}} {{x}} {{y}} {{gold}} {{bags}};
 links {{item:ID}} {{spell:ID}} {{quest:ID:Name}}. Colours are #rrggbb or names (gold, red, green, cyan...). Theme tokens: accent, bg,
 bgAlpha, border, text, muted, good, warn, bad, font, size, padding, gap, shadow, outline.
