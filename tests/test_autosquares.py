@@ -62,6 +62,11 @@ class AutoSquaresTests(unittest.TestCase):
         self.assertEqual(set(names), {"Moonstalker Sire", "Moonstalker Matriarch"})
         self.assertEqual(self.saved, 1)
 
+    def test_target_any_lists_the_rare_ones_first(self):
+        self.a.on_feed(FEED); self.a.on_events([{"type": "quest_accepted", "data": {"quest": 4740}}]); self.a.run()
+        names = [c for c in self.children() if c["id"] == "qall"][0]["targets"]
+        self.assertEqual(names, ["Murkdeep", "Moonstalker Matriarch", "Moonstalker Sire"])     # 1, 2, 3 spawns: the game takes the first one alive
+
     def test_events_add_and_remove_before_the_feed_catches_up(self):
         self.a.on_feed(FEED); self.a.run()
         self.a.on_events([{"type": "quest_accepted", "data": {"quest": 4740}}, {"type": "quest_turned_in", "data": {"quest": 986}}])
