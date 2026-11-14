@@ -902,6 +902,19 @@ H.QUEST_TURNED_IN = function(qid)
 	S.quests.ready[qid] = nil
 	S.autoDirty = true
 end
+-- accepted / removed: the server rebuilds the "What to get here" quest squares from these at once (no agent round trip)
+H.QUEST_ACCEPTED = function(a, b)
+	local qid = U.num(b) or U.num(a)                -- Classic passes (questLogIndex, questID); Forever (retail API) passes (questID)
+	if not qid or qid <= 0 then return end
+	C.event("quest_accepted", { quest = qid, title = questTitle(qid) })
+	S.autoDirty = true
+end
+H.QUEST_REMOVED = function(qid)
+	qid = U.num(qid)
+	if not qid or qid <= 0 then return end
+	C.event("quest_removed", { quest = qid })
+	S.autoDirty = true
+end
 
 local function learned(spellID)
 	spellID = U.num(spellID)

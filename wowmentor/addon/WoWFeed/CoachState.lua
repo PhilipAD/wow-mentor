@@ -403,7 +403,7 @@ end
 -- Forever Leveling BiS (optional addon): the same score and gain its tooltips show, for the spec the player picked in it
 local function flb()
 	local F = ForeverLevelingBiS_API
-	if type(F) == "table" and (F.version or 1) >= 2 then return F end
+	if type(F) == "table" and (tonumber(F.version) or 1) >= 2 then return F end
 end
 local function bisText(link)
 	local F = flb()

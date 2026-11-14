@@ -1485,6 +1485,14 @@ def cmd_npcs(a):
     print(json.dumps(get_ok(a, route), indent=None if a.compact else 2))
 
 
+def cmd_autosquares(a):
+    """What the server's automatic Quests squares last did: map, quest set, rows, any error."""
+    code, res = get_json(base_url(a), "autosquares")
+    if code != 200:
+        fail(res.get("errors") or [json.dumps(res)[:300]])
+    print(json.dumps(res, indent=2, ensure_ascii=False))
+
+
 def cmd_session(a):
     print(json.dumps(get_ok(a, "session"), indent=None if a.compact else 2))
 
@@ -1589,6 +1597,7 @@ def main():
     p.add_argument("--wait", type=int, help="long-poll: with --since, block up to this many seconds (max 25) until a new event arrives, then print it"); p.add_argument("--follow", action="store_true", help="keep polling and print one JSON event per line"); p.add_argument("--interval", type=float, default=2.0)
     p.add_argument("--duration", type=float, help="with --follow: stop after this many seconds"); p.add_argument("--compact", action="store_true")
     p = add("npcs", cmd_npcs, "NPCs the player has met (name, id, map, x, y, kind, count, last_seen)"); p.add_argument("--name"); p.add_argument("--compact", action="store_true")
+    add("autosquares", cmd_autosquares, "status of the automatic Quests squares (the server rebuilds them on quest accept, turn-in and zone change)")
     p = add("session", cmd_session, "is the player in the game? state, foreground, last login/logout, bridge heartbeat"); p.add_argument("--compact", action="store_true")
     p = add("questions", cmd_questions, "open questions the player asked with /coach <text>"); p.add_argument("--all", action="store_true", help="include answered ones"); p.add_argument("--compact", action="store_true")
     p = add("builtin", cmd_builtin, "show or hide the built-in Character panel (me), or turn spoken advice on or off (voice: the game's text to speech, off by default, the player can override with /wfui voice)"); p.add_argument("which", choices=["me", "voice"]); p.add_argument("state", choices=["on", "off"])
