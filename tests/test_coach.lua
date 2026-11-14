@@ -207,15 +207,19 @@ w.units.target = { exists = false }
 do
 	local t = S.deaths
 	local before = #t
-	w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false
+	W.fire("PLAYER_UNGHOST")
+	w.dead = true; W.fire("PLAYER_DEAD")
 	local d = find(pump(), "death")
+	W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST")                              -- Forever fires it again on release: still one death
+	check(find(pump(), "death") == nil and #S.deaths == before + 1, "a second PLAYER_DEAD before coming back is not a new death")
+	W.fire("PLAYER_UNGHOST")
 	eq(d.data.deaths_in_subzone_10m, 2, "second death in the same subzone")
 	eq(d.data.killer.name, "unknown", "no attacker information means the killer is unknown")
 	W.advance(700)
-	w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false
+	w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST")
 	d = find(pump(), "death"); eq(d.data.deaths_in_subzone_10m, 1, "deaths older than 10 minutes drop out")
 	w.subzone = "Fargodeep Mine"
-	w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false
+	w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST")
 	d = find(pump(), "death"); eq(d.data.deaths_in_subzone_10m, 1, "another subzone counts separately")
 	w.subzone = "Northshire Valley"
 	S.deaths = {}; S.pendingDeath = nil
@@ -507,19 +511,19 @@ w.dura[16] = nil; step(2)
 
 -- deaths
 S.deaths = {}
-w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false
+w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST")
 eq(rf("deaths"), 0, "one death is not enough")
 W.advance(120)
-w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false
+w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST")
 eq(rf("deaths"), 1, "two deaths in the same subzone within 10 minutes")
 check(chatLog():find("Died 2 times in Northshire Valley (Elwynn Forest) to unknown", 1, true), "deaths text")
 check(W.flashed, "flash action ran")
-W.advance(30); w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false
+W.advance(30); w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST")
 eq(rf("deaths"), 1, "a third death inside the cooldown does not repeat")
-W.advance(100); w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false
+W.advance(100); w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST")
 eq(rf("deaths"), 2, "after the cooldown another death fires again")
 S.deaths = {}; S.pendingDeath = nil
-w.subzone = "A"; w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; w.subzone = "B"; W.advance(100); w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false
+w.subzone = "A"; w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST"); w.subzone = "B"; W.advance(100); w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST")
 eq(rf("deaths"), 2, "deaths in different subzones do not add up"); w.subzone = "Northshire Valley"
 
 -- lower rank on the bar
@@ -848,7 +852,7 @@ w.auras.player = {}
 w.plates = { "nameplate1" }; w.units.nameplate1 = { exists = true, name = "Kobold Miner", level = 6, attackable = true, class = "normal", guid = "Creature-0-1-0-0-100-0009" }
 w.units.nameplate1target = { exists = true, isUnit = "player" }
 w.combat = true; W.fire("PLAYER_REGEN_DISABLED"); step(1)
-w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; w.combat = false; W.fire("PLAYER_REGEN_ENABLED"); w.plates = {}
+w.dead = true; W.fire("PLAYER_DEAD"); w.dead = false; W.fire("PLAYER_UNGHOST"); w.combat = false; W.fire("PLAYER_REGEN_ENABLED"); w.plates = {}
 steps(3); pump(2000)
 check(secText.deaths and secText.deaths:find("killer=Kobold Miner %(L6 normal%) attackers=1 hp_at_pull=%d+ ") and secText.deaths:find("map=1429"), "DEATHS section: " .. tostring(secText.deaths))
 S.pendingDeath = nil

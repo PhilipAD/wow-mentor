@@ -134,7 +134,7 @@ function D.readDamage()
 		S.dmg.last = fight
 		-- the coach's own fight record, when it is the fight that just ended (finishFight skips empty fights, so the newest may be older)
 		local f = S.fights and S.fights[#S.fights]
-		if f and f["end"] and U.epoch() - f["end"] <= 15 then f.meter = { total = done.total, dps = done.dps, taken = taken and taken.total } end
+		if f and f["end"] and U.epoch() - f["end"] <= 15 then f.meter = { total = done.total, dps = done.dps, taken = taken and taken.total }; S.dirtyFights = true end
 	end
 	S.dmg.fresh = false
 	S.dmg.overall = { done = meterRead(DM_SESSION.overall, DM_TYPE.done), taken = meterRead(DM_SESSION.overall, DM_TYPE.taken) }

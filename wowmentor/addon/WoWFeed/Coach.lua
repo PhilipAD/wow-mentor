@@ -572,6 +572,9 @@ local function applyRecap(rec, recap)
 end
 
 local function onDeath()
+	-- Forever fires PLAYER_DEAD again on release: one death until the player is alive again (ALIVE / UNGHOST clear it)
+	local pd = S.pendingDeath
+	if pd and U.epoch() - (pd.t or 0) < 600 then return end
 	pcall(C.sampleAttackers)
 	local list = recentAttackers()
 	local killer = list[1]

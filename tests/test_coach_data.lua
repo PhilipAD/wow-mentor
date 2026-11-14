@@ -94,6 +94,10 @@ check(dmg:find("taken by spell: Melee from Murkdeep 240 %(100%%%)"), "damage tak
 check(dmg:find("session: 400s dealt=5000 dps=12.5 taken=1000"), "session line: " .. dmg)
 check(dmg:find("taken by spell: Melee 600 %(60%%%) x3; Shadow Bolt from Dark Caster 400 %(40%%%)"), "same-spell rows merged: " .. dmg)
 check(dmg:find("recent fights dps/duration %(newest first%): 72.6/12s"), "history: " .. dmg)
+S.fights[#S.fights + 1] = { start = W.epoch - 13, ["end"] = W.epoch, duration = 12.4, result = "won", taken = 0, dealt = 0, kills = 1, mana = 0, casts = {}, castN = 0, dups = {},
+	meter = { total = 900, dps = 72.6, taken = 240 } }
+local fl = table.concat(C.state.fightLines(), "\n")
+check(fl:find("taken=240 dealt=900 dps=72.6"), "FIGHTS uses the meter totals: " .. fl)
 -- the same session read again (no new fight) is not a new history entry
 S.dmg.due = 0; tick(2)
 check(#S.dmg.hist == 1, "no duplicate fight, got " .. #S.dmg.hist)

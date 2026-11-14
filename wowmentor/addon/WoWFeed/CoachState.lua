@@ -336,7 +336,12 @@ function ST.fightLines()
 	local first = max(1, #S.fights - 4)
 	for i = #S.fights, first, -1 do
 		local f = S.fights[i]
-		L[#L + 1] = strfmt("fight: %s %.1fs result=%s taken=%d dealt=%d kills=%d mana_est=%d casts=%d duplicate_dots=%d", hms(f.start), f.duration or 0, f.result, f.taken, f.dealt, f.kills, f.mana, f.castN, #f.dups)
+		-- per-hit amounts are secret on this client (UNIT_COMBAT gives nothing): the damage meter's totals win when it was read
+		local m = f.meter
+		local taken = (m and m.taken) or f.taken
+		local dealt = (m and m.total) or f.dealt
+		L[#L + 1] = strfmt("fight: %s %.1fs result=%s taken=%d dealt=%d%s kills=%d mana_est=%d casts=%d duplicate_dots=%d", hms(f.start), f.duration or 0, f.result, taken, dealt,
+			m and m.dps and strfmt(" dps=%.1f", m.dps) or "", f.kills, f.mana, f.castN, #f.dups)
 		local parts = {}
 		for _, c in ipairs(f.casts) do
 			parts[#parts + 1] = strfmt("%.1f %s%s%s%s", c.t or 0, clean(c.name or "?"), c.rank and (" r" .. c.rank) or "", c.target and (" > " .. clean(c.target)) or "", c.wasted and " WASTED" or "")
