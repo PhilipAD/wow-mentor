@@ -54,7 +54,7 @@ def _str(v, n=MAX_TEXT):
     return str(v)[:n]
 
 
-_TARGET_NAME = re.compile(r"^[A-Za-z0-9' ,.:\-]{1,60}$")
+_TARGET_NAME = re.compile(r"^[\w' ,.:\-]{1,60}$")      # unicode letters allowed (accented creature names)
 
 
 def _target_name(v):
@@ -62,7 +62,7 @@ def _target_name(v):
     could add another macro command)."""
     v = _str(v, 60).strip()
     if not _TARGET_NAME.match(v):
-        raise ValueError("must be a plain creature name (letters, digits, spaces, ' , . : -)")
+        raise ValueError("must be a plain creature name (letters, digits, spaces, ' , . : -; no newline, slash, ; or brackets)")
     return v
 
 

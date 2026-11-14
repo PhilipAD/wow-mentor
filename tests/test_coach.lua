@@ -4,6 +4,10 @@ package.path = "tests/?.lua;" .. package.path
 local W = require("wowstub")
 W.install()
 local w = W.installCoach()
+-- Forever Leveling BiS stand-in; its version arrives as a string here on purpose (must not break ITEMS / REWARDS)
+_G.ForeverLevelingBiS_API = { version = "2", ScoreItem = function() return 3.5 end, GetGain = function() return 1.25 end,
+	GetSpec = function() return "affliction", "twohand", "WARLOCK" end, GetWeights = function() return { spldmg = 1, sta = 0.4 } end,
+	IsUpgrade = function() return true end, OnChanged = function() end }
 _G.LOOT_ITEM_SELF = "You receive loot: %s."
 _G.LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %sx%d."
 _G.LOOT_ITEM_PUSHED_SELF = "You receive item: %s."
@@ -256,6 +260,7 @@ check(c1.index == 1 and c1.name == "Green Cap" and c1.quality == 2 and c1.equip_
 steps(2); pump()
 check(secText.rewards and secText.rewards:find("ARMOR=28", 1, true) and not secText.rewards:find("RESISTANCE0", 1, true), "armor is labelled ARMOR, not RESISTANCE0")
 check(secText.rewards and secText.rewards:find("choice 1: Green Cap") and secText.rewards:find("choice 2: Fine Dagger") and secText.rewards:find("STAMINA=3"), "REWARDS section while the window is open: " .. tostring(secText.rewards))
+check(secText.rewards and secText.rewards:find("| bis score=3.5 gain=+1.2", 1, true), "REWARDS lines carry the Forever Leveling BiS score and gain: " .. tostring(secText.rewards))
 W.fire("QUEST_FINISHED"); steps(2); pump()
 check(secText.rewards:find("no quest reward window open"), "REWARDS section clears on close")
 w.choices = {}

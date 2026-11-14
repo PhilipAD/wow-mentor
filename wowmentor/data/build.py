@@ -69,16 +69,19 @@ def drop_rows(addons, min_classic_pct=0.5):
     d = os.path.join(addons, "TnnysMobLoot")
     rows = []
     try:
-        fv = open(os.path.join(d, "ForeverData.lua"), encoding="utf-8").read()
+        fv = open(os.path.join(d, "ForeverData.lua"), encoding="utf-8", errors="replace").read()
     except OSError:
         fv = ""
     for m in re.finditer(r'\[(\d+)\]=\{"[^"]*","([^"]*)"\}', fv):
         for part in m.group(2).split(","):
             f = part.split(":")
-            if len(f) >= 4 and f[0].isdigit():
-                rows.append((int(m.group(1)), int(f[0]), float(f[1]), int(float(f[3])), "forever", 0))
+            try:
+                if len(f) >= 4 and f[0].isdigit():
+                    rows.append((int(m.group(1)), int(f[0]), float(f[1]), int(float(f[3])), "forever", 0))
+            except ValueError:                      # one malformed entry (nil, empty) is skipped, not fatal
+                continue
     try:
-        st = open(os.path.join(d, "StarterData.lua"), encoding="utf-8").read()
+        st = open(os.path.join(d, "StarterData.lua"), encoding="utf-8", errors="replace").read()
     except OSError:
         st = ""
     i = st.find("npc={")
@@ -86,11 +89,14 @@ def drop_rows(addons, min_classic_pct=0.5):
     for m in re.finditer(r'\[(\d+)\]=\{"([^"]*)"', st[i:j if j > 0 else len(st)] if i >= 0 else ""):
         for part in m.group(2).split(","):
             f = part.split(":")
-            if len(f) >= 2 and f[0].isdigit():
-                q = 1 if len(f) > 2 and f[2] == "q" else 0
-                pct = float(f[1])
-                if q or pct >= min_classic_pct:
-                    rows.append((int(m.group(1)), int(f[0]), pct, None, "classic", q))
+            try:
+                if len(f) >= 2 and f[0].isdigit():
+                    q = 1 if len(f) > 2 and f[2] == "q" else 0
+                    pct = float(f[1])
+                    if q or pct >= min_classic_pct:
+                        rows.append((int(m.group(1)), int(f[0]), pct, None, "classic", q))
+            except ValueError:
+                continue
     return rows
 
 
@@ -107,7 +113,7 @@ def boss_rows(addons):
             if not fn.endswith(".lua"):
                 continue
             try:
-                t = open(os.path.join(d, fn), encoding="utf-8").read()
+                t = open(os.path.join(d, fn), encoding="utf-8", errors="replace").read()
             except OSError:
                 continue
             iid = re.search(r'\bid\s*=\s*"([A-Z0-9_]+)"', t)
@@ -115,7 +121,7 @@ def boss_rows(addons):
             cat = re.search(r'\bcategory\s*=\s*"([A-Z_]+)"', t)
             lv = re.search(r'levelRange\s*=\s*\{\s*(\d+)\s*,\s*(\d+)', t)
             levels = "%s-%s" % lv.groups() if lv else None
-            enc = list(re.finditer(r'\{\s*id\s*=\s*"([A-Z0-9_]+)"\s*,\s*name\s*=\s*"([^"]+)"([^\n]*?)loot\s*=\s*\{', t))
+            enc = list(re.finditer(r'\{\s*id\s*=\s*"([A-Z0-9_]+)"\s*,\s*name\s*=\s*"([^"]+)"([^{}]*?)loot\s*=\s*\{', t))
             for k, e in enumerate(enc):
                 end = enc[k + 1].start() if k + 1 < len(enc) else len(t)
                 npc = re.search(r'npc\s*=\s*(\d+)', e.group(3))
@@ -188,8 +194,13 @@ def build(addons, out):
         c.execute("INSERT INTO item VALUES(?,?,?,?,?,?,?,?)", (i, n.get("name"), n.get("itemLevel"), n.get("requiredLevel"), n.get("class"), n.get("subClass"), n.get("startQuest"), _j(n)))
     for r in training_rows(addons):
         c.execute("INSERT INTO training VALUES(?,?,?,?,?)", r)
-    c.executemany("INSERT INTO drop_rate VALUES(?,?,?,?,?,?)", drop_rows(addons))
-    c.executemany("INSERT INTO boss_loot VALUES(?,?,?,?,?,?,?,?)", boss_rows(addons))
+    for table, fn in (("drop_rate", drop_rows), ("boss_loot", boss_rows)):
+        try:                                        # optional addons: a bad file must never stop the quest database from building
+            rows = fn(addons)
+            if rows:
+                c.executemany("INSERT INTO %s VALUES(%s)" % (table, ",".join("?" * len(rows[0]))), rows)
+        except Exception as e:
+            c.execute("INSERT INTO meta VALUES(?,?)", ("error_" + table, "%s: %s" % (type(e).__name__, e)))
     c.executescript(INDEXES)
     for k, v in (("source", "QuestieDB_Forever.toc"), ("version", db.meta.get("Version", "")), ("commit", db.meta.get("X-BUILD-COMMIT", "")),
                  ("fingerprint", fingerprint(addons)), ("built", str(int(time.time())))):

@@ -214,6 +214,7 @@ local function nextSecure(P)
 		if bb.SetMouseClickEnabled then bb:SetMouseClickEnabled(true) end
 		b = bb; P.secure[P.secN] = b
 	end
+	if b.GetParent and b:GetParent() ~= P.body and b.SetParent then b:SetParent(P.body) end   -- back from UIParent after combat
 	b:Show(); b:ClearAllPoints(); b:EnableMouse(true)
 	return b
 end
@@ -500,12 +501,7 @@ local function questSquareDone(q)
 	if not q then return false end
 	if C_QuestLog and truthy(call(C_QuestLog.IsQuestFlaggedCompleted, q)) then return true end
 	if C_QuestLog and truthy(call(C_QuestLog.IsComplete, q)) then return true end
-	local idx = plainNum(call(GetQuestLogIndexByID, q))
-	if idx and idx > 0 and GetQuestLogTitle then
-		local ok, _, _, _, _, _, done = pcall(GetQuestLogTitle, idx)
-		if ok and (plainNum(done) == 1 or done == true) then return true end
-	end
-	return false
+	return false                                    -- (Forever runs the retail quest API: no GetQuestLogIndexByID / GetQuestLogTitle)
 end
 local function scanQuestSquares(P, kids, done)
 	for _, k in ipairs(kids or {}) do
@@ -514,21 +510,24 @@ local function scanQuestSquares(P, kids, done)
 			if questSquareDone(k.quest) then
 				done.ids[k.quest] = true
 				if k.npc and k.tip then done.names[k.tip] = true end
+			elseif k.npc and k.tip then
+				done.alive[k.tip] = true          -- another open quest still wants this creature
 			end
 		elseif k.type == "row" then scanQuestSquares(P, k.children, done) end
 	end
 end
 
 -- target macro text: names are stripped to plain characters so nothing can add another macro line (/run etc.)
-local function cleanName(n) return (tostring(n or ""):gsub("[^%w ',%.:%-]", "")) end
+local function cleanName(n) return (tostring(n or ""):gsub("[^%w ',%.:%-\128-\255]", "")) end
 local function targetMacro(names)
-	local m = "/cleartarget"
-	for _, n in ipairs(names) do
-		local line = "\n/targetexact " .. cleanName(n)
-		if #m + #line > 255 then break end
-		m = m .. line
+	-- the last name found wins, so the most important names come last: when the 255-character limit bites, drop from the front
+	local lines, len = {}, #"/cleartarget"
+	for i = #names, 1, -1 do
+		local line = "\n/targetexact " .. cleanName(names[i]) .. "\n/cleartarget [dead]"     -- /targetexact can land on a corpse
+		if len + #line > 255 then break end
+		table.insert(lines, 1, line); len = len + #line
 	end
-	return m
+	return "/cleartarget" .. table.concat(lines)
 end
 
 -- hover helpers for icon squares: item/spell tooltip, or a model preview for a creature (npc id)
@@ -560,6 +559,7 @@ local function hoverModel(owner, c)
 			mm:SetSize(130, 150); mm:SetPoint("BOTTOM", GameTooltip, "BOTTOM", 0, 8)
 			mm:SetScript("OnModelLoaded", function(self) S.modelLoaded = S.modelWanted; if GameTooltip:IsShown() then self:SetAlpha(1) end end)
 			S.modelTip = mm; m = mm
+			if GameTooltip.HookScript then GameTooltip:HookScript("OnHide", function() mm:Hide() end) end
 		end
 	end
 	if m then
@@ -580,11 +580,11 @@ end
 
 render.icon = function(P, c, x, w, y)
 	local size = c.iconSize or 24
-	local qd = P.questDone or { ids = {}, names = {} }
+	local qd = P.questDone or { ids = {}, names = {}, alive = {} }
 	if c.quest and qd.ids[c.quest] then return 0 end
 	if c.targets then
 		local left = {}
-		for _, n in ipairs(c.targets) do if not qd.names[n] then left[#left + 1] = n end end
+		for _, n in ipairs(c.targets) do if not qd.names[n] or (qd.alive and qd.alive[n]) then left[#left + 1] = n end end
 		if #left == 0 then return 0 end
 		if #left ~= #c.targets then local cc = {}; for k, v in pairs(c) do cc[k] = v end; cc.targets = left; c = cc end
 	end
@@ -703,7 +703,7 @@ end
 layout = function(P)
 	local d, t = P.data, P.t
 	P.n = { fs = 0, tex = 0, rows = 0, bars = 0 }; P.secN = 0
-	P.hasQuestSquares = false; P.questDone = { ids = {}, names = {} }; pcall(scanQuestSquares, P, d.children, P.questDone)
+	P.hasQuestSquares = false; P.questDone = { ids = {}, names = {}, alive = {} }; pcall(scanQuestSquares, P, d.children, P.questDone)
 	P.dyn = {}
 	local pad = t.padding
 	local w = d.w or 300
@@ -861,6 +861,21 @@ local function computeTarget(P)
 	if v.idleFade and v.idleFade > 0 and (now() - P.lastActivity) > v.idleFade then a = a * (v.idleAlpha or 0.35) end
 	return a
 end
+
+-- A frame holding a secure button becomes protected: it could not move, resize, show or hide in combat. So, like NeedRoll, as combat
+-- starts (PLAYER_REGEN_DISABLED fires just before the lockdown) every secure square goes onto UIParent, hidden; the squares then work
+-- as plain hover squares until combat ends, when the layout puts the secure buttons back.
+local combatEv = CreateFrame("Frame")
+pcall(combatEv.RegisterEvent, combatEv, "PLAYER_REGEN_DISABLED")
+combatEv:SetScript("OnEvent", function()
+	for _, P in pairs(S.panels) do
+		for _, b in ipairs(P.secure or {}) do
+			pcall(function() b:Hide(); b:ClearAllPoints(); if b.SetParent then b:SetParent(UIParent) end end)
+		end
+		if P.secure and #P.secure > 0 then S.secureStale = true end
+	end
+	if S.modelTip then S.modelTip:Hide() end
+end)
 
 local questEv = CreateFrame("Frame")
 for _, e in ipairs({ "QUEST_LOG_UPDATE", "QUEST_TURNED_IN", "QUEST_REMOVED", "QUEST_ACCEPTED" }) do pcall(questEv.RegisterEvent, questEv, e) end
