@@ -203,14 +203,15 @@ end
 -- creature squares: a secure button so the player's own click targets the nearest living mob of that name (like Guidelime's previews).
 -- Secure frames cannot be created, moved or hidden in combat, so every touch is out-of-combat only (otherwise the plain hover button is used).
 local function nextSecure(P)
-	if InCombatLockdown and InCombatLockdown() then return nil end
+	if InCombatLockdown and InCombatLockdown() then S.secureStale = true; return nil end
 	P.secN = (P.secN or 0) + 1
 	P.secure = P.secure or {}
 	local b = P.secure[P.secN]
 	if not b then
 		local ok, bb = pcall(CreateFrame, "Button", nil, P.body, "SecureActionButtonTemplate")
 		if not ok or not bb then return nil end
-		bb:RegisterForClicks("AnyUp"); bb:SetAttribute("type", "macro")
+		bb:RegisterForClicks("AnyUp", "AnyDown"); bb:SetAttribute("type", "macro")
+		if bb.SetMouseClickEnabled then bb:SetMouseClickEnabled(true) end
 		b = bb; P.secure[P.secN] = b
 	end
 	b:Show(); b:ClearAllPoints(); b:EnableMouse(true)
@@ -502,23 +503,34 @@ local function hoverTip(owner, c)
 	GameTooltip:Show()
 end
 local function hoverModel(owner, c)
-	local f = S.modelTip
-	if not f then
-		f = CreateFrame("Frame", nil, UIParent); f:SetFrameStrata("TOOLTIP"); f:SetSize(170, 210); f:EnableMouse(false)
-		f.bg = f:CreateTexture(nil, "BACKGROUND"); f.bg:SetAllPoints(); f.bg:SetColorTexture(0.03, 0.04, 0.06, 0.92)
-		f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal"); f.title:SetPoint("TOP", f, "TOP", 0, -6)
-		local ok, m = pcall(CreateFrame, "PlayerModel", nil, f)
-		if ok and m then m:SetPoint("TOPLEFT", f, "TOPLEFT", 4, -22); m:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -4, 4); f.model = m end
-		S.modelTip = f
+	GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
+	GameTooltip:SetText(c.tip or c.text or "")
+	GameTooltip:AddLine("Click: target the nearest living one", 0.6, 0.8, 1, true)
+	for _ = 1, 12 do GameTooltip:AddLine(" ") end          -- room for the model (the tooltip sizes itself from its lines)
+	if GameTooltip.SetMinimumWidth then GameTooltip:SetMinimumWidth(146) end
+	local m = S.modelTip
+	if not m then
+		local ok, mm = pcall(CreateFrame, "PlayerModel", nil, GameTooltip)
+		if ok and mm then
+			mm:SetSize(130, 150); mm:SetPoint("BOTTOM", GameTooltip, "BOTTOM", 0, 8)
+			mm:SetScript("OnModelLoaded", function(self) S.modelLoaded = S.modelWanted; if GameTooltip:IsShown() then self:SetAlpha(1) end end)
+			S.modelTip = mm; m = mm
+		end
 	end
-	f:ClearAllPoints(); f:SetPoint("TOPRIGHT", owner, "TOPLEFT", -6, 0)
-	f.title:SetText(c.tip or c.text or "")
-	if f.model then pcall(function() f.model:ClearModel(); f.model:SetCreature(c.npc) end) end
-	f:Show()
+	if m then
+		if S.modelLoaded == c.npc then m:SetAlpha(1)
+		else
+			S.modelWanted = c.npc; m:SetAlpha(0)
+			local ok, res = pcall(m.SetCreature, m, c.npc)
+			if (not ok or res == false) and UnitExists and UnitExists("target") and UnitName("target") == (c.tip or c.text) then pcall(m.SetUnit, m, "target") end
+		end
+		m:Show()
+	end
+	GameTooltip:Show()
 end
 local function hoverOff()
-	pcall(function() GameTooltip:Hide() end)
 	if S.modelTip then S.modelTip:Hide() end
+	pcall(function() GameTooltip:Hide() end)
 end
 
 render.icon = function(P, c, x, w, y)
@@ -550,7 +562,7 @@ render.icon = function(P, c, x, w, y)
 		local row = (c.npc and nextSecure(P)) or nextRow(P)
 		row:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y); row:SetSize(size, size); row:EnableMouse(true)
 		if c.npc and row.SetAttribute and (c.tip or c.text) and not (InCombatLockdown and InCombatLockdown()) then
-			pcall(row.SetAttribute, row, "macrotext", "/targetexact " .. tostring(c.tip or c.text))
+			pcall(row.SetAttribute, row, "macrotext", "/cleartarget\n/targetexact " .. tostring(c.tip or c.text))
 		end
 		row:SetScript("OnEnter", function(self) pcall(function() if c.npc then hoverModel(self, c) else hoverTip(self, c) end end) end)
 		row:SetScript("OnLeave", hoverOff)
@@ -798,6 +810,10 @@ driver:SetScript("OnUpdate", function(_, dt)
 	acc = acc + dt
 	if acc < 0.1 then return end
 	local step = acc; acc = 0
+	if S.secureStale and not (InCombatLockdown and InCombatLockdown()) then
+		S.secureStale = false
+		for _, P in pairs(S.panels) do if P.data then P.dirty = true end end
+	end
 	local edit = manualEdit
 	if EditModeManagerFrame and EditModeManagerFrame.IsShown then
 		local okE, shownE = pcall(EditModeManagerFrame.IsShown, EditModeManagerFrame)
