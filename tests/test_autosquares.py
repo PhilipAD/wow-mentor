@@ -14,7 +14,7 @@ def world():
     c.execute("INSERT INTO zone VALUES(719,'Blackfathom Deeps',1439,NULL)")          # a dungeon area that maps onto the zone
     for nid, name in ((8001, "Moonstalker Sire"), (8002, "Moonstalker Matriarch"), (8005, "Blackfathom Oracle"), (8006, "Murkdeep")):
         c.execute("INSERT INTO npc VALUES(?,?,'',17,18,0,148,'{}')", (nid, name))
-    for nid, area, n in ((8001, 148, 3), (8002, 148, 2), (8005, 719, 4), (8006, 148, 1)):
+    for nid, area, n in ((8001, 148, 3), (8002, 148, 2), (8005, 148, 4), (8006, 148, 1)):
         for i in range(n):
             c.execute("INSERT INTO spawn VALUES('npc',?,?,1439,?,80)", (nid, area, 40 + i))
     c.execute("INSERT INTO item VALUES(9001,'Fine Moonstalker Pelt',15,0,12,0,NULL,?)", (json.dumps({"npcDrops": [8001, 8002]}),))
@@ -24,7 +24,8 @@ def world():
     c.execute("INSERT INTO boss_loot VALUES('BFD','Blackfathom Deeps','DUNGEON','20-30','Gelihast',NULL,1,NULL)")
     for qid, name, obj in ((986, "A Lost Master", {"3": [[9001, "Pelt"]]}), (1275, "Researching the Corruption", {"3": [[9003, "Stem"]]}),
                            (4740, "WANTED: Murkdeep!", {"1": [[8006, "Murkdeep slain"]]})):
-        c.execute("INSERT INTO quest VALUES(?,?,20,15,NULL,148,0,0,'[]','[]','[]','[]','[]',NULL,NULL,0,?)", (qid, name, json.dumps({"name": name, "objectives": obj})))
+        zone = 719 if qid == 1275 else 148                                          # 1275 is a Blackfathom Deeps quest
+        c.execute("INSERT INTO quest VALUES(?,?,20,15,NULL,?,0,0,'[]','[]','[]','[]','[]',NULL,NULL,0,?)", (qid, name, zone, json.dumps({"name": name, "objectives": obj})))
     c.commit(); c.close()
     return GameDB(d)
 

@@ -130,9 +130,12 @@ class AutoSquares:
 
                 cells, names = [], []
                 for qid in quests:
-                    row = c.execute("SELECT name, json FROM quest WHERE id=?", (qid,)).fetchone()
+                    row = c.execute("SELECT name, json, zone_or_sort FROM quest WHERE id=?", (qid,)).fetchone()
                     if not row:
                         continue
+                    qz = c.execute("SELECT name FROM zone WHERE area_id=?", (row["zone_or_sort"],)).fetchone() if row["zone_or_sort"] else None
+                    if qz and qz[0] and qz[0].lower() in instances:
+                        continue                        # a dungeon or raid quest: its mobs are inside, not out here (Questie files some under the zone)
                     o = g._lua(json.loads(row["json"]).get("objectives"))
                     for rr in (o.get("1") or o.get(1) or []):
                         nid = rr[0]
