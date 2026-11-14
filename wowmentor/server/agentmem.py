@@ -10,9 +10,10 @@ import base64, json, re, sys, time
 from .. import config as cfgmod
 from . import events as eventsmod
 
-MAX_NOTES = 200                 # the oldest note is dropped past this; the reply warns when the list is nearly full
-MAX_NOTE = 1000
-MAX_SUMMARY = 6000
+MAX_NOTES = 2000                # past this the oldest note moves to the archive (never deleted); the reply warns when the list is nearly full
+MAX_ARCHIVE = 20000             # archived notes kept (oldest beyond this are finally dropped)
+MAX_NOTE = 1200
+MAX_SUMMARY = 12000
 SECTIONS = ["SUMMARY", "SESSION", "FAST", "VITALS", "PROFESSIONS", "EQUIPMENT", "BAG_VALUE", "QUESTS", "GUIDES", "TALENTS_TRAITS", "PVP", "UI_STATE", "GROUP"]
 
 

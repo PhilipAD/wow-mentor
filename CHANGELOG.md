@@ -6,7 +6,7 @@
 
 ### Bigger agent memory
 
-- The mentor's memory holds 2000 notes (was 200) of up to 1200 characters (was 600) and a running summary of up to 12000 characters (was 3000). When the note list is full the oldest note moves to an archive (up to 20000 kept, read with `GET memory?archive=1`) instead of being deleted, and `memory show` reports how many are archived.
+- The mentor's memory holds 2000 notes (was 200) of up to 1200 characters (was 1000) and a running summary of up to 12000 characters (was 6000). When the note list is full the oldest note moves to an archive (up to 20000 kept, read with `GET memory?archive=1`) instead of being deleted, and `memory show` reports how many are archived.
 
 ### Faster overlay updates
 
