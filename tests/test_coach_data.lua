@@ -94,6 +94,21 @@ check(dmg:find("recent fights dps/duration %(newest first%): 72.6/12s"), "histor
 -- the same session read again (no new fight) is not a new history entry
 S.dmg.due = 0; tick(2)
 check(#S.dmg.hist == 1, "no duplicate fight, got " .. #S.dmg.hist)
+-- a late update of the same fight (fall damage after combat, the duration settling) updates it in place
+M.taken.total = 300; M.done.dur = 12.9
+W.fire("DAMAGE_METER_CURRENT_SESSION_UPDATED"); tick(2)
+check(#S.dmg.hist == 1 and S.dmg.hist[1].taken == 300, "late update in place, hist=" .. #S.dmg.hist)
+-- the player is not in the meter yet right after combat: retried until it is (never recorded as an empty fight)
+local saveDone = M.done
+M.done = { dur = 5, total = 400, dps = 80, spells = {} }; M.taken = nil
+local realGet = C_DamageMeter.GetCombatSessionFromType
+C_DamageMeter.GetCombatSessionFromType = function() return { combatSources = {}, totalAmount = 0 } end
+W.fire("PLAYER_REGEN_ENABLED"); tick(3)
+check(S.dmg.due ~= nil and #S.dmg.hist == 1, "missing player source is retried")
+C_DamageMeter.GetCombatSessionFromType = realGet
+tick(2)
+check(#S.dmg.hist == 2 and S.dmg.hist[2].total == 400, "the second fight lands once readable: " .. #S.dmg.hist)
+M.done = saveDone; M.taken = { dur = 12.4, total = 240, dps = 19, spells = {} }
 -- meter unavailable is reported, not an error
 M.available = false; S.dmg.due = 0; tick(2)
 check(text("damage"):find("meter: unavailable %(Disabled in this zone%)"), "unavailable: " .. text("damage"))
@@ -102,7 +117,7 @@ M.available = true
 ---------------------------------------------------------------- 2. BANK from the BagBrother cache
 S.dirtyBank = true; tick(6)
 local bank = text("bank")
-check(bank:find("items owned: 4 kinds"), "bank header: " .. bank)
+check(bank:find("items in the bank or mail, and overlay items: 4 kinds"), "bank header: " .. bank)
 check(bank:find("\n2589 bank=20 mail=0 bags=19"), "linen: " .. bank)
 check(bank:find("\n3173 bank=0 mail=2 bags=13"), "mail counts: " .. bank)
 check(bank:find("\n818 bank=1 mail=0 bags=0"), "single item: " .. bank)
@@ -113,7 +128,7 @@ check(bank:find("cached money=1g 42s 44c"), "money: " .. bank)
 C.onDoc({ panels = { { id = "squares", children = { { type = "row", children = { { type = "icon", item = 2674 }, { type = "icon", item = "x" } } } } } } }, true, 0)
 check(S.docItems[2674], "overlay items collected")
 w.bagItems["0:1"] = { hyperlink = "|cffffffff|Hitem:2589::|h[Linen Cloth]|h|r", quality = 1, stackCount = 5, itemID = 2589 }
-tick(61)
+tick(121)
 local ah = text("ah_prices")
 check(ah:find("^ah prices %(Auctionator, last scan; copper; item ids%): 2 of 5 items priced"), "ah header: " .. ah)
 local lines = pushed.ah_prices
@@ -128,13 +143,14 @@ _G.Auctionator = saveA
 
 ---------------------------------------------------------------- 4. XP per hour and time to level (AFK time does not count)
 -- 600 xp in 10 active minutes = 3600/h; 20 AFK minutes in between change nothing
-for _ = 1, 40 do XP.xp = XP.xp + 15; tick(15) end                  -- 10 min active, +600
+for i = 1, 600 do if i % 15 == 0 then XP.xp = XP.xp + 15 end; tick(1) end   -- 10 min active, +600
 w.afk = true
-tick(80, 15)                                                       -- 20 min AFK, no XP
+tick(1200)                                                         -- 20 min AFK, no XP
 w.afk = false
-tick(2, 15)
+tick(30)
 local rate = D.xpRate()
-check(rate and math.abs(rate - 3600 * 600 / (600 + 30 + 15)) < 300, "xp/h about 3300-3600, got " .. tostring(rate))
+check(S.xpt.active < 900, "AFK time is not active time: " .. S.xpt.active)
+check(rate and math.abs(rate - 3600 * 600 / S.xpt.active) < 60, "xp/h about 3300-3600, got " .. tostring(rate))
 S.dirtyXp = true; tick(11)
 local xpt = text("xp")
 check(xpt:find("level=5 xp=700 xpmax=1000 pct=70 rested=250"), "xp line: " .. xpt)

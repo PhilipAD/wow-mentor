@@ -353,3 +353,15 @@ class MarketAndRareTests(unittest.TestCase):
         self.assertEqual(r["rares"][1]["rank"], "rare elite")
         self.assertEqual(r["rares"][0]["spawns"], [[44.5, 61.2]])
         self.assertEqual(self.a.gdb.handle("GET", "db/rares", {}, None)[0], 400)
+
+    def test_prices_are_kept_when_an_item_leaves_the_section(self):
+        self.a.on_feed(feed_market({2835: 15}, skills={"Cooking": (82, 150)}))
+        self.a.on_feed(feed_market({4357: 50}, skills={"Cooking": (82, 150)}))           # 2835 left the overlay: its price stays
+        self.assertEqual(self.a.prices, {2835: 15, 4357: 50})
+
+    def test_dear_ah_loses_to_a_remote_vendor(self):
+        self.a.prices = {4357: 9000}                                                       # 0.7 + 3.6 > 1.5
+        sv = self.a._source(self.a.gdb.connect(), 1439, 4357)
+        self.assertEqual((sv["kind"], sv["who"]), ("vendor", "Remote Vendor"))
+        self.a.prices = {}
+        self.assertEqual(self.a._source(self.a.gdb.connect(), 1439, 4357)["kind"], "vendor")   # unknown price: the vendor, as before

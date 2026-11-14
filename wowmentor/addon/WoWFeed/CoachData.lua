@@ -54,7 +54,7 @@ local function meterRead(session, mtype)
 		if type(src) == "table" and (U.bool(src.isLocalPlayer) or (pguid and U.str(src.sourceGUID) == pguid)) then me = src; break end
 	end
 	local out = { duration = U.num(s.durationSeconds) or U.num(try(C_DamageMeter.GetSessionDurationSeconds, session)), total = 0, dps = 0, spells = {} }
-	if not me then return out end
+	if not me then out.missing = true; return out end                               -- not in it (yet), or its fields are still secret
 	out.total = U.num(me.totalAmount)
 	out.dps = U.num(me.amountPerSecond)
 	if out.total == nil then return nil end                                          -- secret: the fight is still on
@@ -96,20 +96,31 @@ function D.readDamage()
 	if not ok then S.dmg.reason = reason; S.dmg.due = nil; S.dirtyDamage = true; return end
 	S.dmg.reason = nil
 	local done = meterRead(DM_SESSION.current, DM_TYPE.done)
-	if not done then return end                                                        -- still secret; try again next tick
 	local taken = meterRead(DM_SESSION.current, DM_TYPE.taken)
+	local unreadable = not done or not taken or (done.missing and taken.missing)
+	if unreadable and U.now() < (S.dmg.deadline or 0) then return end               -- still secret right after combat: try again next tick
 	S.dmg.due = nil
-	local sig = strfmt("%s|%s|%s", val(done.duration), val(done.total), val(taken and taken.total))
-	if sig ~= S.dmg.sig and ((done.total or 0) > 0 or (taken and (taken.total or 0) > 0)) then
+	if not done then return end
+	if taken and taken.missing then taken = nil end
+	local got = (done.total or 0) > 0 or (taken and (taken.total or 0) > 0)
+	local sig = strfmt("%s|%s", val(done.total), val(taken and taken.total))
+	if got and sig ~= S.dmg.sig then
 		S.dmg.sig = sig
 		local fight = { t = U.epoch(), duration = done.duration, done = done, taken = taken }
-		S.dmg.last = fight
 		local h = S.dmg.hist
-		h[#h + 1] = { t = fight.t, duration = done.duration, total = done.total, dps = done.dps, taken = taken and taken.total, top = done.spells[1] and done.spells[1].name }
-		if #h > 20 then table.remove(h, 1) end
+		local row = { t = fight.t, duration = done.duration, total = done.total, dps = done.dps, taken = taken and taken.total, top = done.spells[1] and done.spells[1].name }
+		if S.dmg.fresh or #h == 0 then
+			h[#h + 1] = row                                                           -- a fight that just ended: a new history entry
+			if #h > 20 then table.remove(h, 1) end
+		else
+			h[#h] = row                                                               -- a late update of the same fight (duration settling, fall damage)
+		end
+		S.dmg.last = fight
+		-- the coach's own fight record, when it is the fight that just ended (finishFight skips empty fights, so the newest may be older)
 		local f = S.fights and S.fights[#S.fights]
-		if f and not f.meter then f.meter = { total = done.total, dps = done.dps, taken = taken and taken.total } end
+		if f and f["end"] and U.epoch() - f["end"] <= 15 then f.meter = { total = done.total, dps = done.dps, taken = taken and taken.total } end
 	end
+	S.dmg.fresh = false
 	S.dmg.overall = { done = meterRead(DM_SESSION.overall, DM_TYPE.done), taken = meterRead(DM_SESSION.overall, DM_TYPE.taken) }
 	S.dirtyDamage = true
 end
@@ -137,9 +148,11 @@ function D.damageLines()
 	return L
 end
 
-C.on("PLAYER_REGEN_ENABLED", function() S.dmg.due = U.now() + 0.5 end)
+C.on("PLAYER_REGEN_ENABLED", function() S.dmg.due = U.now() + 0.5; S.dmg.deadline = U.now() + 10; S.dmg.fresh = true end)
+-- chain pulls: a fight that ended less than 0.5 s before the next one starts is read now (out of combat values may still be readable)
+C.on("PLAYER_REGEN_DISABLED", function() if S.dmg.due and S.dmg.fresh then S.dmg.deadline = 0; pcall(D.readDamage) end end)
 C.on("DAMAGE_METER_CURRENT_SESSION_UPDATED", function() if not U.inCombat() then S.dmg.due = S.dmg.due or (U.now() + 0.5) end end)
-C.on("DAMAGE_METER_RESET", function() S.dmg.sig = nil; S.dmg.overall = nil; S.dirtyDamage = true end)
+C.on("DAMAGE_METER_RESET", function() S.dmg.overall = nil; S.dirtyDamage = true end)
 
 ---------------------------------------------------------------- BANK (BagBrother cache)
 local function parseItem(s)
@@ -192,9 +205,12 @@ function D.bankLines()
 	local st, rec = D.storage()
 	if not st then return { "bank: unknown (no BagBrother record for this character yet: open the bank once)" } end
 	local rows = {}
-	for id, w in pairs(st) do rows[#rows + 1] = { id = id, w = w } end
+	-- only what is away from the bags (bank, mail) plus the items the overlay shows: keeps the section small for the strip
+	for id, w in pairs(st) do
+		if (w.bank or 0) + (w.reagent_bank or 0) + (w.mail or 0) > 0 or S.docItems[id] then rows[#rows + 1] = { id = id, w = w } end
+	end
 	table.sort(rows, function(a, b) return a.id < b.id end)
-	local L = { strfmt("items owned: %d kinds (bags, bank, reagent bank, mailbox; BagBrother cache; item ids, names via wowui db item); cached money=%s", #rows,
+	local L = { strfmt("items in the bank or mail, and overlay items: %d kinds (BagBrother cache; item ids, names via wowui db item); cached money=%s", #rows,
 		U.money and U.money(rec.money) or val(rec.money)) }
 	for i = 1, min(#rows, 160) do
 		local r = rows[i]
@@ -206,7 +222,7 @@ end
 
 ---------------------------------------------------------------- AH_PRICES (Auctionator)
 local AH_CALLER = "WoWFeed"
-local AH_MAX = 150
+local AH_MAX = 60
 
 local function ahApi()
 	local A = Auctionator
@@ -265,14 +281,16 @@ local prevOnDoc = C.onDoc
 C.onDoc = function(doc, ...)
 	local out = {}
 	pcall(collectDocItems, doc, out, 0)
+	local changed = false
+	for id in pairs(out) do if not S.docItems[id] then changed = true end end
+	for id in pairs(S.docItems) do if not out[id] then changed = true end end
 	S.docItems = out
-	S.dirtyAh = true
+	if changed then S.dirtyAh = true; S.dirtyBank = true end
 	if prevOnDoc then return prevOnDoc(doc, ...) end
 end
 C.on("AUCTION_HOUSE_CLOSED", function() S.dirtyAh = true end)
 C.on("BANKFRAME_CLOSED", function() S.dirtyBank = true; S.dirtyAh = true end)
 C.on("MAIL_CLOSED", function() S.dirtyBank = true end)
-C.on("BAG_UPDATE_DELAYED", function() S.dirtyAh = true end)
 
 ---------------------------------------------------------------- XP rate
 local XP_WINDOW = 1800
@@ -286,8 +304,6 @@ function D.sampleXP(now)
 	local X = S.xpt
 	local xp, xpm, lvl = xpNow()
 	if not (xp and xpm and lvl) then return end
-	if X.lastT and not S.afk and not S.loading then X.active = X.active + min(now - X.lastT, 30) end
-	X.lastT = now
 	if X.lvl and lvl > X.lvl and X.max then X.base = X.base + X.max * (lvl - X.lvl) end
 	X.lvl, X.max = lvl, xpm
 	local cum = X.base + xp
@@ -409,6 +425,9 @@ ST.tick = function(now)
 	local run = ST.run
 	local function part(name, f, ...) local ok, err = pcall(f, ...); if not ok then C.err(name, err) end end
 	if S.dmg.due and now >= S.dmg.due and not U.inCombat() then part("damage", D.readDamage) end
+	local X = S.xpt
+	if X.lastT and not S.afk and not S.loading then X.active = X.active + min(max(now - X.lastT, 0), 5) end   -- the tick is 1 s; a stall is not play
+	X.lastT = now
 	if now >= nextXp or S.dirtyXp then nextXp = now + 15; part("xp", D.sampleXP, now) end
 	if now >= nextRare then nextRare = now + 2; part("rares", D.scanRares) end
 	if now >= nextThreat then nextThreat = now + 1; part("threat", D.checkThreat) end
@@ -416,6 +435,6 @@ ST.tick = function(now)
 	run("xp", now, 10, 60, "dirtyXp", D.xpLines, 300)
 	run("threat", now, 1, U.inCombat() and 2 or 30, nil, D.threatLines, 30)
 	run("rares", now, 2, 300, "dirtyRares", D.rareLines, 900)
-	run("bank", now, 5, 300, "dirtyBank", D.bankLines, 900)
-	run("ah_prices", now, 60, 600, "dirtyAh", D.ahLines, 1200)
+	run("bank", now, 60, 900, "dirtyBank", D.bankLines, 1800)
+	run("ah_prices", now, 120, 900, "dirtyAh", D.ahLines, 1800)
 end

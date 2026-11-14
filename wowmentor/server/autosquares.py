@@ -149,8 +149,8 @@ class AutoSquares:
         except Exception:
             return
         with self.mu:
-            if prices is not None:
-                self.prices = prices
+            if prices is not None:                    # merge: an item that leaves the overlay keeps its last price (no recipe flip-flop)
+                self.prices = {**self.prices, **prices}
             if have is not None:
                 self.have = have
             if m and mt >= self.map_t:
@@ -386,7 +386,7 @@ class AutoSquares:
                 sp = c.execute("SELECT uimap_id FROM spawn WHERE kind='npc' AND id=? AND uimap_id IN (%s) LIMIT 1" % ",".join(str(x) for x in CAPITALS), (v,)).fetchone()
                 if sp:
                     return {"kind": "vendor", "who": g._name(c, "npc", v), "zone": CAPITALS[sp[0]], "name": name, "cost": 0.6}
-            if not p:
+            if not p or ah["cost"] > 1.5:                # a remote vendor beats an unknown or dear AH price
                 sp = c.execute("SELECT area_id FROM spawn WHERE kind='npc' AND id=? LIMIT 1", (vend[0],)).fetchone()
                 zone = (g._zone(c, sp[0]).get("name") if sp else None) or ""
                 return {"kind": "vendor", "who": g._name(c, "npc", vend[0]), "zone": zone, "name": name, "cost": 1.5}

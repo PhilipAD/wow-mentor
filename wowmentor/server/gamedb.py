@@ -467,7 +467,7 @@ class GameDB:
             except ValueError:
                 continue
             rank = j.get("rank")
-            if rank not in self.RARE_RANKS or (r["flags"] or 0) != 0:
+            if rank not in self.RARE_RANKS or (r["flags"] or 0) & (2 | 128):   # quest givers and vendors are not hunted
                 continue
             mn, mx = r["minlevel"] or 0, r["maxlevel"] or r["minlevel"] or 0
             if level is not None and (mx < level - lo or mn > level + hi):
