@@ -519,15 +519,39 @@ end
 
 -- target macro text: names are stripped to plain characters so nothing can add another macro line (/run etc.)
 local function cleanName(n) return (tostring(n or ""):gsub("[^%w ',%.:%-\128-\255]", "")) end
-local function targetMacro(names)
-	-- the last name found wins, so the most important names come last: when the 255-character limit bites, drop from the front
-	local lines, len = {}, #"/cleartarget"
-	for i = #names, 1, -1 do
-		local line = "\n/targetexact " .. cleanName(names[i]) .. "\n/cleartarget [dead]"     -- /targetexact can land on a corpse
-		if len + #line > 255 then break end
-		table.insert(lines, 1, line); len = len + #line
+-- One macro per group of names that fits the 255-character macrotext limit. Inside a group the FIRST living match wins:
+-- /targetexact keeps the current target when nothing matches, and each later line runs only while there is no target or it is dead
+-- ([noexists][dead] is an OR of the two). Names come most important first. A corpse left at the end is cleared.
+local MACRO_MAX = 255
+local function targetMacros(names)
+	local out, cur, len = {}, nil, 0
+	local tail = "\n/cleartarget [dead]"
+	for _, n in ipairs(names) do
+		local nm = cleanName(n)
+		if nm ~= "" then
+			local line = cur and ("\n/targetexact [noexists][dead]" .. nm) or ("/cleartarget\n/targetexact " .. nm)
+			if cur and len + #line + #tail > MACRO_MAX then
+				out[#out + 1] = table.concat(cur) .. tail
+				cur, line = nil, "/cleartarget\n/targetexact " .. nm
+			end
+			if not cur then cur, len = {}, 0 end
+			cur[#cur + 1] = line; len = len + #line
+		end
 	end
-	return "/cleartarget" .. table.concat(lines)
+	if cur then out[#out + 1] = table.concat(cur) .. tail end
+	return out
+end
+-- After a click (the button-up half, so after the macro ran whichever half runs it): a living listed target resets to the first
+-- group; nothing found moves the next click on to the next group. Out of combat only (attributes are locked in combat).
+local function targetPostClick(self, _, down)
+	if down or not self.wfChunks or #self.wfChunks < 2 or truthy(call(InCombatLockdown)) then return end
+	local hit = false
+	if truthy(call(UnitExists, "target")) and not truthy(call(UnitIsDead, "target")) then
+		local okN, nm = pcall(UnitName, "target")
+		hit = okN and type(nm) == "string" and self.wfNames[nm] == true
+	end
+	self.wfChunk = hit and 1 or ((self.wfChunk or 1) % #self.wfChunks + 1)
+	pcall(self.SetAttribute, self, "macrotext", self.wfChunks[self.wfChunk])
 end
 
 -- hover helpers for icon squares: item/spell tooltip, or a model preview for a creature (npc id)
@@ -540,7 +564,11 @@ local function hoverTip(owner, c)
 	elseif c.targets then
 		GameTooltip:SetText(c.tip or "Target the nearest of these")
 		for _, n in ipairs(c.targets) do GameTooltip:AddLine(cleanName(n), 1, 1, 1) end
-		GameTooltip:AddLine("Click (out of combat): targets the nearest living one", 0.6, 0.8, 1, true)
+		GameTooltip:AddLine("Click (out of combat): targets the first one alive nearby, top of the list first", 0.6, 0.8, 1, true)
+		local b = owner
+		if b and b.wfChunks and #b.wfChunks > 1 then
+			GameTooltip:AddLine(("Nothing targeted? Click again for the next group (%d of %d)"):format(b.wfChunk or 1, #b.wfChunks), 0.6, 0.8, 1, true)
+		end
 	else
 		GameTooltip:SetText(c.tip or c.text or "")
 	end
@@ -611,12 +639,20 @@ render.icon = function(P, c, x, w, y)
 	tex:SetTexture(path or "Interface\\Icons\\INV_Misc_QuestionMark")
 	if hover then tex:SetTexCoord(0.07, 0.93, 0.07, 0.93); tex:SetDrawLayer("ARTWORK", 2) end
 	tex:SetSize(size, size); tex:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y)
+	local secRow
 	if hover then
 		local targets = c.targets or (c.npc and (c.tip or c.text) and { c.tip or c.text }) or nil
 		local row = (targets and nextSecure(P)) or nextRow(P)
 		row:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y); row:SetSize(size, size); row:EnableMouse(true)
 		if targets and row.isSecure and not truthy(call(InCombatLockdown)) then
-			pcall(row.SetAttribute, row, "macrotext", targetMacro(targets))
+			local key = table.concat(targets, "|")
+			if row.wfKey ~= key then                   -- a new list starts at its first group; a relayout keeps the group reached
+				row.wfKey, row.wfChunks, row.wfChunk, row.wfNames = key, targetMacros(targets), 1, {}
+				for _, n in ipairs(targets) do row.wfNames[cleanName(n)] = true end
+			end
+			row:SetScript("PostClick", targetPostClick)
+			pcall(row.SetAttribute, row, "macrotext", row.wfChunks[row.wfChunk] or row.wfChunks[1])
+			if c.text then secRow = row end            -- the label becomes part of the button below
 		end
 		row:SetScript("OnEnter", function(self) pcall(function() if c.npc then hoverModel(self, c) else hoverTip(self, c) end end) end)
 		row:SetScript("OnLeave", hoverOff)
@@ -637,6 +673,10 @@ render.icon = function(P, c, x, w, y)
 		local fsz = c.size or P.t.size
 		local fs = nextFS(P); setFont(fs, P, fsz); fs:SetTextColor(hex(c.color or P.t.text)); fs:SetPoint("TOPLEFT", P.body, "TOPLEFT", x + size + 6, -y)
 		th = measure(fs, w - size - 6, expand(c.text), fsz)
+		if secRow then
+			local okW, tw = pcall(fs.GetStringWidth, fs)
+			secRow:SetSize(min(w, size + 6 + ((okW and tonumber(tw)) or 0)), max(size, th))
+		end
 	end
 	return max(size + (hover and 2 or 0), th)
 end

@@ -298,8 +298,9 @@ class AutoSquares:
         rows = rows[:MAX_ROWS]
         shown = {k["tip"] for r in rows for k in r if k.get("npc")}
         out = [{"type": "heading", "id": "hq", "text": "Quests: kill, then loot" if rows else "Quests: nothing to kill or loot here"}]
-        order = [nm for _n, _p, nm in sorted(names, key=lambda x: (-x[0], x[1])) if nm in shown]   # common first, the rare ones last (last found wins)
-        order = list(dict.fromkeys(order))[-8:]
+        # the game's macro takes the FIRST living match, so the rare ones (few spawns, the best drop chance) lead and the common ones follow
+        order = [nm for _n, _p, nm in sorted(names, key=lambda x: (x[0], -x[1])) if nm in shown]
+        order = list(dict.fromkeys(order))[:8]
         if order:
             out.append({"type": "icon", "id": "qall", "targets": order, "tip": "Target the nearest quest enemy", "texture": "Ability_Hunter_SniperShot",
                         "iconSize": 26, "text": "Target any"})
