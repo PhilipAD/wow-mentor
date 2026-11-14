@@ -200,6 +200,23 @@ local function nextRow(P)
 	r:Show(); r:ClearAllPoints(); r:EnableMouse(false); r:SetScript("OnClick", nil); r:SetScript("OnEnter", nil); r:SetScript("OnLeave", nil)
 	return r
 end
+-- creature squares: a secure button so the player's own click targets the nearest living mob of that name (like Guidelime's previews).
+-- Secure frames cannot be created, moved or hidden in combat, so every touch is out-of-combat only (otherwise the plain hover button is used).
+local function nextSecure(P)
+	if truthy(call(InCombatLockdown)) then S.secureStale = true; return nil end
+	P.secN = (P.secN or 0) + 1
+	P.secure = P.secure or {}
+	local b = P.secure[P.secN]
+	if not b then
+		local ok, bb = pcall(CreateFrame, "Button", nil, P.body, "SecureActionButtonTemplate")
+		if not ok or not bb then return nil end
+		bb:RegisterForClicks("AnyUp", "AnyDown"); bb:SetAttribute("type", "macro"); bb.isSecure = true
+		if bb.SetMouseClickEnabled then bb:SetMouseClickEnabled(true) end
+		b = bb; P.secure[P.secN] = b
+	end
+	b:Show(); b:ClearAllPoints(); b:EnableMouse(true)
+	return b
+end
 local function nextBar(P)
 	P.n.bars = P.n.bars + 1
 	local b = P.bars[P.n.bars]
@@ -217,6 +234,9 @@ local function endPool(P)
 	for i = P.n.tex + 1, #P.tex do P.tex[i]:Hide() end
 	for i = P.n.rows + 1, #P.rows do P.rows[i]:Hide(); P.rows[i]:EnableMouse(false) end
 	for i = P.n.bars + 1, #P.bars do P.bars[i]:Hide() end
+	if P.secure and not truthy(call(InCombatLockdown)) then
+		for i = (P.secN or 0) + 1, #P.secure do P.secure[i]:Hide(); P.secure[i]:EnableMouse(false) end
+	end
 end
 
 local function measure(fs, w, text, size)
@@ -470,8 +490,73 @@ render.timer = function(P, c, x, w, y)
 	return h
 end
 
+-- target macro text: names are stripped to plain characters so nothing can add another macro line (/run etc.)
+local function cleanName(n) return (tostring(n or ""):gsub("[^%w ',%.:%-]", "")) end
+local function targetMacro(names)
+	local m = "/cleartarget"
+	for _, n in ipairs(names) do
+		local line = "\n/targetexact " .. cleanName(n)
+		if #m + #line > 255 then break end
+		m = m .. line
+	end
+	return m
+end
+
+-- hover helpers for icon squares: item/spell tooltip, or a model preview for a creature (npc id)
+local function hoverTip(owner, c)
+	GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
+	if c.item then
+		if GameTooltip.SetItemByID then GameTooltip:SetItemByID(c.item) else GameTooltip:SetHyperlink("item:" .. c.item) end
+	elseif c.spell then
+		if GameTooltip.SetSpellByID then GameTooltip:SetSpellByID(c.spell) else GameTooltip:SetHyperlink("spell:" .. c.spell) end
+	elseif c.targets then
+		GameTooltip:SetText(c.tip or "Target the nearest of these")
+		for _, n in ipairs(c.targets) do GameTooltip:AddLine(cleanName(n), 1, 1, 1) end
+		GameTooltip:AddLine("Click (out of combat): targets the nearest living one", 0.6, 0.8, 1, true)
+	else
+		GameTooltip:SetText(c.tip or c.text or "")
+	end
+	GameTooltip:Show()
+end
+local function hoverModel(owner, c)
+	GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
+	GameTooltip:SetText(c.tip or c.text or "")
+	GameTooltip:AddLine("Click: target the nearest living one", 0.6, 0.8, 1, true)
+	for _ = 1, 12 do GameTooltip:AddLine(" ") end          -- room for the model (the tooltip sizes itself from its lines)
+	if GameTooltip.SetMinimumWidth then GameTooltip:SetMinimumWidth(146) end
+	local m = S.modelTip
+	if not m then
+		local ok, mm = pcall(CreateFrame, "PlayerModel", nil, GameTooltip)
+		if ok and mm then
+			mm:SetSize(130, 150); mm:SetPoint("BOTTOM", GameTooltip, "BOTTOM", 0, 8)
+			mm:SetScript("OnModelLoaded", function(self) S.modelLoaded = S.modelWanted; if GameTooltip:IsShown() then self:SetAlpha(1) end end)
+			S.modelTip = mm; m = mm
+		end
+	end
+	if m then
+		if S.modelLoaded == c.npc then m:SetAlpha(1)
+		else
+			S.modelWanted = c.npc; m:SetAlpha(0)
+			local ok, res = pcall(m.SetCreature, m, c.npc)
+			if (not ok or res == false) and UnitExists and UnitExists("target") and UnitName("target") == (c.tip or c.text) then pcall(m.SetUnit, m, "target") end
+		end
+		m:Show()
+	end
+	GameTooltip:Show()
+end
+local function hoverOff()
+	if S.modelTip then S.modelTip:Hide() end
+	pcall(function() GameTooltip:Hide() end)
+end
+
 render.icon = function(P, c, x, w, y)
 	local size = c.iconSize or 24
+	local hover = (c.item or c.spell or c.npc or c.targets) and true or false
+	local bd
+	if hover then
+		bd = nextTex(P, "ARTWORK"); bd:SetColorTexture(hex(P.t.accent)); bd:SetAlpha(0.7); bd:SetDrawLayer("ARTWORK", 0)
+		bd:SetSize(size + 2, size + 2); bd:SetPoint("TOPLEFT", P.body, "TOPLEFT", x - 1, -y + 1)
+	end
 	local tex = nextTex(P, "ARTWORK")
 	local path
 	pcall(function()
@@ -482,15 +567,41 @@ render.icon = function(P, c, x, w, y)
 			path = tonumber(tname) or (tname:find("\\") and tname or ("Interface\\Icons\\" .. tname))
 		end
 	end)
+	if not path and c.texture then
+		local tname = c.texture
+		path = tonumber(tname) or (tname:find("\\") and tname or ("Interface\\Icons\\" .. tname))
+	end
 	tex:SetTexture(path or "Interface\\Icons\\INV_Misc_QuestionMark")
+	if hover then tex:SetTexCoord(0.07, 0.93, 0.07, 0.93); tex:SetDrawLayer("ARTWORK", 2) end
 	tex:SetSize(size, size); tex:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y)
+	if hover then
+		local targets = c.targets or (c.npc and (c.tip or c.text) and { c.tip or c.text }) or nil
+		local row = (targets and nextSecure(P)) or nextRow(P)
+		row:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y); row:SetSize(size, size); row:EnableMouse(true)
+		if targets and row.isSecure and not truthy(call(InCombatLockdown)) then
+			pcall(row.SetAttribute, row, "macrotext", targetMacro(targets))
+		end
+		row:SetScript("OnEnter", function(self) pcall(function() if c.npc then hoverModel(self, c) else hoverTip(self, c) end end) end)
+		row:SetScript("OnLeave", hoverOff)
+		-- never SetScript("OnClick") on the secure button: that replaces the template's handler and the target macro stops running
+		if not row.isSecure then
+			row:SetScript("OnClick", function()
+				pcall(function()
+					if c.item and IsModifiedClick and IsModifiedClick("CHATLINK") then
+						local _, link = GetItemInfo(c.item)
+						if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
+					end
+				end)
+			end)
+		end
+	end
 	local th = 0
 	if c.text then
 		local fsz = c.size or P.t.size
 		local fs = nextFS(P); setFont(fs, P, fsz); fs:SetTextColor(hex(c.color or P.t.text)); fs:SetPoint("TOPLEFT", P.body, "TOPLEFT", x + size + 6, -y)
 		th = measure(fs, w - size - 6, expand(c.text), fsz)
 	end
-	return max(size, th)
+	return max(size + (hover and 2 or 0), th)
 end
 
 render.divider = function(P, c, x, w, y)
@@ -554,7 +665,7 @@ end
 
 layout = function(P)
 	local d, t = P.data, P.t
-	P.n = { fs = 0, tex = 0, rows = 0, bars = 0 }
+	P.n = { fs = 0, tex = 0, rows = 0, bars = 0 }; P.secN = 0
 	P.dyn = {}
 	local pad = t.padding
 	local w = d.w or 300
@@ -719,6 +830,10 @@ driver:SetScript("OnUpdate", function(_, dt)
 	acc = acc + dt
 	if acc < 0.1 then return end
 	local step = acc; acc = 0
+	if S.secureStale and not truthy(call(InCombatLockdown)) then
+		S.secureStale = false
+		for _, P in pairs(S.panels) do if P.data then P.dirty = true end end
+	end
 	local edit = manualEdit
 	if EditModeManagerFrame and EditModeManagerFrame.IsShown then
 		local okE, shownE = pcall(EditModeManagerFrame.IsShown, EditModeManagerFrame)
