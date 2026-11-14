@@ -77,7 +77,8 @@ W.fire("PLAYER_REGEN_DISABLED")
 M.secret = true
 M.done = { dur = 12.4, total = 900, dps = 72.6, spells = { { spellID = 686, totalAmount = 600, amountPerSecond = 48, overkillAmount = 0 }, { spellID = 172, totalAmount = 300, amountPerSecond = 24 } } }
 M.taken = { dur = 12.4, total = 240, dps = 19, spells = { { spellID = 6603, totalAmount = 240, creatureName = "Murkdeep", isAvoidable = false } } }
-M.overall = { done = { dur = 400, total = 5000, dps = 12.5, spells = M.done.spells }, taken = { dur = 400, total = 1000, dps = 2.5, spells = M.taken.spells } }
+M.overall = { done = { dur = 400, total = 5000, dps = 12.5, spells = M.done.spells }, taken = { dur = 400, total = 1000, dps = 2.5, spells = {
+	{ spellID = 6603, totalAmount = 300 }, { spellID = 6603, totalAmount = 200 }, { spellID = 6603, totalAmount = 100 }, { spellID = 686, totalAmount = 400, creatureName = "Dark Caster" } } } }
 tick(3)
 check(#S.errors == 0, "no errors while the meter is secret: " .. table.concat(S.errors, " | "))
 w.combat = false
@@ -91,6 +92,7 @@ check(dmg:find("last fight: %S+ 12.4s dealt=900 dps=72.6 taken=240"), "last figh
 check(dmg:find("dealt by spell: Shadow Bolt 600 %(67%%%); Corruption 300 %(33%%%)"), "spell breakdown: " .. dmg)
 check(dmg:find("taken by spell: Melee from Murkdeep 240 %(100%%%)"), "damage taken by source: " .. dmg)
 check(dmg:find("session: 400s dealt=5000 dps=12.5 taken=1000"), "session line: " .. dmg)
+check(dmg:find("taken by spell: Melee 600 %(60%%%) x3; Shadow Bolt from Dark Caster 400 %(40%%%)"), "same-spell rows merged: " .. dmg)
 check(dmg:find("recent fights dps/duration %(newest first%): 72.6/12s"), "history: " .. dmg)
 -- the same session read again (no new fight) is not a new history entry
 S.dmg.due = 0; tick(2)
