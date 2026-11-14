@@ -32,7 +32,7 @@ S.docItems = S.docItems or {}
 
 ---------------------------------------------------------------- DAMAGE (C_DamageMeter)
 local DM_SESSION = { overall = 0, current = 1 }
-local DM_TYPE = { done = 0, taken = 7 }
+local DM_TYPE = { done = 0, taken = 7, interrupts = 5, dispels = 6, avoidable = 8 }
 local TOP_SPELLS = 8
 
 function D.meterAvailable()
@@ -134,10 +134,12 @@ function D.readDamage()
 		S.dmg.last = fight
 		-- the coach's own fight record, when it is the fight that just ended (finishFight skips empty fights, so the newest may be older)
 		local f = S.fights and S.fights[#S.fights]
-		if f and f["end"] and U.epoch() - f["end"] <= 15 then f.meter = { total = done.total, dps = done.dps, taken = taken and taken.total } end
+		if f and f["end"] and U.epoch() - f["end"] <= 15 then f.meter = { total = done.total, dps = done.dps, taken = taken and taken.total }; S.dirtyFights = true end
 	end
 	S.dmg.fresh = false
-	S.dmg.overall = { done = meterRead(DM_SESSION.overall, DM_TYPE.done), taken = meterRead(DM_SESSION.overall, DM_TYPE.taken) }
+	S.dmg.overall = { done = meterRead(DM_SESSION.overall, DM_TYPE.done), taken = meterRead(DM_SESSION.overall, DM_TYPE.taken),
+		avoidable = meterRead(DM_SESSION.overall, DM_TYPE.avoidable), interrupts = meterRead(DM_SESSION.overall, DM_TYPE.interrupts),
+		dispels = meterRead(DM_SESSION.overall, DM_TYPE.dispels) }
 	S.dirtyDamage = true
 end
 
@@ -157,6 +159,9 @@ function D.damageLines()
 			val(o.taken and o.taken.total))
 		L[#L + 1] = "  dealt by spell: " .. spellText(o.done)
 		L[#L + 1] = "  taken by spell: " .. spellText(o.taken, true)
+		if o.avoidable and (o.avoidable.total or 0) > 0 then L[#L + 1] = "  avoidable damage taken: " .. spellText(o.avoidable, true) end
+		L[#L + 1] = strfmt("  interrupts=%s dispels=%s", val(o.interrupts and not o.interrupts.missing and o.interrupts.total or 0),
+			val(o.dispels and not o.dispels.missing and o.dispels.total or 0))
 	end
 	local h, parts = S.dmg.hist, {}
 	for i = #h, max(1, #h - 9), -1 do parts[#parts + 1] = strfmt("%s/%ss", val(h[i].dps and U.round1(h[i].dps)), val(h[i].duration and floor(h[i].duration + 0.5))) end
@@ -359,10 +364,46 @@ function D.xpLines()
 	local ttl = (rate and rate > 0 and need) and floor(need * 60 / rate + 0.5) or nil
 	L[#L + 1] = strfmt("xp_per_hour=%s window_min=%s time_to_level_min=%s", rate and tostring(floor(rate + 0.5)) or "unknown", span and tostring(floor(span / 60)) or "unknown", val(ttl))
 	L[#L + 1] = strfmt("session: gained=%d from_kills=%d other=%d active_min=%d", X.gained or 0, X.kill, max(0, (X.gained or 0) - X.kill), floor(X.active / 60))
+	local q = D.questXP()
+	if q then
+		L[#L + 1] = strfmt("quest xp in the log: ready_to_hand_in=%d (%d quests) in_progress=%d (%d quests) unknown=%d%s", q.ready, q.nReady, q.open, q.nOpen, q.unknown,
+			need and need > 0 and strfmt(" covers_%d%%_of_level", floor((q.ready + q.open) * 100 / need)) or "")
+		for i = 1, min(#q.list, 8) do
+			local r = q.list[i]
+			L[#L + 1] = strfmt("  %d xp %s%s #%d", r.xp, clean(r.title), r.done and " [ready]" or "", r.id)
+		end
+	end
 	return L
 end
 
+-- XP each quest in the log pays (GetQuestLogRewardXP; the client may hide it for some quests: those count as unknown)
+function D.questXP()
+	local QL = C_QuestLog
+	if not (QL and QL.GetNumQuestLogEntries and QL.GetInfo) then return nil end
+	local fn = GetQuestLogRewardXP or (QL.GetQuestRewardXP)
+	if type(fn) ~= "function" then return nil end
+	local out = { ready = 0, open = 0, nReady = 0, nOpen = 0, unknown = 0, list = {} }
+	local n = U.num(try(QL.GetNumQuestLogEntries)) or 0
+	for i = 1, min(n, 60) do
+		local info = try(QL.GetInfo, i)
+		local id = type(info) == "table" and U.num(info.questID)
+		if id and id > 0 and not U.bool(info.isHeader) then
+			local xp = U.num(try(fn, id))
+			local done = U.bool(try(QL.IsComplete, id)) or false
+			if xp and xp > 0 then
+				if done then out.ready = out.ready + xp; out.nReady = out.nReady + 1 else out.open = out.open + xp; out.nOpen = out.nOpen + 1 end
+				out.list[#out.list + 1] = { id = id, xp = xp, done = done, title = U.str(info.title) or ("quest " .. id) }
+			else
+				out.unknown = out.unknown + 1
+			end
+		end
+	end
+	table.sort(out.list, function(a, b) if a.done ~= b.done then return a.done end return a.xp > b.xp end)
+	return out
+end
+
 C.on("PLAYER_XP_UPDATE", function() S.dirtyXp = true end)
+C.on("QUEST_LOG_UPDATE", function() S.dirtyXp = true end)
 C.on("CHAT_MSG_COMBAT_XP_GAIN", function(msg)
 	if type(msg) ~= "string" or secret(msg) then return end
 	if msg:find(" dies, ") then

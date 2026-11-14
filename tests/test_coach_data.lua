@@ -94,6 +94,10 @@ check(dmg:find("taken by spell: Melee from Murkdeep 240 %(100%%%)"), "damage tak
 check(dmg:find("session: 400s dealt=5000 dps=12.5 taken=1000"), "session line: " .. dmg)
 check(dmg:find("taken by spell: Melee 600 %(60%%%) x3; Shadow Bolt from Dark Caster 400 %(40%%%)"), "same-spell rows merged: " .. dmg)
 check(dmg:find("recent fights dps/duration %(newest first%): 72.6/12s"), "history: " .. dmg)
+S.fights[#S.fights + 1] = { start = W.epoch - 13, ["end"] = W.epoch, duration = 12.4, result = "won", taken = 0, dealt = 0, kills = 1, mana = 0, casts = {}, castN = 0, dups = {},
+	meter = { total = 900, dps = 72.6, taken = 240 } }
+local fl = table.concat(C.state.fightLines(), "\n")
+check(fl:find("taken=240 dealt=900 dps=72.6"), "FIGHTS uses the meter totals: " .. fl)
 -- the same session read again (no new fight) is not a new history entry
 S.dmg.due = 0; tick(2)
 check(#S.dmg.hist == 1, "no duplicate fight, got " .. #S.dmg.hist)
@@ -155,7 +159,13 @@ local rate = D.xpRate()
 check(S.xpt.active < 900, "AFK time is not active time: " .. S.xpt.active)
 check(rate and math.abs(rate - 3600 * 600 / S.xpt.active) < 60, "xp/h about 3300-3600, got " .. tostring(rate))
 S.dirtyXp = true; tick(11)
+w.quests = { { questID = 4740, title = "WANTED: Murkdeep!", complete = true }, { questID = 986, title = "A Lost Master" }, { questID = 1, title = "Darkshore", isHeader = true },
+	{ questID = 1141, title = "The Family and the Fishing Pole" } }
+_G.GetQuestLogRewardXP = function(id) return ({ [4740] = 1650, [986] = 1400 })[id] end
+S.dirtyXp = true; tick(11)
 local xpt = text("xp")
+check(xpt:find("quest xp in the log: ready_to_hand_in=1650 %(1 quests%) in_progress=1400 %(1 quests%) unknown=1"), "quest xp: " .. xpt)
+check(xpt:find("  1650 xp WANTED: Murkdeep! %[ready%] #4740\n  1400 xp A Lost Master #986"), "quest xp list: " .. xpt)
 check(xpt:find("level=5 xp=700 xpmax=1000 pct=70 rested=250"), "xp line: " .. xpt)
 check(xpt:find("xp_per_hour=%d+ window_min=%d+ time_to_level_min=%d+"), "rate line: " .. xpt)
 -- a level-up keeps the cumulative count going
