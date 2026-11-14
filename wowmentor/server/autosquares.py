@@ -15,6 +15,7 @@ import json, re, threading, time
 
 QUEST_ROW = re.compile(r"^(q\d+|hp\d+|p\d+_\d+)$")       # quest rows, profession headings and rows (all generated here)
 OURS = ("hq", "qall")
+PROF_ROW = re.compile(r"^(hp\d+|p\d+_\d+)$")
 LEGACY = {"hc", "c1", "c2", "hf", "f1", "he", "e1", "ha", "a1"}  # hand-made profession rows from before: replaced by generated ones
 CRAFTING = ("Engineering", "Alchemy", "Blacksmithing", "Leatherworking", "Tailoring", "Enchanting", "Cooking", "First Aid")
 RANKS = ((75, 0, 0, "Apprentice"), (150, 50, 10, "Journeyman"), (225, 125, 20, "Expert"), (300, 200, 35, "Artisan"))   # cap, skill, level to train
@@ -433,7 +434,9 @@ class AutoSquares:
             if not m:
                 return
             with self.mu:
-                skills, level = dict(self.skills), self.level
+                skills, level, known = dict(self.skills), self.level, self.feed_t is not None
+            if not known:
+                return                                  # right after a restart: wait for the QUESTS section, never blank the panel
             sig = (m, tuple(quests), tuple(sorted(skills.items())), level)
             with self.lock:
                 panel = next((p for p in self.get_doc().panels if p.get("id") == "squares"), None)
@@ -443,12 +446,13 @@ class AutoSquares:
                 if sig == self.sig and self.ours is not None and json.dumps(self._current_ours(panel), sort_keys=True) == self.ours:
                     return                              # nothing changed and nobody rewrote our rows
             ours, dropped, skipped = self.build(m, quests)
-            prof = []
-            try:
-                prof = self.build_professions(m, skills, level)
-            except Exception as e:                      # professions must never block the quest squares
-                skipped.append("professions: %s" % type(e).__name__)
-            ours = ours + prof
+            prof, keep_prof = [], not skills            # PROFESSIONS not seen yet: keep whatever profession rows are there
+            if skills:
+                try:
+                    prof = self.build_professions(m, skills, level)
+                except Exception as e:                  # professions must never block the quest squares
+                    skipped.append("professions: %s" % type(e).__name__)
+                    keep_prof = True
             invalid = []
             with self.lock:
                 doc = self.get_doc()
@@ -456,6 +460,8 @@ class AutoSquares:
                 if panel is None:
                     return
                 legacy = LEGACY if prof else set()      # hand-made profession rows go only once generated ones replace them
+                old_prof = [ch for ch in panel.get("children", []) if PROF_ROW.match(str(ch.get("id") or ""))] if keep_prof else []
+                ours = ours + (prof or old_prof)
                 rest = [ch for ch in panel.get("children", []) if not (ch.get("id") in OURS or ch.get("id") in legacy or QUEST_ROW.match(str(ch.get("id") or "")))]
                 try:
                     self.apply_ops(doc, [{"op": "panel", "id": "squares", "children": ours + rest}])

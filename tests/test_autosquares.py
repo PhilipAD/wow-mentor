@@ -237,6 +237,12 @@ class ProfessionSquaresTests(unittest.TestCase):
         self.a.on_feed(feed_prof({"Cooking": (165, 225)})); self.a.run()                   # every recipe grey now
         self.assertIn("no trainer recipe gives points now", self.kids()["hp1"]["text"])
 
+    def test_no_rebuild_before_the_sections_arrive(self):
+        self.a.on_feed(b"--- FAST (updated 0s ago) ---\nPosition: map=1439 (D) x=1 y=2\n")          # a restart: no QUESTS, no PROFESSIONS yet
+        self.a.run()
+        self.assertIn("hc", self.kids())                                                    # untouched
+        self.assertNotIn("hq", self.kids())
+
     def test_skill_chance_formula(self):
         self.assertEqual(autosquares.skill_chance(82, 115, 155), 1.0)
         self.assertAlmostEqual(autosquares.skill_chance(125, 115, 155), 0.75)
