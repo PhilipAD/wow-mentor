@@ -71,6 +71,13 @@ def sections(text):
     return out
 
 
+def _newer(at, seq, old):
+    """Is the event (at, seq) newer than the remembered one? Without sequence numbers a tie goes to the one that arrived last."""
+    if at != old[0]:
+        return at > old[0]
+    return seq > old[2] if seq and old[2] else True
+
+
 def feed_state(body, now=None):
     """(map, map_time, {quest: status} or None, quests_time) from a feed body; times are server epoch seconds (None when unknown)."""
     now = time.time() if now is None else now
@@ -204,10 +211,10 @@ class AutoSquares:
         # and a redelivered copy of an older event (same or lower key) never overwrites a newer one
         old = self.ev.get(q)
         if self._reflected(q, at, present):
-            if old and (at, seq) > (old[0], old[2]):
+            if old and _newer(at, seq, old):
                 del self.ev[q]                         # the section shows this newer event: an older remembered one is void
             return
-        if not old or (at, seq) > (old[0], old[2]):
+        if not old or _newer(at, seq, old):
             self.ev[q] = (at, present, seq)
 
     def quests(self):
