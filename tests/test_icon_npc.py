@@ -55,6 +55,13 @@ class IconHover(unittest.TestCase):
         out, errs = self.norm({"type": "icon", "targets": ["A"] * 9})
         self.assertTrue(errs)
 
+    def test_quest_field_on_squares(self):
+        out, errs = self.norm({"type": "icon", "npc": 2235, "tip": "Reef Crawler", "quest": 1138, "texture": "Ability_Hunter_Pet_Crab"})
+        self.assertEqual(errs, [])
+        self.assertEqual(out["quest"], 1138)
+        out, errs = self.norm({"type": "icon", "item": 12237, "quest": "x"})
+        self.assertTrue(errs)
+
 
 if __name__ == "__main__":
     unittest.main()
