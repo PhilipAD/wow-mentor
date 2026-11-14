@@ -136,3 +136,10 @@ Run `wowmentor profile` and fill in the text file: your character, goals, playst
 - Local links only work from programs on your computer. For anything else use `wowmentor share on`.
 - After `wowmentor rotate-secrets` the old links are dead. Run `wowmentor links` and paste again.
 - See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+
+## Preview squares (icon components)
+
+`icon` squares work like Guidelime's previews: hover an `item` or `spell` square for its tooltip, hover an `npc` square for a 3D model, and click an `npc` square
+(out of combat) to target the nearest living mob whose exact name is in `tip`. Put them in a `row` (two per row fits a narrow panel). Update them with
+`wowui component <panel> '<row json>'`; the same `id` replaces the row. Look up ids with `wowui db npc --name X` and `wowui db item --name X`.

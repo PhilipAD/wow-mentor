@@ -153,7 +153,7 @@ COMPONENT_FIELDS = {
                  "fill": _color},
     "callout": {"text": _str, "title": _str, "level": _enum(LEVELS)},
     "timer": {"text": _str, "until": _num(0, 4e9), "seconds": _num(0, 864000), "format": _enum(("clock", "words"))},
-    "icon": {"text": _str, "spell": _int(1, 10_000_000), "item": _int(1, 10_000_000), "texture": _str, "iconSize": _num(12, 64)},
+    "icon": {"text": _str, "tip": _str, "spell": _int(1, 10_000_000), "item": _int(1, 10_000_000), "npc": _int(1, 10_000_000), "texture": _str, "iconSize": _num(12, 64)},
     "divider": {"thickness": _num(1, 4)},
     "spacer": {"height": _num(1, 80)},
     "kv": {"keyColor": _color},
@@ -286,8 +286,8 @@ def normalize_component(c, errs, path, depth=0):
         errs.append("%s: progress needs value (and max) or bind" % path)
     if t == "timer" and "until" not in out and "seconds" not in out:
         errs.append("%s: timer needs until (epoch seconds) or seconds" % path)
-    if t == "icon" and not any(k in out for k in ("spell", "item", "texture")):
-        errs.append("%s: icon needs spell, item or texture" % path)
+    if t == "icon" and not any(k in out for k in ("spell", "item", "texture", "npc")):
+        errs.append("%s: icon needs spell, item, npc or texture" % path)
     return out
 
 
@@ -1054,7 +1054,11 @@ padding, gap, collapsed, collapsible, draggable, interactive, header, ttl, pin, 
 idleFade, idleAlpha, hideWhenMounted, hideInInstance, minLevel, maxLevel}}, children[].
 Components (type): heading, text, checklist (items: id, text, done, note, priority high|med|low), progress (bind bags|durability,
 or value+max; label), kv (rows [[k,v]]), callout (level info|tip|good|warn|bad, title, text), timer (until epoch | seconds), icon
-(spell|item|texture id, text), divider, spacer, row (up to 6 side-by-side simple components).
+(spell|item|npc|texture id, text, tip, iconSize 12-64), divider, spacer, row (up to 6 side-by-side simple components).
+Preview squares (icon): `item` or `spell` shows that tooltip on hover; `npc` (creature id from `wowui db npc --name X`) shows a 3D model on hover and, when the
+player clicks it out of combat, targets the nearest living mob named `tip` (set tip to the exact creature name; texture = an Interface\\Icons name for the square).
+A row of two squares: `wowui component squares '{{"type":"row","id":"r1","children":[{{"type":"icon","npc":2237,"tip":"Moonstalker Sire","texture":"Ability_Hunter_Pet_Cat","iconSize":32}},{{"type":"icon","item":2589,"tip":"Linen Cloth","iconSize":32}}]}}'`
+(same id replaces it). Edit the squares with the zone: item ids from `wowui db item --name X`, never invent ids.
 Text markup: [c=#ff8800]colour[/c]; live variables {{player}} {{class}} {{zone}} {{subzone}} {{x}} {{y}} {{gold}} {{bags}};
 links {{item:ID}} {{spell:ID}} {{quest:ID:Name}}. Colours are #rrggbb or names (gold, red, green, cyan...). Theme tokens: accent, bg,
 bgAlpha, border, text, muted, good, warn, bad, font, size, padding, gap, shadow, outline.
