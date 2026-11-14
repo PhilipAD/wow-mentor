@@ -162,15 +162,21 @@ local function parseItem(s)
 	return id, tonumber(s:match(";(%d+)$")) or 1
 end
 
--- the BagBrother record of this character (realm key varies by client, so the name decides), or nil
+-- the BagBrother record of this character, or nil. Forever characters have a surname and BagBrother keys them "Name Surname"
+-- under the realm "forever" (UnitFullName there returns name, surname); elsewhere the key is the name under the normalized realm.
 function D.brother()
 	if type(BrotherBags) ~= "table" then return nil end
-	local me = U.unitName("player")
-	if not me then return nil end
-	local realm = U.str(try(GetRealmName))
-	if realm and type(BrotherBags[realm]) == "table" and type(BrotherBags[realm][me]) == "table" then return BrotherBags[realm][me] end
-	for k, owners in pairs(BrotherBags) do
-		if k ~= "account" and type(owners) == "table" and type(owners[me]) == "table" then return owners[me] end
+	local ids = {}
+	local name, surname = try(UnitFullName, "player")
+	name, surname = U.str(name), U.str(surname)
+	if name and surname and surname ~= "" then ids[#ids + 1] = name .. " " .. surname end
+	if name then ids[#ids + 1] = name end
+	local plain = U.unitName("player")
+	if plain then ids[#ids + 1] = plain end
+	for _, me in ipairs(ids) do
+		for k, owners in pairs(BrotherBags) do
+			if k ~= "account" and type(owners) == "table" and type(owners[me]) == "table" then return owners[me] end
+		end
 	end
 	return nil
 end

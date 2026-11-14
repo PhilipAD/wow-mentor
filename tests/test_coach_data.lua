@@ -45,7 +45,8 @@ _G.Auctionator = { API = { v1 = {
 	GetAuctionAgeByItemID = function(_, id) return AH[id] and 1 or nil end,
 	GetVendorPriceByItemID = function(_, id) return id == 2589 and 10 or nil end,
 } } }
-_G.BrotherBags = { forever = { Tester = {
+_G.UnitFullName = function() return "Tester", "Surname" end      -- Forever: first name and surname; BagBrother keys "Tester Surname"
+_G.BrotherBags = { forever = { ["Tester Surname"] = {
 	[0] = { items = { "2589;5" }, size = 16 },
 	{ items = { "3173;13", [3] = "2589;14" }, size = 8 },
 	[5] = {},
