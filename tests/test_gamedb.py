@@ -171,3 +171,48 @@ class SquaresTests(unittest.TestCase):
         self.assertFalse(r["quests"][0]["nothing_here"])
         self.assertEqual(r["items"][0]["droppedHereBy"][0]["name"], "Moonstalker")
         self.assertEqual(g.handle("GET", "db/squares", {"quests": ["986"]}, None)[0], 400)
+
+
+class AddonLootTests(unittest.TestCase):
+    def addons(self):
+        a = tempfile.mkdtemp()
+        os.makedirs(os.path.join(a, "TnnysMobLoot")); os.makedirs(os.path.join(a, "NeedRoll", "Data", "Dungeons"))
+        open(os.path.join(a, "TnnysMobLoot", "ForeverData.lua"), "w").write(
+            'TnnysMobLoot_Forever = {\nnpc = {\n[2069]={"Moonstalker","5134:50.5:20:40,5413:12:5:40"},\n},\nfrom = {}\n}\n')
+        open(os.path.join(a, "TnnysMobLoot", "StarterData.lua"), "w").write(
+            'TnnysMobLoot_Starter = {\nnpc={\n[2069]={"5134:55.97,5413:20:q,818:0.1","",0,"Moonstalker",14,15,1},\n[2235]={"2674:38.46","",0,"Reef Crawler",15,17,1},\n},\nfrom={}\n}\n')
+        open(os.path.join(a, "NeedRoll", "Data", "Dungeons", "Deadmines.lua"), "w").write(
+            'ns.Data:Register({\n    id = "DEADMINES",\n    name = "The Deadmines",\n    category = "DUNGEON",\n    levelRange = { 17, 26 },\n    encounters = {\n'
+            '        { id = "RHAHKZOR", name = "Rhahk\'Zor", loot = {\n            { itemID = 872, dropRate = 0.0491 },\n            { itemID = 10400 },\n        } },\n'
+            '        { id = "SNEED", name = "Sneed", npc = 643, loot = {\n            { itemID = 5195, dropRate = 0.12 },\n        } },\n    },\n})\n')
+        return a
+
+    def test_parsers(self):
+        a = self.addons()
+        rows = build.drop_rows(a)
+        self.assertIn((2069, 5134, 50.5, 40, "forever", 0), rows)
+        self.assertIn((2069, 5413, 20.0, None, "classic", 1), rows)                   # quest item kept
+        self.assertNotIn(818, [r[1] for r in rows])                                   # rare classic world drop left out
+        b = build.boss_rows(a)
+        self.assertIn(("DEADMINES", "The Deadmines", "DUNGEON", "17-26", "Rhahk'Zor", None, 872, 0.0491), b)
+        self.assertIn(("DEADMINES", "The Deadmines", "DUNGEON", "17-26", "Sneed", 643, 5195, 0.12), b)
+        self.assertEqual(len(b), 3)
+
+    def test_routes_prefer_forever_rates(self):
+        d = tempfile.mkdtemp()
+        make_db(os.path.join(d, "forever.sqlite"))
+        c = sqlite3.connect(os.path.join(d, "forever.sqlite"))
+        c.execute("INSERT INTO npc VALUES(2069,'Moonstalker','',14,15,0,148,'{}')")
+        c.execute("INSERT INTO item VALUES(5134,'Small Furry Paw',10,0,15,0,NULL,'{}')")
+        c.executemany("INSERT INTO drop_rate VALUES(?,?,?,?,?,?)", build.drop_rows(self.addons()))
+        c.executemany("INSERT INTO boss_loot VALUES(?,?,?,?,?,?,?,?)", build.boss_rows(self.addons()))
+        c.commit(); c.close()
+        g = GameDB(d)
+        code, r = g.handle("GET", "db/drops", {"npc": ["Moonstalker"]}, None)
+        self.assertEqual(code, 200, r)
+        paw = [x for x in r["npcs"][0]["drops"] if x["item"] == 5134][0]
+        self.assertEqual((paw["pct"], paw["source"], paw["kills"]), (50.5, "forever", 40))   # measured beats the estimate
+        code, r = g.handle("GET", "db/boss", {"name": ["Deadmines"]}, None)
+        self.assertEqual((code, r["count"]), (200, 3))
+        self.assertEqual([x["pct"] for x in r["loot"] if x["item"] == 872], [4.91])
+        self.assertEqual(g.handle("GET", "db/drops", {}, None)[0], 400)

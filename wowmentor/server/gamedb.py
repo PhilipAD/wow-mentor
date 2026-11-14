@@ -48,7 +48,7 @@ class GameDB:
                 return 200, self.status()
             fn = getattr(self, "r_" + sub, None)
             if not fn:
-                raise DbError("unknown db route %r (status quest npc item object search find_quests trainers chain waypoint route spots squares training validate)" % sub, 404)
+                raise DbError("unknown db route %r (status quest npc item object search find_quests trainers chain waypoint route spots squares drops boss training validate)" % sub, 404)
             with self.lock:
                 c = self.connect()
                 try:
@@ -391,6 +391,70 @@ class GameDB:
                         "total_spawn_points": sum(v["n"] for v in cells.values())})
         return {"creatures": out, "note": "spawn points are Questie's; patrols and rare spawns have few points. The first cluster is where most of them stand."}
 
+    def _has(self, c, tbl):
+        return c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl,)).fetchone() is not None
+
+    def _rates(self, c, npc=None, item=None):
+        """Drop rates from Tnny's Mob Loot: Forever-measured first (with kills), Classic estimates where Forever has none for that pair."""
+        if not self._has(c, "drop_rate"):
+            return []
+        col, val = ("npc", npc) if npc is not None else ("item", item)
+        best = {}
+        for r in c.execute("SELECT npc, item, pct, kills, src, quest FROM drop_rate WHERE %s=?" % col, (val,)):
+            k = (r["npc"], r["item"])
+            if k not in best or (best[k]["src"] == "classic" and r["src"] == "forever"):
+                best[k] = dict(r)
+        return sorted(best.values(), key=lambda d: -d["pct"])
+
+    def r_drops(self, c, q):
+        """What a creature drops, or which creatures drop an item, with drop chances (Tnny's Mob Loot: Forever-measured rates from Everloot
+        with their kill counts, else labelled Classic estimates). npc=<id|name> or item=<id|name>; with map=<uiMapId> only creatures there."""
+        if not self._has(c, "drop_rate"):
+            raise DbError("no drop rates on the server: install Tnny's Mob Loot on the player's Mac; the bridge then rebuilds and uploads the database", 503)
+        m = _q(q, "map")
+        if _q(q, "npc"):
+            rows = self._one(c, "npc", _q(q, "npc"))
+            if not rows:
+                raise DbError("no npc matches", 404)
+            out = []
+            for r in rows[:3]:
+                drops = [{"item": d["item"], "name": self._name(c, "item", d["item"]), "pct": d["pct"], "kills": d["kills"], "source": d["src"],
+                          "quest_item": bool(d["quest"])} for d in self._rates(c, npc=r["id"])[:40]]
+                out.append({"npc": r["id"], "name": r["name"], "level": [r["minlevel"], r["maxlevel"]], "drops": drops})
+            return {"npcs": out, "note": "source forever = measured on Forever (kills = sample size); classic = CMaNGOS estimate"}
+        if _q(q, "item"):
+            rows = self._one(c, "item", _q(q, "item"))
+            if not rows:
+                raise DbError("no item matches", 404)
+            out = []
+            for r in rows[:3]:
+                lst = []
+                for d in self._rates(c, item=r["id"]):
+                    if m and not c.execute("SELECT 1 FROM spawn WHERE kind='npc' AND id=? AND uimap_id=? LIMIT 1", (d["npc"], int(m))).fetchone():
+                        continue
+                    lst.append({"npc": d["npc"], "name": self._name(c, "npc", d["npc"]), "pct": d["pct"], "kills": d["kills"], "source": d["src"]})
+                out.append({"item": r["id"], "name": r["name"], "droppedBy": lst[:40]})
+            return {"items": out, "note": "best chance first; source forever = measured on Forever, classic = estimate"}
+        raise DbError("pass npc=<id|name> or item=<id|name> [map=<uiMapId>]")
+
+    def r_boss(self, c, q):
+        """Dungeon and raid boss loot with drop chances (NeedRoll's tables, Wowhead Forever rates where known).
+        name=<boss or instance name>, or item=<id|name> for which bosses drop it."""
+        if not self._has(c, "boss_loot"):
+            raise DbError("no boss loot on the server: install NeedRoll on the player's Mac; the bridge then rebuilds and uploads the database", 503)
+        if _q(q, "item"):
+            ids = [r["id"] for r in self._one(c, "item", _q(q, "item"))[:3]]
+            rows = [dict(r) for i in ids for r in c.execute("SELECT * FROM boss_loot WHERE item=?", (i,))]
+        elif _q(q, "name"):
+            n = "%" + _q(q, "name") + "%"
+            rows = [dict(r) for r in c.execute("SELECT * FROM boss_loot WHERE boss LIKE ? OR instance_name LIKE ? OR instance LIKE ? LIMIT 300", (n, n, n))]
+        else:
+            raise DbError("pass name=<boss or instance> or item=<id|name>")
+        out = [{"instance": r["instance_name"], "levels": r["levels"], "boss": r["boss"], "item": r["item"], "name": self._name(c, "item", r["item"]),
+                "pct": round(r["rate"] * 100, 2) if r["rate"] is not None else None} for r in rows]
+        out.sort(key=lambda d: (d["instance"] or "", d["boss"] or "", -(d["pct"] or -1)))
+        return {"count": len(out), "loot": out[:200], "note": "pct is None where NeedRoll has no rate yet"}
+
     def r_squares(self, c, q):
         """Everything worth a preview square in one map: for each given quest, every creature IN THAT MAP that is a kill objective or drops an
         objective item (full drop list, not capped), plus objects there that hold an objective; for each given item, every creature in the map
@@ -418,8 +482,15 @@ class GameDB:
             if not r:
                 return {"item": iid, "name": None, "droppedHereBy": [], "objectsHere": []}
             j = json.loads(r["json"])
-            return {"item": iid, "name": r["name"], "droppedHereBy": here("npc", j.get("npcDrops") or []),
-                    "objectsHere": here("object", j.get("objectDrops") or [])}
+            rates = {d["npc"]: d for d in self._rates(c, item=iid)}
+            ids = list(dict.fromkeys((j.get("npcDrops") or []) + list(rates)))
+            by = here("npc", ids)
+            for b in by:
+                d = rates.get(b["id"])
+                if d:
+                    b["pct"], b["kills"], b["source"] = d["pct"], d["kills"], d["src"]
+            by.sort(key=lambda b: (-(b.get("pct") or 0), -b["spawn_points"]))
+            return {"item": iid, "name": r["name"], "droppedHereBy": by, "objectsHere": here("object", j.get("objectDrops") or [])}
 
         out_q = []
         for qid in quests:

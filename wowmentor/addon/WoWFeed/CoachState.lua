@@ -400,6 +400,66 @@ local function statText(st)
 	return tconcat(out, ",")
 end
 
+-- Forever Leveling BiS (optional addon): the same score and gain its tooltips show, for the spec the player picked in it
+local function flb()
+	local F = ForeverLevelingBiS_API
+	if type(F) == "table" and (F.version or 1) >= 2 then return F end
+end
+local function bisText(link)
+	local F = flb()
+	if not (F and link) then return "" end
+	local okS, score, loadingS = pcall(F.ScoreItem, link)
+	local okG, gain, loadingG = pcall(F.GetGain, link)
+	local parts = {}
+	if okS and type(score) == "number" then parts[#parts + 1] = strfmt("score=%.1f", score) end
+	if okG and type(gain) == "number" then parts[#parts + 1] = strfmt("gain=%+.1f", gain) end
+	if (okS and loadingS == true) or (okG and loadingG == true) then parts[#parts + 1] = "loading" end
+	if #parts == 0 then return "" end
+	return " | bis " .. tconcat(parts, " ")
+end
+ST.bisText = bisText
+
+function ST.bisLines()
+	local F = flb()
+	if not F then return { "Forever Leveling BiS is not installed or not loaded (its API ForeverLevelingBiS_API v2 is missing)" } end
+	if not S.bisHooked then S.bisHooked = true; pcall(F.OnChanged, function() S.dirtyBis = true end) end
+	local L = {}
+	local okP, spec, setup, classFile = pcall(F.GetSpec)
+	L[#L + 1] = strfmt("spec=%s setup=%s class=%s (the spec the player picked in Forever Leveling BiS; Forever cannot detect talents)", val(okP and spec), val(okP and setup), val(okP and classFile))
+	local okW, w, info = pcall(F.GetWeights)
+	if okW and type(w) == "table" then
+		local keys = {}
+		for k, v in pairs(w) do if type(v) == "number" and v > 0 then keys[#keys + 1] = k end end
+		table.sort(keys, function(a, b) return w[a] > w[b] end)
+		local out = {}
+		for i, k in ipairs(keys) do if i > 10 then break end out[#out + 1] = strfmt("%s=%.2f", k, w[k]) end
+		L[#L + 1] = "weights (top): " .. tconcat(out, " ") .. (type(info) == "table" and info.source and (" | source=" .. tostring(info.source)) or "")
+	end
+	local slots = { [1] = "head", [2] = "neck", [3] = "shoulder", [5] = "chest", [6] = "waist", [7] = "legs", [8] = "feet", [9] = "wrist", [10] = "hands",
+		[11] = "finger1", [12] = "finger2", [13] = "trinket1", [14] = "trinket2", [15] = "back", [16] = "mainhand", [17] = "offhand", [18] = "ranged" }
+	local eq = {}
+	for _, id in ipairs({ 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 }) do
+		local link = U.str(try(GetInventoryItemLink, "player", id))
+		if link then
+			local okS, sc = pcall(F.ScoreItem, link, id == 17)
+			eq[#eq + 1] = strfmt("%s=%s(%s)", slots[id], clean(U.itemInfo(link).name or "?"), (okS and type(sc) == "number") and strfmt("%.1f", sc) or "?")
+		else
+			eq[#eq + 1] = slots[id] .. "=EMPTY"
+		end
+	end
+	L[#L + 1] = "equipped: " .. tconcat(eq, " ")
+	local ups = {}
+	for _, r in ipairs(ST.bagItems()) do
+		if r.equipLoc and r.equipLoc ~= "" and r.link then
+			local okU, up = pcall(F.IsUpgrade, r.link)
+			if okU and U.bool(up) then ups[#ups + 1] = strfmt("%d.%d %s #%s%s", r.bag, r.slot, clean(r.name or "?"), val(r.id), bisText(r.link)) end
+		end
+	end
+	L[#L + 1] = strfmt("bag upgrades for the main spec: %d", #ups)
+	for _, u in ipairs(ups) do L[#L + 1] = u end
+	return L
+end
+
 function ST.itemLines(rows)
 	rows = rows or ST.bagItems()
 	table.sort(rows, function(a, b)
@@ -414,7 +474,7 @@ function ST.itemLines(rows)
 		if i > 80 then L[#L + 1] = "... " .. (#rows - 80) .. " more"; break end
 		L[#L + 1] = strfmt("%d.%d %s #%s x%d q%d bind=%s soulbound=%s slot=%s type=%s ilvl=%s stats=%s sell=%s%s", r.bag, r.slot, clean(r.name or "unknown"), val(r.id), r.count,
 			r.quality, r.bind or "unknown", r.bound == nil and "unknown" or (r.bound and "yes" or "no"), r.equipLoc or "-", clean(r.armor or "-"), val(r.ilvl),
-			statText(r.stats), val(r.price), r.keep and " | KEEP FOR AH" or "")
+			statText(r.stats), val(r.price), r.keep and " | KEEP FOR AH" or "") .. ((r.equipLoc and r.equipLoc ~= "") and bisText(r.link) or "")
 	end
 	return L
 end
@@ -447,7 +507,7 @@ function ST.rewardLines()
 	L[#L + 1] = strfmt("reward choices: %d (pick one; this list is advice only, nothing is equipped or previewed)", #ch)
 	for _, r in ipairs(ch) do
 		L[#L + 1] = strfmt("choice %d: %s q%s slot=%s type=%s bind=%s sell=%s usable=%s stats=%s", r.index, clean(r.name or "unknown"), val(r.quality), r.equip_slot or "-", clean(r.armor_type or "-"),
-			r.bind or "unknown", val(r.price), val(r.usable), statText(r.stats))
+			r.bind or "unknown", val(r.price), val(r.usable), statText(r.stats)) .. bisText(r.link)
 	end
 	return L
 end
@@ -627,6 +687,7 @@ function ST.tick(now)
 	run("items", now, 5, 120, "dirtyItems", ST.itemLines, 300)
 	run("npcs", now, 5, 120, "dirtyNpcs", ST.npcLines, 300)
 	run("rewards", now, 0.3, 30, "dirtyRewards", ST.rewardLines, 30)
+	run("bis", now, 5, 120, "dirtyBis", ST.bisLines, 300)
 	run("trainer", now, 0.3, 30, "dirtyTrainer", ST.trainerLines, 30)
 	run("session_addon", now, 5, 5, nil, ST.sessionLines, 10)
 	if C.rules and C.rules.sections then pcall(C.rules.sections, now, run) end

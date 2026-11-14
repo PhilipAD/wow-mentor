@@ -21,10 +21,13 @@ CREATE TABLE object(id INTEGER PRIMARY KEY, name TEXT, json TEXT);
 CREATE TABLE zone(area_id INTEGER PRIMARY KEY, name TEXT, uimap_id INT, parent INT);
 CREATE TABLE sort(id INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE training(class TEXT, level INT, spell_id INT, cost INT, requires TEXT);
+CREATE TABLE drop_rate(npc INT, item INT, pct REAL, kills INT, src TEXT, quest INT);
+CREATE TABLE boss_loot(instance TEXT, instance_name TEXT, category TEXT, levels TEXT, boss TEXT, npc INT, item INT, rate REAL);
 """
 INDEXES = """CREATE INDEX q_name ON quest(name COLLATE NOCASE); CREATE INDEX q_zone ON quest(zone_or_sort, minlevel);
 CREATE INDEX n_name ON npc(name COLLATE NOCASE); CREATE INDEX i_name ON item(name COLLATE NOCASE); CREATE INDEX o_name ON object(name COLLATE NOCASE);
-CREATE INDEX s_id ON spawn(kind,id); CREATE INDEX s_area ON spawn(area_id); CREATE INDEX s_map ON spawn(uimap_id);"""
+CREATE INDEX s_id ON spawn(kind,id); CREATE INDEX s_area ON spawn(area_id); CREATE INDEX s_map ON spawn(uimap_id);
+CREATE INDEX d_npc ON drop_rate(npc); CREATE INDEX d_item ON drop_rate(item); CREATE INDEX b_item ON boss_loot(item); CREATE INDEX b_boss ON boss_loot(boss COLLATE NOCASE);"""
 
 
 def _j(v):
@@ -40,13 +43,86 @@ def toc_path(addons):
     return os.path.join(addons, "QuestieDB", "QuestieDB_Forever.toc")
 
 
-SCHEMA_TAG = "s2"          # bump when the tables change so every installed bridge rebuilds and re-uploads
+SCHEMA_TAG = "s3"          # bump when the tables change so every installed bridge rebuilds and re-uploads
+
+
+EXTRA_SOURCES = (("TnnysMobLoot", "TnnysMobLoot_Forever.toc"), ("NeedRoll", "NeedRoll.toc"))
 
 
 def fingerprint(addons):
-    """Cheap change detector for the source file: size, mtime and the schema tag."""
+    """Cheap change detector for the source files: size, mtime and the schema tag (plus the optional loot addons, so an update re-uploads)."""
     st = os.stat(toc_path(addons))
-    return "%d:%d:%s" % (st.st_size, int(st.st_mtime), SCHEMA_TAG)
+    fp = "%d:%d:%s" % (st.st_size, int(st.st_mtime), SCHEMA_TAG)
+    for folder, toc in EXTRA_SOURCES:
+        try:
+            e = os.stat(os.path.join(addons, folder, toc))
+            fp += ":%s=%d.%d" % (folder, e.st_size, int(e.st_mtime))
+        except OSError:
+            pass
+    return fp
+
+
+def drop_rows(addons, min_classic_pct=0.5):
+    """(npc, item, percent, kills, source, quest flag) from Tnny's Mob Loot when installed: 'forever' rows are measured on Forever by Everloot
+    (kills = how many kills the rate rests on), 'classic' rows are CMaNGOS estimates (rare world drops below min_classic_pct are left out)."""
+    import re
+    d = os.path.join(addons, "TnnysMobLoot")
+    rows = []
+    try:
+        fv = open(os.path.join(d, "ForeverData.lua"), encoding="utf-8").read()
+    except OSError:
+        fv = ""
+    for m in re.finditer(r'\[(\d+)\]=\{"[^"]*","([^"]*)"\}', fv):
+        for part in m.group(2).split(","):
+            f = part.split(":")
+            if len(f) >= 4 and f[0].isdigit():
+                rows.append((int(m.group(1)), int(f[0]), float(f[1]), int(float(f[3])), "forever", 0))
+    try:
+        st = open(os.path.join(d, "StarterData.lua"), encoding="utf-8").read()
+    except OSError:
+        st = ""
+    i = st.find("npc={")
+    j = st.find("from=", i) if i >= 0 else -1
+    for m in re.finditer(r'\[(\d+)\]=\{"([^"]*)"', st[i:j if j > 0 else len(st)] if i >= 0 else ""):
+        for part in m.group(2).split(","):
+            f = part.split(":")
+            if len(f) >= 2 and f[0].isdigit():
+                q = 1 if len(f) > 2 and f[2] == "q" else 0
+                pct = float(f[1])
+                if q or pct >= min_classic_pct:
+                    rows.append((int(m.group(1)), int(f[0]), pct, None, "classic", q))
+    return rows
+
+
+def boss_rows(addons):
+    """(instance id, instance name, category, level range, boss, npc, item, drop rate 0..1 or None) from NeedRoll's dungeon and raid files."""
+    import re
+    base = os.path.join(addons, "NeedRoll", "Data")
+    rows = []
+    for sub in ("Dungeons", "Raids"):
+        d = os.path.join(base, sub)
+        if not os.path.isdir(d):
+            continue
+        for fn in sorted(os.listdir(d)):
+            if not fn.endswith(".lua"):
+                continue
+            try:
+                t = open(os.path.join(d, fn), encoding="utf-8").read()
+            except OSError:
+                continue
+            iid = re.search(r'\bid\s*=\s*"([A-Z0-9_]+)"', t)
+            nm = re.search(r'\bname\s*=\s*"([^"]+)"', t)
+            cat = re.search(r'\bcategory\s*=\s*"([A-Z_]+)"', t)
+            lv = re.search(r'levelRange\s*=\s*\{\s*(\d+)\s*,\s*(\d+)', t)
+            levels = "%s-%s" % lv.groups() if lv else None
+            enc = list(re.finditer(r'\{\s*id\s*=\s*"([A-Z0-9_]+)"\s*,\s*name\s*=\s*"([^"]+)"([^\n]*?)loot\s*=\s*\{', t))
+            for k, e in enumerate(enc):
+                end = enc[k + 1].start() if k + 1 < len(enc) else len(t)
+                npc = re.search(r'npc\s*=\s*(\d+)', e.group(3))
+                for it in re.finditer(r'itemID\s*=\s*(\d+)(?:\s*,\s*dropRate\s*=\s*([\d.]+))?', t[e.end():end]):
+                    rows.append((iid.group(1) if iid else fn[:-4], nm.group(1) if nm else fn[:-4], cat.group(1) if cat else sub.upper(), levels,
+                                 e.group(2), int(npc.group(1)) if npc else None, int(it.group(1)), float(it.group(2)) if it.group(2) else None))
+    return rows
 
 
 def training_rows(addons):
@@ -112,6 +188,8 @@ def build(addons, out):
         c.execute("INSERT INTO item VALUES(?,?,?,?,?,?,?,?)", (i, n.get("name"), n.get("itemLevel"), n.get("requiredLevel"), n.get("class"), n.get("subClass"), n.get("startQuest"), _j(n)))
     for r in training_rows(addons):
         c.execute("INSERT INTO training VALUES(?,?,?,?,?)", r)
+    c.executemany("INSERT INTO drop_rate VALUES(?,?,?,?,?,?)", drop_rows(addons))
+    c.executemany("INSERT INTO boss_loot VALUES(?,?,?,?,?,?,?,?)", boss_rows(addons))
     c.executescript(INDEXES)
     for k, v in (("source", "QuestieDB_Forever.toc"), ("version", db.meta.get("Version", "")), ("commit", db.meta.get("X-BUILD-COMMIT", "")),
                  ("fingerprint", fingerprint(addons)), ("built", str(int(time.time())))):
