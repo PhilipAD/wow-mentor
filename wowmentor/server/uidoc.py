@@ -171,7 +171,7 @@ COMPONENT_FIELDS = {
                  "fill": _color},
     "callout": {"text": _str, "title": _str, "level": _enum(LEVELS)},
     "timer": {"text": _str, "until": _num(0, 4e9), "seconds": _num(0, 864000), "format": _enum(("clock", "words"))},
-    "icon": {"text": _str, "tip": _str, "spell": _int(1, 10_000_000), "item": _int(1, 10_000_000), "npc": _int(1, 10_000_000), "targets": _target_names, "texture": _str, "iconSize": _num(12, 64)},
+    "icon": {"text": _str, "tip": _str, "spell": _int(1, 10_000_000), "item": _int(1, 10_000_000), "npc": _int(1, 10_000_000), "quest": _int(1, 10_000_000), "targets": _target_names, "texture": _str, "iconSize": _num(12, 64)},
     "divider": {"thickness": _num(1, 4)},
     "spacer": {"height": _num(1, 80)},
     "kv": {"keyColor": _color},
@@ -1080,6 +1080,8 @@ or value+max; label), kv (rows [[k,v]]), callout (level info|tip|good|warn|bad, 
 (spell|item|npc|texture id, text, tip, iconSize 12-64), divider, spacer, row (up to 6 side-by-side simple components).
 Preview squares (icon): `item` or `spell` shows that tooltip on hover; `npc` (creature id from `wowui db npc --name X`) shows a 3D model on hover and, when the
 player clicks it out of combat, targets the nearest living mob named `tip` (set tip to the exact creature name; texture = an Interface\\Icons name for the square).
+Give each quest square `quest` (the quest id): the game hides it the moment that quest's objectives are complete or it is turned in, and
+drops that creature's name from the target-all square at once (after combat if it finishes mid-fight), so no agent round trip is needed.
 A target-all square: `targets` (1 to 8 exact creature names) makes one click target the nearest living one of any of them (Guidelime's multi button);
 put it first in the Quests section and keep its list equal to the quest enemies shown. Names are plain text only (no newline, slash or ;).
 A row of two squares: `wowui component squares '{{"type":"row","id":"r1","children":[{{"type":"icon","npc":2237,"tip":"Moonstalker Sire","texture":"Ability_Hunter_Pet_Cat","iconSize":32}},{{"type":"icon","item":2589,"tip":"Linen Cloth","iconSize":32}}]}}'`

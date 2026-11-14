@@ -490,6 +490,30 @@ render.timer = function(P, c, x, w, y)
 	return h
 end
 
+-- squares tied to a quest disappear as soon as the quest's objectives are complete or it is turned in (no wait for the agent)
+local function questSquareDone(q)
+	if not q then return false end
+	if C_QuestLog and truthy(call(C_QuestLog.IsQuestFlaggedCompleted, q)) then return true end
+	if C_QuestLog and truthy(call(C_QuestLog.IsComplete, q)) then return true end
+	local idx = plainNum(call(GetQuestLogIndexByID, q))
+	if idx and idx > 0 and GetQuestLogTitle then
+		local ok, _, _, _, _, _, done = pcall(GetQuestLogTitle, idx)
+		if ok and (plainNum(done) == 1 or done == true) then return true end
+	end
+	return false
+end
+local function scanQuestSquares(P, kids, done)
+	for _, k in ipairs(kids or {}) do
+		if k.type == "icon" and k.quest then
+			P.hasQuestSquares = true
+			if questSquareDone(k.quest) then
+				done.ids[k.quest] = true
+				if k.npc and k.tip then done.names[k.tip] = true end
+			end
+		elseif k.type == "row" then scanQuestSquares(P, k.children, done) end
+	end
+end
+
 -- target macro text: names are stripped to plain characters so nothing can add another macro line (/run etc.)
 local function cleanName(n) return (tostring(n or ""):gsub("[^%w ',%.:%-]", "")) end
 local function targetMacro(names)
@@ -551,6 +575,14 @@ end
 
 render.icon = function(P, c, x, w, y)
 	local size = c.iconSize or 24
+	local qd = P.questDone or { ids = {}, names = {} }
+	if c.quest and qd.ids[c.quest] then return 0 end
+	if c.targets then
+		local left = {}
+		for _, n in ipairs(c.targets) do if not qd.names[n] then left[#left + 1] = n end end
+		if #left == 0 then return 0 end
+		if #left ~= #c.targets then local cc = {}; for k, v in pairs(c) do cc[k] = v end; cc.targets = left; c = cc end
+	end
 	local hover = (c.item or c.spell or c.npc or c.targets) and true or false
 	local bd
 	if hover then
@@ -666,6 +698,7 @@ end
 layout = function(P)
 	local d, t = P.data, P.t
 	P.n = { fs = 0, tex = 0, rows = 0, bars = 0 }; P.secN = 0
+	P.hasQuestSquares = false; P.questDone = { ids = {}, names = {} }; pcall(scanQuestSquares, P, d.children, P.questDone)
 	P.dyn = {}
 	local pad = t.padding
 	local w = d.w or 300
@@ -824,12 +857,20 @@ local function computeTarget(P)
 	return a
 end
 
+local questEv = CreateFrame("Frame")
+for _, e in ipairs({ "QUEST_LOG_UPDATE", "QUEST_TURNED_IN", "QUEST_REMOVED", "QUEST_ACCEPTED" }) do pcall(questEv.RegisterEvent, questEv, e) end
+questEv:SetScript("OnEvent", function() S.questSquaresDirty = true end)
+
 local driver = CreateFrame("Frame")
 local acc = 0
 driver:SetScript("OnUpdate", function(_, dt)
 	acc = acc + dt
 	if acc < 0.1 then return end
 	local step = acc; acc = 0
+	if S.questSquaresDirty then
+		S.questSquaresDirty = false
+		for _, P in pairs(S.panels) do if P.data and P.hasQuestSquares then P.dirty = true end end
+	end
 	if S.secureStale and not truthy(call(InCombatLockdown)) then
 		S.secureStale = false
 		for _, P in pairs(S.panels) do if P.data then P.dirty = true end end
