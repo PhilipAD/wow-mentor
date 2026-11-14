@@ -4,6 +4,7 @@
 ## Author: WoW Mentor contributors
 ## Version: 1.0.0
 ## SavedVariables: WoWFeedDB
+## OptionalDeps: ForeverLevelingBiS
 
 Codec.lua
 JSON.lua

@@ -1078,6 +1078,13 @@ idleFade, idleAlpha, hideWhenMounted, hideInInstance, minLevel, maxLevel}}, chil
 Components (type): heading, text, checklist (items: id, text, done, note, priority high|med|low), progress (bind bags|durability,
 or value+max; label), kv (rows [[k,v]]), callout (level info|tip|good|warn|bad, title, text), timer (until epoch | seconds), icon
 (spell|item|npc|texture id, text, tip, iconSize 12-64), divider, spacer, row (up to 6 side-by-side simple components).
+Loot and gear data from the player's addons (rebuilt and uploaded by the bridge whenever they update): `wowui db drops --npc NAME` (what a creature
+drops, with drop chances: source forever = measured on Forever by Everloot with the kill count, classic = estimate; from Tnny's Mob Loot),
+`wowui db drops --item NAME [--map ID]` (who drops it, best chance first), `wowui db boss --name Deadmines` or `--item NAME` (dungeon and raid
+boss loot with drop chances, from NeedRoll). `db squares` now gives pct, kills and source for each local dropper, best chance first.
+Feed section BIS (from Forever Leveling BiS): his picked spec and stat weights, every equipped slot with its score (EMPTY slots too), and the
+bag items that are upgrades with their gain. ITEMS and REWARDS lines end in `| bis score=.. gain=..` for gear: pick quest rewards by gain,
+never by guess. In game he can open them himself: /bis (Forever Leveling BiS), /nr (NeedRoll), Alt-click a mob (Tnny's Mob Loot).
 Fill preview squares from `wowui db squares` (defaults to his map and in-progress quests; add `--items 2674,3173` for profession materials):
 it lists EVERY creature in the map that is a kill objective or drops an objective item, the objects that hold one, and quests with nothing here.
 Put every creature it lists for a quest into the Quests section and into target-all; do not hand-pick from memory.
