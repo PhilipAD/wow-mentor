@@ -28,6 +28,7 @@ FAST_MAP = re.compile(r"Position: map=(\d+)")
 QUEST_LINE = re.compile(r"\[(COMPLETE|in progress|failed)\] (.+?) \(L\d+\) #(\d+)")
 AH_LINE = re.compile(r"^(\d+) ah=(\d+) ", re.M)                                  # CoachData AH_PRICES (Auctionator)
 HAVE_LINE = re.compile(r"^(\d+) bank=(\d+) mail=(\d+) bags=(\d+)\s*$", re.M)        # CoachData BANK (BagBrother)
+RARE_NET = re.compile(r"^net npc=(\d+) state=up up_ago=(\d+) ", re.M)          # CoachData RARES: RareNet's network sightings
 RARE_SEEN_S = 900      # a rare seen alive this recently on a nameplate goes first in the Rares row
 MAX_ROWS = 6
 SLACK_S = 5.0          # game event times are whole seconds and section ages are approximate: within this window the event wins
@@ -146,6 +147,12 @@ class AutoSquares:
             m, mt, q, qt = feed_state(body)
             sk, lv = feed_skills(body)
             prices, have = feed_market(body)
+            text = body.decode("utf-8", "replace") if isinstance(body, bytes) else str(body or "")
+            sec = sections(text)
+            net = []
+            if "RARES" in sec:
+                age0 = sec["RARES"][1] or 0
+                net = [(int(n), time.time() - age0 - int(a)) for n, a in RARE_NET.findall(sec["RARES"][0])]
         except Exception:
             return
         with self.mu:
@@ -153,6 +160,9 @@ class AutoSquares:
                 self.prices = {**self.prices, **prices}
             if have is not None:
                 self.have = have
+            for n, at in net:                         # another RareNet player saw it up: same as a nameplate sighting (map unknown)
+                if _qid(n) and at > self.rare_seen.get(n, (0, None))[0]:
+                    self.rare_seen[n] = (at, None)
             if m and mt >= self.map_t:
                 self.map, self.map_t = m, mt
             if sk:

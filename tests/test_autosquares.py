@@ -370,3 +370,12 @@ class MarketAndRareTests(unittest.TestCase):
         self.assertEqual((sv["kind"], sv["who"]), ("vendor", "Remote Vendor"))
         self.a.prices = {}
         self.assertEqual(self.a._source(self.a.gdb.connect(), 1439, 4357)["kind"], "vendor")   # unknown price: the vendor, as before
+
+    def test_rarenet_sightings_light_the_rares_row(self):
+        body = feed_market(skills={"Cooking": (82, 150)}).decode() + ("--- RARES (updated 2s ago) ---\nno rares seen this session\n"
+            "rarenet (rares other players saw, last 2 h): 2; your layer 1-2-3\nnet npc=9500 state=up up_ago=120 dead_ago=none layer=other\n"
+            "net npc=9504 state=dead up_ago=900 dead_ago=60 layer=mine\n")
+        self.a.on_feed(body.encode()); self.a.run()
+        self.assertIn(9500, self.a.rare_seen)
+        self.assertNotIn(9504, self.a.rare_seen)                                            # dead now: not a sighting
+        self.assertEqual(self.kids()["hr"]["text"], "Rares here: Lady Moongazer seen alive in the last 15 min")

@@ -212,6 +212,31 @@ tick(5)
 for _, e in ipairs(events) do if e.t == "rare_seen" then seen = seen + 0 end end
 check(seen == 1, "one rare_seen per creature, got " .. seen)
 
+-- RareNet's network memory: up / dead per rare and layer, "mine" when the layer matches the creature GUIDs here
+_G.GetServerTime = function() return 2000000 end
+_G.RareNetDB = { alive = { ["2184@1403-0-125"] = 2000000 - 300, ["2192@9-9-9"] = 2000000 - 600, ["999@1403-0-125"] = 2000000 - 9000 },
+	kills = { ["2192@9-9-9"] = 2000000 - 100 } }
+local net = table.concat(D.rareNetLines(), "\n")
+check(net:find("your layer 1403%-0%-125"), "layer from the nameplate GUIDs: " .. net)
+check(net:find("net npc=2184 state=up up_ago=300 dead_ago=none layer=mine"), "alive on my layer: " .. net)
+check(net:find("net npc=2192 state=dead up_ago=600 dead_ago=100 layer=other"), "killed on another layer: " .. net)
+check(not net:find("npc=999"), "older than 2 hours is left out: " .. net)
+_G.RareNetDB = nil
+
+-- Crafter's Journal route: the started route wins; segments from the current skill
+_G.CraftersJournal = { Data = { Alchemy = { skillLine = 171, recipes = { [2331] = { name = "Minor Mana Potion" }, [2337] = { name = "Lesser Healing Potion" } } },
+	Cooking = { skillLine = 185, recipes = {} } },
+	GetProfessionSkill = function(self, line) if line == 171 then return 53, 75 elseif line == 185 then return 82, 150 end end,
+	lastRoutes = {}, db = { prof = { Alchemy = { lock = { choice = {} } } } } }
+local ch = CraftersJournal.db.prof.Alchemy.lock.choice
+for k = 53, 59 do ch[k] = 2331 end
+for k = 60, 75 do ch[k] = 2337 end
+local cr = table.concat(D.craftRouteLines(), "\n")
+check(cr:find("Alchemy 53/75 %(started route%): Minor Mana Potion 53%-60; Lesser Healing Potion 60%-76"), "craft route: " .. cr)
+check(cr:find("Cooking 82/150: no route yet"), "no route yet: " .. cr)
+_G.CraftersJournal = nil
+check(D.craftRouteLines()[1]:find("not loaded"), "without Crafter's Journal")
+
 check(#S.errors == 0, "errors: " .. table.concat(S.errors, " | "))
 check(#W.unsafe == 0, "unsafe calls: " .. table.concat(W.unsafe, ","))
 if fails > 0 then error(fails .. " failure(s)", 0) end
