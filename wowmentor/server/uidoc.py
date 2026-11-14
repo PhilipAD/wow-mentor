@@ -54,6 +54,24 @@ def _str(v, n=MAX_TEXT):
     return str(v)[:n]
 
 
+_TARGET_NAME = re.compile(r"^[A-Za-z0-9' ,.:\-]{1,60}$")
+
+
+def _target_name(v):
+    """A creature name that goes into a /targetexact macro line: letters, digits, spaces and ' , . : - only (no newline, slash or ; that
+    could add another macro command)."""
+    v = _str(v, 60).strip()
+    if not _TARGET_NAME.match(v):
+        raise ValueError("must be a plain creature name (letters, digits, spaces, ' , . : -)")
+    return v
+
+
+def _target_names(v):
+    if not isinstance(v, list) or not 1 <= len(v) <= 8:
+        raise ValueError("must be a list of 1 to 8 creature names")
+    return [_target_name(x) for x in v]
+
+
 def _num(lo, hi):
     def f(v):
         if isinstance(v, bool) or not isinstance(v, (int, float)):
@@ -153,7 +171,7 @@ COMPONENT_FIELDS = {
                  "fill": _color},
     "callout": {"text": _str, "title": _str, "level": _enum(LEVELS)},
     "timer": {"text": _str, "until": _num(0, 4e9), "seconds": _num(0, 864000), "format": _enum(("clock", "words"))},
-    "icon": {"text": _str, "tip": _str, "spell": _int(1, 10_000_000), "item": _int(1, 10_000_000), "npc": _int(1, 10_000_000), "texture": _str, "iconSize": _num(12, 64)},
+    "icon": {"text": _str, "tip": _str, "spell": _int(1, 10_000_000), "item": _int(1, 10_000_000), "npc": _int(1, 10_000_000), "targets": _target_names, "texture": _str, "iconSize": _num(12, 64)},
     "divider": {"thickness": _num(1, 4)},
     "spacer": {"height": _num(1, 80)},
     "kv": {"keyColor": _color},
@@ -286,8 +304,13 @@ def normalize_component(c, errs, path, depth=0):
         errs.append("%s: progress needs value (and max) or bind" % path)
     if t == "timer" and "until" not in out and "seconds" not in out:
         errs.append("%s: timer needs until (epoch seconds) or seconds" % path)
-    if t == "icon" and not any(k in out for k in ("spell", "item", "texture", "npc")):
-        errs.append("%s: icon needs spell, item, npc or texture" % path)
+    if t == "icon" and not any(k in out for k in ("spell", "item", "texture", "npc", "targets")):
+        errs.append("%s: icon needs spell, item, npc, targets or texture" % path)
+    if t == "icon" and "npc" in out and "tip" in out:
+        try:
+            _target_name(out["tip"])
+        except ValueError as e:
+            errs.append("%s.tip: %s (it is the target name for the npc square)" % (path, e))
     return out
 
 
@@ -1057,6 +1080,8 @@ or value+max; label), kv (rows [[k,v]]), callout (level info|tip|good|warn|bad, 
 (spell|item|npc|texture id, text, tip, iconSize 12-64), divider, spacer, row (up to 6 side-by-side simple components).
 Preview squares (icon): `item` or `spell` shows that tooltip on hover; `npc` (creature id from `wowui db npc --name X`) shows a 3D model on hover and, when the
 player clicks it out of combat, targets the nearest living mob named `tip` (set tip to the exact creature name; texture = an Interface\\Icons name for the square).
+A target-all square: `targets` (1 to 8 exact creature names) makes one click target the nearest living one of any of them (Guidelime's multi button);
+put it first in the Quests section and keep its list equal to the quest enemies shown. Names are plain text only (no newline, slash or ;).
 A row of two squares: `wowui component squares '{{"type":"row","id":"r1","children":[{{"type":"icon","npc":2237,"tip":"Moonstalker Sire","texture":"Ability_Hunter_Pet_Cat","iconSize":32}},{{"type":"icon","item":2589,"tip":"Linen Cloth","iconSize":32}}]}}'`
 (same id replaces it). Edit the squares with the zone, one row per enemy: the enemy square first, then what it drops for the player's quests
 (`wowui db quest --id N` lists the objective items, `wowui db spots --quest N` lists the creatures that hold them), then extra loot such as cloth

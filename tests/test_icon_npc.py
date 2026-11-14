@@ -39,6 +39,22 @@ class IconHover(unittest.TestCase):
         self.assertEqual(row["children"][0]["npc"], 2237)
         self.assertEqual(row["children"][0]["tip"], "Moonstalker Sire")
 
+    def test_target_all_button(self):
+        out, errs = self.norm({"type": "icon", "targets": ["Reef Crawler", "Dark Strand Fanatic", "Rabid Thistle Bear"], "tip": "Target any", "texture": "Ability_Hunter_SniperShot"})
+        self.assertEqual(errs, [])
+        self.assertEqual(len(out["targets"]), 3)
+
+    def test_target_names_cannot_inject_macro_lines(self):
+        for bad in ["Reef Crawler\n/run DoSomething()", "Bear/run x", "a;b", ""]:
+            out, errs = self.norm({"type": "icon", "targets": [bad]})
+            self.assertTrue(errs, bad)
+        out, errs = self.norm({"type": "icon", "npc": 2164, "tip": "Bear\n/run x()"})
+        self.assertTrue(any("tip" in e for e in errs))
+
+    def test_too_many_targets(self):
+        out, errs = self.norm({"type": "icon", "targets": ["A"] * 9})
+        self.assertTrue(errs)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -490,6 +490,18 @@ render.timer = function(P, c, x, w, y)
 	return h
 end
 
+-- target macro text: names are stripped to plain characters so nothing can add another macro line (/run etc.)
+local function cleanName(n) return (tostring(n or ""):gsub("[^%w ',%.:%-]", "")) end
+local function targetMacro(names)
+	local m = "/cleartarget"
+	for _, n in ipairs(names) do
+		local line = "\n/targetexact " .. cleanName(n)
+		if #m + #line > 255 then break end
+		m = m .. line
+	end
+	return m
+end
+
 -- hover helpers for icon squares: item/spell tooltip, or a model preview for a creature (npc id)
 local function hoverTip(owner, c)
 	GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
@@ -497,6 +509,10 @@ local function hoverTip(owner, c)
 		if GameTooltip.SetItemByID then GameTooltip:SetItemByID(c.item) else GameTooltip:SetHyperlink("item:" .. c.item) end
 	elseif c.spell then
 		if GameTooltip.SetSpellByID then GameTooltip:SetSpellByID(c.spell) else GameTooltip:SetHyperlink("spell:" .. c.spell) end
+	elseif c.targets then
+		GameTooltip:SetText(c.tip or "Target the nearest of these")
+		for _, n in ipairs(c.targets) do GameTooltip:AddLine(cleanName(n), 1, 1, 1) end
+		GameTooltip:AddLine("Click (out of combat): targets the nearest living one", 0.6, 0.8, 1, true)
 	else
 		GameTooltip:SetText(c.tip or c.text or "")
 	end
@@ -535,7 +551,7 @@ end
 
 render.icon = function(P, c, x, w, y)
 	local size = c.iconSize or 24
-	local hover = (c.item or c.spell or c.npc) and true or false
+	local hover = (c.item or c.spell or c.npc or c.targets) and true or false
 	local bd
 	if hover then
 		bd = nextTex(P, "ARTWORK"); bd:SetColorTexture(hex(P.t.accent)); bd:SetAlpha(0.7); bd:SetDrawLayer("ARTWORK", 0)
@@ -559,10 +575,11 @@ render.icon = function(P, c, x, w, y)
 	if hover then tex:SetTexCoord(0.07, 0.93, 0.07, 0.93); tex:SetDrawLayer("ARTWORK", 2) end
 	tex:SetSize(size, size); tex:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y)
 	if hover then
-		local row = (c.npc and nextSecure(P)) or nextRow(P)
+		local targets = c.targets or (c.npc and (c.tip or c.text) and { c.tip or c.text }) or nil
+		local row = (targets and nextSecure(P)) or nextRow(P)
 		row:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y); row:SetSize(size, size); row:EnableMouse(true)
-		if c.npc and row.SetAttribute and (c.tip or c.text) and not (InCombatLockdown and InCombatLockdown()) then
-			pcall(row.SetAttribute, row, "macrotext", "/cleartarget\n/targetexact " .. tostring(c.tip or c.text))
+		if targets and row.isSecure and not (InCombatLockdown and InCombatLockdown()) then
+			pcall(row.SetAttribute, row, "macrotext", targetMacro(targets))
 		end
 		row:SetScript("OnEnter", function(self) pcall(function() if c.npc then hoverModel(self, c) else hoverTip(self, c) end end) end)
 		row:SetScript("OnLeave", hoverOff)
