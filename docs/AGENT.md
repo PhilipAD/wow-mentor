@@ -143,3 +143,8 @@ Run `wowmentor profile` and fill in the text file: your character, goals, playst
 `icon` squares work like Guidelime's previews: hover an `item` or `spell` square for its tooltip, hover an `npc` square for a 3D model, and click an `npc` square
 (out of combat) to target the nearest living mob whose exact name is in `tip`. Put them in a `row` (two per row fits a narrow panel). Update them with
 `wowui component <panel> '<row json>'`; the same `id` replaces the row. Look up ids with `wowui db npc --name X` and `wowui db item --name X`.
+
+Group squares into sections with `heading` components (Quests, Cooking, First Aid, Engineering, Alchemy, or any other that helps), each followed by
+rows of up to four squares. Quest rows read enemy, then its drop (`wowui db quest --id N` objectives, `wowui db spots --quest N` creatures).
+Profession rows read material, then what it makes at the player's current skill. `wowui component` adds or replaces by id, `wowui remove <panel>
+--child <id>` deletes, and a full `panel` op with the children list reorders or rebuilds the panel.

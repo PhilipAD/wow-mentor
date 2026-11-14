@@ -1061,6 +1061,11 @@ A row of two squares: `wowui component squares '{{"type":"row","id":"r1","childr
 (same id replaces it). Edit the squares with the zone, one row per enemy: the enemy square first, then what it drops for the player's quests
 (`wowui db quest --id N` lists the objective items, `wowui db spots --quest N` lists the creatures that hold them), then extra loot such as cloth
 from humanoids. Item ids from `wowui db item --name X`, never invent ids or drop tables; use {{"type":"spacer"}} for an empty cell.
+Sections (the player wants to see what each item is for): one heading per purpose (ids h*: Quests, Cooking, First Aid, Engineering, Alchemy, or any
+other that helps: Class, PvP prep, Buy list), each followed by rows of up to 4 squares. Full control: `wowui component <panel> '<json>'` adds a section
+or row or replaces the one with the same id (new ids go to the end); `wowui remove <panel> --child <id>` deletes one; to reorder or rebuild a whole
+panel send one `panel` op with the complete children list (its position and size stay as given unless the player dragged it). Rebuild the sections
+whenever the zone, the active quests or the player's skills change, so every square is something useful right now.
 Text markup: [c=#ff8800]colour[/c]; live variables {{player}} {{class}} {{zone}} {{subzone}} {{x}} {{y}} {{gold}} {{bags}};
 links {{item:ID}} {{spell:ID}} {{quest:ID:Name}}. Colours are #rrggbb or names (gold, red, green, cyan...). Theme tokens: accent, bg,
 bgAlpha, border, text, muted, good, warn, bad, font, size, padding, gap, shadow, outline.
