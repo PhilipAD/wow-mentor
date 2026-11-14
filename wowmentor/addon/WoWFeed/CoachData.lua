@@ -318,6 +318,8 @@ end
 C.on("AUCTION_HOUSE_CLOSED", function() S.dirtyAh = true end)
 C.on("BANKFRAME_CLOSED", function() S.dirtyBank = true; S.dirtyAh = true end)
 C.on("MAIL_CLOSED", function() S.dirtyBank = true end)
+C.on("SKILL_LINES_CHANGED", function() S.dirtyCraft = true end)
+C.on("TRADE_SKILL_CLOSE", function() S.dirtyCraft = true end)
 
 ---------------------------------------------------------------- XP rate
 local XP_WINDOW = 1800
@@ -451,6 +453,9 @@ function D.scanRares()
 		if type(u) == "string" and not secret(u) then
 			local cls = U.str(try(UnitClassification, u))
 			local guid = U.guid(u)
+			local srv, mp, zn
+			if guid then srv, mp, zn = guid:match("^Creature%-%d+%-(%d+)%-(%d+)%-(%d+)%-") end
+			if srv then S.layerKey = srv .. "-" .. mp .. "-" .. zn end      -- RareNet's layer key: server-map-zone of a creature GUID
 			if cls and RARE[cls] and guid and not S.rares.byGuid[guid] then
 				local map, x, y = nil, nil, nil
 				if U.pos then local okp, m, a, b = pcall(U.pos); if okp then map, x, y = m, a, b end end
@@ -466,9 +471,46 @@ function D.scanRares()
 	end
 end
 
+-- RareNet's network memory (RareNetDB.alive / .kills["npc@layer"] = server time), live while RareNet runs: rares other players saw
+function D.rareNetLines(now)
+	local db = RareNetDB
+	if type(db) ~= "table" then return nil end
+	now = now or U.num(try(GetServerTime)) or U.epoch()
+	local byKey = {}
+	for _, kind in ipairs({ "alive", "kills" }) do
+		if type(db[kind]) == "table" then
+			for id, t in pairs(db[kind]) do
+				local npc, layer = tostring(id):match("^(%d+)@(.+)$")
+				t = tonumber(t)
+				if npc and t and now - t <= 7200 then
+					local r = byKey[id] or { npc = tonumber(npc), layer = layer }
+					r[kind] = t
+					byKey[id] = r
+				end
+			end
+		end
+	end
+	local rows = {}
+	for _, r in pairs(byKey) do rows[#rows + 1] = r end
+	table.sort(rows, function(a, b) return max(a.alive or 0, a.kills or 0) > max(b.alive or 0, b.kills or 0) end)
+	local L = { strfmt("rarenet (rares other players saw, last 2 h): %d; your layer %s", #rows, S.layerKey or "unknown") }
+	for i = 1, min(#rows, 25) do
+		local r = rows[i]
+		local state = (r.kills and (not r.alive or r.kills >= r.alive)) and "dead" or "up"
+		L[#L + 1] = strfmt("net npc=%d state=%s up_ago=%s dead_ago=%s layer=%s", r.npc, state, r.alive and tostring(now - r.alive) or "none",
+			r.kills and tostring(now - r.kills) or "none", (S.layerKey and r.layer == S.layerKey) and "mine" or "other")
+	end
+	return L
+end
+
 function D.rareLines()
 	local o = S.rares.order
-	if #o == 0 then return { "no rares seen this session" } end
+	local net = D.rareNetLines()
+	if #o == 0 then
+		local L = { "no rares seen this session" }
+		for _, l in ipairs(net or {}) do L[#L + 1] = l end
+		return L
+	end
 	local L = {}
 	for i = #o, max(1, #o - 9), -1 do
 		local r = S.rares.byGuid[o[i]]
@@ -477,6 +519,46 @@ function D.rareLines()
 				date and date("%H:%M", r.t) or tostring(r.t), r.dead and " (dead)" or "")
 		end
 	end
+	for _, l in ipairs(net or {}) do L[#L + 1] = l end
+	return L
+end
+
+---------------------------------------------------------------- CRAFT_ROUTE (Crafter's Journal)
+-- Crafter's Journal plans the cheapest route from real AH prices: route.choice[skill] = recipe spell id. Its started route
+-- (CraftersJournalDB.prof[key].lock) wins; otherwise the last route it calculated this session (it calculates when its window shows a profession).
+local CJ_PROFS = { "Alchemy", "Engineering", "Cooking", "FirstAid", "Blacksmithing", "Leatherworking", "Tailoring", "Enchanting" }
+
+function D.craftRouteLines()
+	local ES = CraftersJournal
+	if type(ES) ~= "table" or type(ES.Data) ~= "table" then return { "craft route: unknown (Crafter's Journal not loaded)" } end
+	local L = {}
+	for _, key in ipairs(CJ_PROFS) do
+		local data = ES.Data[key]
+		if type(data) == "table" and data.skillLine then
+			local ok, rank, maxRank = pcall(ES.GetProfessionSkill, ES, data.skillLine)
+			rank, maxRank = ok and U.num(rank), ok and U.num(maxRank)
+			if rank then
+				local db = type(ES.db) == "table" and ES.db or (type(CraftersJournalDB) == "table" and CraftersJournalDB) or {}
+				local lock = type(db.prof) == "table" and type(db.prof[key]) == "table" and db.prof[key].lock
+				local route, src = nil, nil
+				if type(lock) == "table" and type(lock.choice) == "table" then route, src = lock.choice, "started"
+				elseif type(ES.lastRoutes) == "table" and type(ES.lastRoutes[key]) == "table" and type(ES.lastRoutes[key].choice) == "table" then route, src = ES.lastRoutes[key].choice, "calculated" end
+				if not route then
+					L[#L + 1] = strfmt("%s %d/%s: no route yet (open Crafter's Journal on %s once)", key, rank, val(maxRank), key)
+				else
+					local segs, s, guard = {}, rank, 0
+					while route[s] and #segs < 4 and guard < 300 do
+						local id, from = route[s], s
+						while route[s] == id and guard < 300 do s = s + 1; guard = guard + 1 end
+						local rec = type(data.recipes) == "table" and data.recipes[id]
+						segs[#segs + 1] = strfmt("%s %d-%d", clean(type(rec) == "table" and rec.name or ("spell " .. tostring(id))), from, s)
+					end
+					L[#L + 1] = strfmt("%s %d/%s (%s route): %s", key, rank, val(maxRank), src, #segs > 0 and tconcat(segs, "; ") or "route ends below the current skill: recalculate in Crafter's Journal")
+				end
+			end
+		end
+	end
+	if #L == 0 then L[1] = "no professions found" end
 	return L
 end
 
@@ -497,7 +579,8 @@ ST.tick = function(now)
 	run("damage", now, 1, 120, "dirtyDamage", D.damageLines, 600)
 	run("xp", now, 10, 60, "dirtyXp", D.xpLines, 300)
 	run("threat", now, 1, U.inCombat() and 2 or 30, nil, D.threatLines, 30)
-	run("rares", now, 2, 300, "dirtyRares", D.rareLines, 900)
+	run("rares", now, 2, 120, "dirtyRares", D.rareLines, 900)
 	run("bank", now, 60, 900, "dirtyBank", D.bankLines, 1800)
 	run("ah_prices", now, 120, 900, "dirtyAh", D.ahLines, 1800)
+	run("craft_route", now, 30, 600, "dirtyCraft", D.craftRouteLines, 1200)
 end
