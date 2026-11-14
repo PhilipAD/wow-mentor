@@ -198,6 +198,17 @@ class AddonLootTests(unittest.TestCase):
         self.assertIn(("DEADMINES", "The Deadmines", "DUNGEON", "17-26", "Sneed", 643, 5195, 0.12), b)
         self.assertEqual(len(b), 3)
 
+    def test_recipe_parser(self):
+        a = self.addons()
+        os.makedirs(os.path.join(a, "NeedRoll", "Data", "Professions"))
+        open(os.path.join(a, "NeedRoll", "Data", "Professions", "Cooking.lua"), "w").write(
+            'ns.Data:Register({\n    id = "COOKING",\n    name = "Cooking",\n    encounters = {\n'
+            '        { id = "S2544", name = "Crab Cake", spellID = 2544, skill = { 75, 115, 135, 155 }, learned = "Trainer", loot = {\n'
+            '            { itemID = 2683 },\n        }, reagents = {\n            { itemID = 2674, count = 1 },\n            { itemID = 2678, count = 1 },\n        } },\n'
+            '        { id = "S1", name = "Broken", spellID = 1, loot = { } },\n    },\n})\n')
+        rows = build.recipe_rows(a)
+        self.assertEqual(rows, [("Cooking", 2544, "Crab Cake", 2683, 75, 115, 135, 155, "Trainer", json.dumps([[2674, 1], [2678, 1]]))])
+
     def test_routes_prefer_forever_rates(self):
         d = tempfile.mkdtemp()
         make_db(os.path.join(d, "forever.sqlite"))
