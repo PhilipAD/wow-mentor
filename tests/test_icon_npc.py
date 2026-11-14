@@ -52,7 +52,7 @@ class IconHover(unittest.TestCase):
         self.assertTrue(any("tip" in e for e in errs))
 
     def test_too_many_targets(self):
-        out, errs = self.norm({"type": "icon", "targets": ["A"] * 9})
+        out, errs = self.norm({"type": "icon", "targets": ["A"] * 17})
         self.assertTrue(errs)
 
     def test_quest_field_on_squares(self):

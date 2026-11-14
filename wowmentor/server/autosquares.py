@@ -333,7 +333,7 @@ class AutoSquares:
         out = [{"type": "heading", "id": "hq", "text": "Quests: kill, then loot" if rows else "Quests: nothing to kill or loot here"}]
         # the game's macro takes the FIRST living match, so the rare ones (few spawns, the best drop chance) lead and the common ones follow
         order = [nm for _n, _p, nm in sorted(names, key=lambda x: (x[0], -x[1])) if nm in shown]
-        order = list(dict.fromkeys(order))[:8]
+        order = list(dict.fromkeys(order))[:16]
         if order:
             out.append({"type": "icon", "id": "qall", "targets": order, "tip": "Target the nearest quest enemy", "texture": "Ability_Hunter_SniperShot",
                         "iconSize": 26, "text": "Target any"})
