@@ -212,15 +212,22 @@ end
 local FASTSEC = "fast"
 local turn = 0
 local stickySec
+local lastWasEv = false
 local function nextMessage()
 	turn = turn + 1
-	if #evq > 0 then
+	-- plain event lines (chat, casts, loot) used to go first on every tick: a busy General channel or a long fight could keep the queue
+	-- full and starve every section (QUESTS, GUIDES, ITEMS were never completed). They now alternate with section parts.
+	local sectionWaiting = false
+	for _, p in pairs(pending) do if p.i < #p.parts or p.nextParts then sectionWaiting = true; break end end
+	if #evq > 0 and not (lastWasEv and sectionWaiting) then
+		lastWasEv = true
 		local out, size = {}, 0
 		while #evq > 0 and size + #evq[1] < MAXPAY - 40 do local e = table.remove(evq, 1); out[#out+1] = e; size = size + #e + 1 end
 		if #out == 0 then out[1] = table.remove(evq, 1):sub(1, MAXPAY - 40) end
 		lastWasEvj = false
 		return strfmt("ev\31%d\0311\0311\31%s", seq, tconcat(out, "\n"))
 	end
+	lastWasEv = false
 	-- structured events: at most one evj message per tick, and never two in a row while a section is waiting
 	-- (so a burst of events cannot starve the state sections)
 	if evjProvider then
@@ -1335,6 +1342,7 @@ WoWFeed_API = {
 	maxpay = function() return MAXPAY end,
 	txstat = txstat,
 	nextMessage = nextMessage,        -- exposed for tests and for the coach
+	logEvent = function(kind, text) ev(kind, text) end,   -- a plain event line (tests)
 	setEvjProvider = function(fn) evjProvider = fn end,
 }
 local function tick()
