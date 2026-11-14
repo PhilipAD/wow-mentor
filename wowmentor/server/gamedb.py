@@ -504,8 +504,9 @@ class GameDB:
             out_q.append({"quest": qid, "name": row["name"], "kill": kills, "objects": objs, "items": its,
                           "nothing_here": not kills and not objs and not any(i["droppedHereBy"] or i["objectsHere"] for i in its)})
         return {"map": m, "quests": out_q, "items": [item_info(i) for i in items],
-                "note": "the database has no drop chances: for profession items a listed creature can be a rare world-drop source, so prefer the "
-                        "creatures whose loot plainly fits (crawlers for Crawler Meat). Quest objective droppers are reliable."}
+                "note": "droppers are sorted by drop chance where Tnny's Mob Loot knows it (pct; source forever = measured on Forever with its kill "
+                        "count, classic = estimate), else by spawn points. An empty quests list right after a reload means the QUESTS feed section has "
+                        "not arrived yet: pass --quests."}
 
     def r_route(self, c, q):
         """Order quest stops for the player: turn-ins for finished quests, objective locations for open ones.
