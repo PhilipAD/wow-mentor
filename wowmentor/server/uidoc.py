@@ -1078,6 +1078,9 @@ idleFade, idleAlpha, hideWhenMounted, hideInInstance, minLevel, maxLevel}}, chil
 Components (type): heading, text, checklist (items: id, text, done, note, priority high|med|low), progress (bind bags|durability,
 or value+max; label), kv (rows [[k,v]]), callout (level info|tip|good|warn|bad, title, text), timer (until epoch | seconds), icon
 (spell|item|npc|texture id, text, tip, iconSize 12-64), divider, spacer, row (up to 6 side-by-side simple components).
+Fill preview squares from `wowui db squares` (defaults to his map and in-progress quests; add `--items 2674,3173` for profession materials):
+it lists EVERY creature in the map that is a kill objective or drops an objective item, the objects that hold one, and quests with nothing here.
+Put every creature it lists for a quest into the Quests section and into target-all; do not hand-pick from memory.
 Preview squares (icon): `item` or `spell` shows that tooltip on hover; `npc` (creature id from `wowui db npc --name X`) shows a 3D model on hover and, when the
 player clicks it out of combat, targets the nearest living mob named `tip` (set tip to the exact creature name; texture = an Interface\\Icons name for the square).
 Give each quest square `quest` (the quest id): the game hides it the moment that quest's objectives are complete or it is turned in, and
@@ -1087,7 +1090,8 @@ put it first in the Quests section and keep its list equal to the quest enemies 
 A row of two squares: `wowui component squares '{{"type":"row","id":"r1","children":[{{"type":"icon","npc":2237,"tip":"Moonstalker Sire","texture":"Ability_Hunter_Pet_Cat","iconSize":32}},{{"type":"icon","item":2589,"tip":"Linen Cloth","iconSize":32}}]}}'`
 (same id replaces it). Edit the squares with the zone, one row per enemy: the enemy square first, then what it drops for the player's quests
 (`wowui db quest --id N` lists the objective items, `wowui db spots --quest N` lists the creatures that hold them), then extra loot such as cloth
-from humanoids. Item ids from `wowui db item --name X`, never invent ids or drop tables; use {{"type":"spacer"}} for an empty cell.
+from humanoids. Item ids from `wowui db item --name X`; its `droppedBy` list names the creatures that drop it, and `wowui db npc --id N` shows where
+they spawn, so a profession row can start with a creature that drops the material IN THIS ZONE (drop the row if none does). Never invent ids or drop tables; use {{"type":"spacer"}} for an empty cell.
 Sections (the player wants to see what each item is for): one heading per purpose (ids h*: Quests, Cooking, First Aid, Engineering, Alchemy, or any
 other that helps: Class, PvP prep, Buy list), each followed by rows of up to 4 squares. Full control: `wowui component <panel> '<json>'` adds a section
 or row or replaces the one with the same id (new ids go to the end); `wowui remove <panel> --child <id>` deletes one; to reorder or rebuild a whole

@@ -48,7 +48,7 @@ class GameDB:
                 return 200, self.status()
             fn = getattr(self, "r_" + sub, None)
             if not fn:
-                raise DbError("unknown db route %r (status quest npc item object search find_quests trainers chain waypoint route spots training validate)" % sub, 404)
+                raise DbError("unknown db route %r (status quest npc item object search find_quests trainers chain waypoint route spots squares training validate)" % sub, 404)
             with self.lock:
                 c = self.connect()
                 try:
@@ -390,6 +390,51 @@ class GameDB:
                         "clusters": [{"uiMapId": k[0], "zone": self._zone(c, v["area"])["name"], "x": round(v["sx"] / v["n"], 1), "y": round(v["sy"] / v["n"], 1), "spawn_points": v["n"]} for k, v in best],
                         "total_spawn_points": sum(v["n"] for v in cells.values())})
         return {"creatures": out, "note": "spawn points are Questie's; patrols and rare spawns have few points. The first cluster is where most of them stand."}
+
+    def r_squares(self, c, q):
+        """Everything worth a preview square in one map: for each given quest, every creature IN THAT MAP that is a kill objective or drops an
+        objective item (full drop list, not capped), plus objects there that hold an objective; for each given item, every creature in the map
+        that drops it. map=<uiMapId> (required), quests=<id,id,...>, items=<id,id,...>. Creatures are sorted by spawn points in the map."""
+        try:
+            m = int(_q(q, "map"))
+        except (TypeError, ValueError):
+            raise DbError("pass map=<uiMapId> (FAST Position: map=...), plus quests=<ids> and/or items=<ids>")
+        quests = [int(x) for x in re.findall(r"\d+", _q(q, "quests", "") or "")][:25]
+        items = [int(x) for x in re.findall(r"\d+", _q(q, "items", "") or "")][:25]
+
+        def count(kind, i):
+            return c.execute("SELECT COUNT(*) FROM spawn WHERE kind=? AND id=? AND uimap_id=?", (kind, i, m)).fetchone()[0]
+
+        def here(kind, ids):
+            out = []
+            for i in dict.fromkeys(ids):
+                n = count(kind, i)
+                if n:
+                    out.append({"id": i, "name": self._name(c, "npc" if kind == "npc" else "object", i), "spawn_points": n})
+            return sorted(out, key=lambda d: -d["spawn_points"])
+
+        def item_info(iid):
+            r = c.execute("SELECT name, json FROM item WHERE id=?", (iid,)).fetchone()
+            if not r:
+                return {"item": iid, "name": None, "droppedHereBy": [], "objectsHere": []}
+            j = json.loads(r["json"])
+            return {"item": iid, "name": r["name"], "droppedHereBy": here("npc", j.get("npcDrops") or []),
+                    "objectsHere": here("object", j.get("objectDrops") or [])}
+
+        out_q = []
+        for qid in quests:
+            row = c.execute("SELECT name, json FROM quest WHERE id=?", (qid,)).fetchone()
+            if not row:
+                continue
+            o = self._lua(json.loads(row["json"]).get("objectives"))
+            kills = here("npc", [rr[0] for rr in (o.get("1") or o.get(1) or [])])
+            objs = here("object", [rr[0] for rr in (o.get("2") or o.get(2) or [])])
+            its = [item_info(it[0]) for it in (o.get("3") or o.get(3) or [])]
+            out_q.append({"quest": qid, "name": row["name"], "kill": kills, "objects": objs, "items": its,
+                          "nothing_here": not kills and not objs and not any(i["droppedHereBy"] or i["objectsHere"] for i in its)})
+        return {"map": m, "quests": out_q, "items": [item_info(i) for i in items],
+                "note": "the database has no drop chances: for profession items a listed creature can be a rare world-drop source, so prefer the "
+                        "creatures whose loot plainly fits (crawlers for Crawler Meat). Quest objective droppers are reliable."}
 
     def r_route(self, c, q):
         """Order quest stops for the player: turn-ins for finished quests, objective locations for open ones.
