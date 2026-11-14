@@ -13,8 +13,8 @@ reported in `last`). The game hides a finished quest's squares itself, the momen
 """
 import json, re, threading, time
 
-QUEST_ROW = re.compile(r"^(q\d+|hp\d+|p\d+_\d+)$")       # quest rows, profession headings and rows (all generated here)
-OURS = ("hq", "qall")
+QUEST_ROW = re.compile(r"^(q\d+|hp\d+|p\d+_\d+|rr\d+)$")  # quest rows, profession headings and rows, rare rows (all generated here)
+OURS = ("hq", "qall", "hr")
 PROF_ROW = re.compile(r"^(hp\d+|p\d+_\d+)$")
 LEGACY = {"hc", "c1", "c2", "hf", "f1", "he", "e1", "ha", "a1"}  # hand-made profession rows from before: replaced by generated ones
 CRAFTING = ("Engineering", "Alchemy", "Blacksmithing", "Leatherworking", "Tailoring", "Enchanting", "Cooking", "First Aid")
@@ -26,6 +26,9 @@ LEVEL_KV = re.compile(r"\blevel=(\d+)")
 SECTION = re.compile(r"^--- ([A-Z_]+)(?: \((?:updated (\d+)s ago|[^)]*)\))?(?: ---)?\s*$", re.M)
 FAST_MAP = re.compile(r"Position: map=(\d+)")
 QUEST_LINE = re.compile(r"\[(COMPLETE|in progress|failed)\] (.+?) \(L\d+\) #(\d+)")
+AH_LINE = re.compile(r"^(\d+) ah=(\d+) ", re.M)                                  # CoachData AH_PRICES (Auctionator)
+HAVE_LINE = re.compile(r"^(\d+) bank=(\d+) mail=(\d+) bags=(\d+)\s*$", re.M)        # CoachData BANK (BagBrother)
+RARE_SEEN_S = 900      # a rare seen alive this recently on a nameplate goes first in the Rares row
 MAX_ROWS = 6
 SLACK_S = 5.0          # game event times are whole seconds and section ages are approximate: within this window the event wins
 MAX_QUEST_ID = 10_000_000
@@ -92,6 +95,20 @@ def feed_skills(body):
     return skills, (int(lv.group(1)) if lv else None)
 
 
+def feed_market(body):
+    """({item: AH copper} or None, {item: (bags, bank incl. mail)} or None) from the AH_PRICES and BANK sections."""
+    text = body.decode("utf-8", "replace") if isinstance(body, bytes) else str(body or "")
+    sec = sections(text)
+    prices = {int(i): int(p) for i, p in AH_LINE.findall(sec["AH_PRICES"][0])} if "AH_PRICES" in sec else None
+    have = {int(i): (int(bg), int(bk) + int(ml)) for i, bk, ml, bg in HAVE_LINE.findall(sec["BANK"][0])} if "BANK" in sec else None
+    return prices, have
+
+
+def money(c):
+    c = int(c)
+    return " ".join(s for s in ("%dg" % (c // 10000) if c >= 10000 else "", "%ds" % (c // 100 % 100) if c >= 100 else "", "%dc" % (c % 100) if c % 100 or c < 100 else "") if s)
+
+
 def skill_chance(cur, yellow, grey):
     """Chance one craft gives a point (Classic rule, the one Forever guides use): orange 1, yellow/green falls linearly to 0 at grey."""
     if cur >= grey:
@@ -111,6 +128,8 @@ class AutoSquares:
         self.feed_q, self.feed_t = set(), None        # in-progress quests from the newest QUESTS section, and when it was true
         self.ev = {}                                  # quest -> (time, in progress?) from events
         self.skills, self.level = {}, None            # {profession: (skill, max)}, character level
+        self.prices, self.have = {}, {}               # {item: AH copper} (Auctionator), {item: (in bags, in bank + mail)} (BagBrother)
+        self.rare_seen = {}                           # npc -> (time, map) of the last rare_seen event
         self.state_path = state_path                  # what it knew survives a server restart (the feed's sections take minutes to come back)
         self._load()
         self.sig = None
@@ -126,9 +145,14 @@ class AutoSquares:
         try:
             m, mt, q, qt = feed_state(body)
             sk, lv = feed_skills(body)
+            prices, have = feed_market(body)
         except Exception:
             return
         with self.mu:
+            if prices is not None:                    # merge: an item that leaves the overlay keeps its last price (no recipe flip-flop)
+                self.prices = {**self.prices, **prices}
+            if have is not None:
+                self.have = have
             if m and mt >= self.map_t:
                 self.map, self.map_t = m, mt
             if sk:
@@ -155,6 +179,10 @@ class AutoSquares:
                     self._event(q, at, False)
                 elif t == "level_up" and isinstance(d.get("level"), int) and not isinstance(d.get("level"), bool):
                     self.level = d["level"]
+                elif t == "rare_seen" and _qid(d.get("npc")):
+                    self.rare_seen[d["npc"]] = (at, d.get("map") if _qid(d.get("map")) else None)
+                    if len(self.rare_seen) > 200:
+                        self.rare_seen.pop(min(self.rare_seen, key=lambda k: self.rare_seen[k][0]))
                 elif t == "zone_changed" and _qid(d.get("map")) and at >= self.map_t - SLACK_S:
                     self.map, self.map_t = d["map"], at
         self.wake.set()
@@ -184,6 +212,9 @@ class AutoSquares:
             self.ev = {int(q): (float(v[0]), bool(v[1])) for q, v in (st.get("ev") or {}).items()}
             self.skills = {k: (int(v[0]), int(v[1])) for k, v in (st.get("skills") or {}).items()}
             self.level = st.get("level")
+            self.prices = {int(k): int(v) for k, v in (st.get("prices") or {}).items()}
+            self.have = {int(k): (int(v[0]), int(v[1])) for k, v in (st.get("have") or {}).items()}
+            self.rare_seen = {int(k): (float(v[0]), v[1]) for k, v in (st.get("rare_seen") or {}).items()}
         except (OSError, ValueError, TypeError, AttributeError):
             pass
 
@@ -192,7 +223,9 @@ class AutoSquares:
             return
         with self.mu:
             st = {"map": self.map, "map_t": self.map_t, "feed_q": sorted(self.feed_q), "feed_t": self.feed_t,
-                  "ev": {str(q): [t, p] for q, (t, p) in self.ev.items()}, "skills": self.skills, "level": self.level}
+                  "ev": {str(q): [t, p] for q, (t, p) in self.ev.items()}, "skills": self.skills, "level": self.level,
+                  "prices": {str(k): v for k, v in self.prices.items()}, "have": {str(k): list(v) for k, v in self.have.items()},
+                  "rare_seen": {str(k): list(v) for k, v in self.rare_seen.items()}}
         try:
             tmp = self.state_path + ".tmp"
             with open(tmp, "w") as f:
@@ -310,12 +343,17 @@ class AutoSquares:
 
 
     # ------------------------------------------------------------------ professions (generated, like the quests)
-    def _source(self, c, m, iid):
-        """Where he gets one reagent from here: a creature in this map that drops it (measured chance >= 5%), a vendor here, a vendor
-        elsewhere, or the auction house."""
+    def _source(self, c, m, iid, cnt=1):
+        """Where he gets one reagent from here: his bags or bank (BagBrother), a creature in this map that drops it (measured chance >= 5%),
+        a vendor here, a vendor in a capital, the auction house (Auctionator's last price when known) or a remote vendor."""
         g = self.gdb
         r = c.execute("SELECT name, json FROM item WHERE id=?", (iid,)).fetchone()
         name = r["name"] if r else "item %d" % iid
+        bags, bank = self.have.get(iid, (0, 0))
+        if bags >= cnt:
+            return {"kind": "have", "where": "in your bags: %d" % bags, "name": name, "cost": 0.0}
+        if bags + bank >= cnt:
+            return {"kind": "have", "where": "in your bank: %d%s" % (bank, (", bags %d" % bags) if bags else ""), "name": name, "cost": 0.1}
         j = json.loads(r["json"]) if r and r["json"] else {}
         vend = [v for v in (j.get("vendors") or []) if isinstance(v, int)]
         for v in vend:                                  # a vendor in this zone beats farming it
@@ -340,15 +378,35 @@ class AutoSquares:
         if best:
             best["name"] = name
             return best
+        ah = {"kind": "ah", "name": name, "cost": 1.0}
+        p = self.prices.get(iid)
+        if p:                                           # Auctionator's last price: cheap stacks beat a trip, dear ones lose to farming
+            ah.update(copper=p, cost=0.7 + p / 2500.0)
         if vend:                                        # a capital he passes anyway beats a remote vendor; a remote one is worse than the AH
             for v in vend:
                 sp = c.execute("SELECT uimap_id FROM spawn WHERE kind='npc' AND id=? AND uimap_id IN (%s) LIMIT 1" % ",".join(str(x) for x in CAPITALS), (v,)).fetchone()
                 if sp:
                     return {"kind": "vendor", "who": g._name(c, "npc", v), "zone": CAPITALS[sp[0]], "name": name, "cost": 0.6}
-            sp = c.execute("SELECT area_id FROM spawn WHERE kind='npc' AND id=? LIMIT 1", (vend[0],)).fetchone()
-            zone = (g._zone(c, sp[0]).get("name") if sp else None) or ""
-            return {"kind": "vendor", "who": g._name(c, "npc", vend[0]), "zone": zone, "name": name, "cost": 1.5}
-        return {"kind": "ah", "name": name, "cost": 1.0}
+            if not p or ah["cost"] > 1.5:                # a remote vendor beats an unknown or dear AH price
+                sp = c.execute("SELECT area_id FROM spawn WHERE kind='npc' AND id=? LIMIT 1", (vend[0],)).fetchone()
+                zone = (g._zone(c, sp[0]).get("name") if sp else None) or ""
+                return {"kind": "vendor", "who": g._name(c, "npc", vend[0]), "zone": zone, "name": name, "cost": 1.5}
+        return ah
+
+    @staticmethod
+    def _where(sv, zone=False):
+        k = sv["kind"]
+        if k == "drop":
+            return "%g%% from %s" % (round(sv["pct"], 1), sv["who"])
+        if k == "craft":
+            return "craft it: " + ", ".join("%s x%d (%s)" % (n2, c2, w2) for n2, c2, w2 in sv["parts"])
+        if k == "have":
+            return sv["where"]
+        if k == "vendor_here":
+            return "vendor here: %s" % sv["who"]
+        if k == "vendor":
+            return "vendor: %s%s" % (sv["who"], (", " + sv["zone"]) if zone and sv.get("zone") else "")
+        return "buy on the AH" + (" ~%s each" % money(sv["copper"]) if sv.get("copper") else "")
 
     def _craftable(self, c, m, prof, cur, iid):
         """When a trainer recipe of the same profession he can already make produces this reagent, its cost is its own reagents' cost."""
@@ -361,10 +419,9 @@ class AutoSquares:
             return None
         cost, desc = 0.1, []
         for pid, pc in parts:
-            sv = self._source(c, m, pid)
+            sv = self._source(c, m, pid, pc)
             cost += sv["cost"] * pc
-            w = {"drop": lambda v: "%g%% from %s" % (round(v["pct"], 1), v["who"]), "vendor_here": lambda v: "vendor here: %s" % v["who"],
-                 "vendor": lambda v: "vendor: %s" % v["who"]}.get(sv["kind"], lambda v: "buy on the AH")(sv)
+            w = self._where(sv)
             desc.append((sv["name"], pc, w))
         r2 = c.execute("SELECT name FROM item WHERE id=?", (iid,)).fetchone()
         return {"kind": "craft", "name": r2["name"] if r2 else r["name"], "cost": cost, "parts": desc}
@@ -398,7 +455,7 @@ class AutoSquares:
                                 continue
                             srcs = []
                             for iid, cnt in reag:
-                                sv = self._source(c, m, iid)
+                                sv = self._source(c, m, iid, cnt)
                                 craft = self._craftable(c, m, prof, cur, iid)       # an intermediate he makes himself (Rough Blasting Powder)
                                 if craft and craft["cost"] < sv["cost"]:
                                     sv = craft
@@ -428,14 +485,8 @@ class AutoSquares:
                             if sv["kind"] == "drop":
                                 where = "%g%% from %s" % (round(sv["pct"], 1), sv["who"])
                                 drops.append(sv)
-                            elif sv["kind"] == "craft":
-                                where = "craft it: " + ", ".join("%s x%d (%s)" % (n2, c2, w2) for n2, c2, w2 in sv["parts"])
-                            elif sv["kind"] == "vendor_here":
-                                where = "vendor here: %s" % sv["who"]
-                            elif sv["kind"] == "vendor":
-                                where = "vendor: %s%s" % (sv["who"], (", " + sv["zone"]) if sv.get("zone") else "")
                             else:
-                                where = "buy on the AH"
+                                where = self._where(sv, zone=True)
                             cells.append({"type": "icon", "item": iid, "tip": "%s x%d (%s)" % (sv["name"], cnt, where), "iconSize": 26})
                         for n in range(0, len(cells), 4):
                             part = cells[n:n + 4]
@@ -457,6 +508,32 @@ class AutoSquares:
                 c.close()
         return out
 
+    def build_rares(self, m, level, now=None):
+        """A Rares heading and one row of up to 4 rare creatures that spawn here near his level (Questie rank), the ones seen alive on a
+        nameplate in the last 15 minutes first. Clicking one targets it (out of combat). Nothing when there are none."""
+        g, now = self.gdb, time.time() if now is None else now
+        with g.lock:
+            c = g.connect()
+            try:
+                rares = g._rares(c, m, level)
+            finally:
+                c.close()
+        rares = [r for r in rares if TARGETABLE.match(r["name"] or "")]
+        if not rares:
+            return []
+        with self.mu:
+            seen = {n: t for n, (t, mm) in self.rare_seen.items() if now - t <= RARE_SEEN_S and mm in (None, m)}
+        rares.sort(key=lambda r: (r["npc"] not in seen, -seen.get(r["npc"], 0)))
+        rares = rares[:4]
+        hot = [r for r in rares if r["npc"] in seen]
+        if hot:
+            text = "Rares here: %s seen alive in the last %d min" % (hot[0]["name"], RARE_SEEN_S // 60)
+        else:
+            text = "Rares here (none seen yet)"
+        cells = [{"type": "icon", "npc": r["npc"], "tip": r["name"], "texture": "Ability_Hunter_MarkedForDeath", "iconSize": 26} for r in rares]
+        return [{"type": "heading", "id": "hr", "text": text},
+                {"type": "row", "id": "rr1", "gap": 4, "children": cells + [{"type": "spacer"}] * (4 - len(cells))}]
+
     def _current_ours(self, panel):
         return [ch for ch in panel.get("children", []) if ch.get("id") in OURS or QUEST_ROW.match(str(ch.get("id") or ""))]
 
@@ -469,7 +546,10 @@ class AutoSquares:
                 skills, level, known = dict(self.skills), self.level, self.feed_t is not None
             if not known:
                 return                                  # right after a restart: wait for the QUESTS section, never blank the panel
-            sig = (m, tuple(quests), tuple(sorted(skills.items())), level)
+            with self.mu:
+                market = (tuple(sorted(self.prices.items())), tuple(sorted(self.have.items())))
+                hot = tuple(sorted(n for n, (t, mm) in self.rare_seen.items() if time.time() - t <= RARE_SEEN_S))
+            sig = (m, tuple(quests), tuple(sorted(skills.items())), level, market, hot)
             with self.lock:
                 panel = next((p for p in self.get_doc().panels if p.get("id") == "squares"), None)
                 if panel is None:
@@ -478,6 +558,10 @@ class AutoSquares:
                 if sig == self.sig and self.ours is not None and json.dumps(self._current_ours(panel), sort_keys=True) == self.ours:
                     return                              # nothing changed and nobody rewrote our rows
             ours, dropped, skipped = self.build(m, quests)
+            try:
+                ours = ours + self.build_rares(m, level)
+            except Exception as e:                      # rares must never block the quest squares
+                skipped.append("rares: %s" % type(e).__name__)
             prof, keep_prof = [], not skills            # PROFESSIONS not seen yet: keep whatever profession rows are there
             if skills:
                 try:

@@ -48,7 +48,7 @@ class GameDB:
                 return 200, self.status()
             fn = getattr(self, "r_" + sub, None)
             if not fn:
-                raise DbError("unknown db route %r (status quest npc item object search find_quests trainers chain waypoint route spots squares drops boss training validate)" % sub, 404)
+                raise DbError("unknown db route %r (status quest npc item object search find_quests trainers chain waypoint route spots squares drops boss rares training validate)" % sub, 404)
             with self.lock:
                 c = self.connect()
                 try:
@@ -454,6 +454,43 @@ class GameDB:
                 "pct": round(r["rate"] * 100, 2) if r["rate"] is not None else None} for r in rows]
         out.sort(key=lambda d: (d["instance"] or "", d["boss"] or "", -(d["pct"] or -1)))
         return {"count": len(out), "loot": out[:200], "note": "pct is None where NeedRoll has no rate yet"}
+
+    RARE_RANKS = {4: "rare", 2: "rare elite"}           # Questie's npc rank: 1 elite, 2 rare elite, 3 boss, 4 rare
+
+    def _rares(self, c, m, level=None, lo=4, hi=3):
+        """Rare creatures that spawn in a map, closest to the level first (level-lo .. level+hi when a level is given)."""
+        out = []
+        for r in c.execute("SELECT DISTINCT n.id, n.name, n.minlevel, n.maxlevel, n.flags, n.json FROM npc n JOIN spawn s ON s.kind='npc' AND s.id=n.id "
+                           "WHERE s.uimap_id=? AND n.json LIKE '%\"rank\":%'", (m,)):
+            try:
+                j = json.loads(r["json"] or "{}")
+            except ValueError:
+                continue
+            rank = j.get("rank")
+            if rank not in self.RARE_RANKS or (r["flags"] or 0) & (2 | 128):   # quest givers and vendors are not hunted
+                continue
+            mn, mx = r["minlevel"] or 0, r["maxlevel"] or r["minlevel"] or 0
+            if level is not None and (mx < level - lo or mn > level + hi):
+                continue
+            pts = c.execute("SELECT x, y FROM spawn WHERE kind='npc' AND id=? AND uimap_id=? LIMIT 8", (r["id"], m)).fetchall()
+            out.append({"npc": r["id"], "name": r["name"], "level": [mn, mx], "rank": self.RARE_RANKS[rank],
+                        "spawns": [[round(p["x"], 1), round(p["y"], 1)] for p in pts]})
+        out.sort(key=lambda d: (abs(((d["level"][0] + d["level"][1]) / 2.0) - level) if level is not None else 0, d["name"]))
+        return out
+
+    def r_rares(self, c, q):
+        """Rare creatures in a map (Questie's rank: rare and rare elite) with levels and spawn points, closest to --level first.
+        map=<uiMapId> (required), level=<n> keeps level-4 .. level+3."""
+        try:
+            m = int(_q(q, "map"))
+        except (TypeError, ValueError):
+            raise DbError("pass map=<uiMapId> (FAST Position: map=...) [level=N]")
+        lv = _q(q, "level")
+        lv = int(lv) if lv and str(lv).isdigit() else None
+        rows = self._rares(c, m, lv)
+        for d in rows:
+            d["drops"] = [{"item": x["item"], "name": self._name(c, "item", x["item"]), "pct": x["pct"]} for x in self._rates(c, npc=d["npc"])[:6]] if self._has(c, "drop_rate") else []
+        return {"map": m, "count": len(rows), "rares": rows}
 
     def r_squares(self, c, q):
         """Everything worth a preview square in one map: for each given quest, every creature IN THAT MAP that is a kill objective or drops an

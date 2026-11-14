@@ -709,6 +709,15 @@ def cmd_db(a):
         params["from"] = params.pop("frm")
     if getattr(a, "race", None):
         params["race"] = a.race
+    if route == "rares" and "map" not in params:
+        feed = read_feed(a)                     # default to where he is, at his level
+        pos = _fast(feed)
+        if not pos:
+            fail(["no position in the feed: pass --map <uiMapId>"])
+        params["map"] = pos[0]
+        lv = re.search(r"\blevel=(\d+)", feed or "")
+        if lv and "level" not in params:
+            params["level"] = lv.group(1)
     if route == "squares" and ("map" not in params or "quests" not in params):
         feed = read_feed(a)                     # default to where he is and the quests he is still working on
         if "map" not in params:
@@ -871,11 +880,11 @@ def cmd_autopsy(a):
     print("# latest death and fight events (newest last)")
     for e in evs[-4:]:
         print(json.dumps(e, ensure_ascii=False)[:600])
-    for name in ("DEATHS", "FIGHTS", "FAST", "PET", "AURAS", "ACTIONBARS", "BAGS", "EQUIPMENT"):
+    for name in ("DEATHS", "FIGHTS", "DAMAGE", "FAST", "PET", "AURAS", "ACTIONBARS", "BAGS", "EQUIPMENT"):
         body = feed_section(feed, name)
         if body:
             print("--- %s" % name)
-            print("\n".join(body.rstrip().splitlines()[: (14 if name in ("DEATHS", "FIGHTS", "FAST", "PET", "AURAS") else 8)]))
+            print("\n".join(body.rstrip().splitlines()[: (14 if name in ("DEATHS", "FIGHTS", "DAMAGE", "FAST", "PET", "AURAS") else 8)]))
     print("# Write the lesson with `wowui memory add --tag lesson ...`; check pet out, Demon Skin, shards, Healthstone, potion; name where it happened and warn before going back.")
 
 
@@ -886,7 +895,7 @@ def cmd_debrief(a):
     for e in ev.get("events", []) if code == 200 else []:
         counts[e["type"]] = counts.get(e["type"], 0) + 1
     print("# events in the buffer by type: %s" % (", ".join("%s=%d" % kv for kv in sorted(counts.items(), key=lambda kv: -kv[1])[:14]) or "none"))
-    for name in ("SESSION", "DEATHS", "FIGHTS", "QUESTS", "PROFESSIONS"):
+    for name in ("SESSION", "XP", "DAMAGE", "DEATHS", "FIGHTS", "QUESTS", "PROFESSIONS"):
         body = feed_section(feed, name)
         if body:
             print("--- %s" % name)
@@ -1654,6 +1663,7 @@ def main():
     dadd("spots", "where to find the creatures a quest wants (densest spawn clusters): --quest ID or --npc NAME", "quest", "npc")
     dadd("squares", "every creature or object in a map that holds an objective of his in-progress quests (full drop lists), plus droppers of --items; defaults to his map and quest log: [--map ID] [--quests 1,2] [--items 2674,3173]", "map", "quests", "items")
     dadd("drops", "drop chances (Tnny's Mob Loot: measured on Forever, else Classic estimates): --npc NAME|ID for what it drops, or --item NAME|ID [--map ID] for who drops it", "npc", "item", "map")
+    dadd("rares", "rare and rare-elite creatures in a map with levels, spawn points and top drops; defaults to his map and level: [--map ID] [--level N]", "map", "level")
     dadd("boss", "dungeon and raid boss loot with drop chances (NeedRoll): --name 'Rhahk'Zor' or --name Deadmines, or --item NAME|ID for which bosses drop it", "name", "item")
     dadd("training", "spells a class can train with cost (names via `wowui watch --spells`): --class Warlock [--level N] [--from M]", "klass", "level", "frm")
     dadd("validate", "check a guide's quest ids, class/race gates and [G] coordinates: --guide NAME [--class Warlock --race Human]", "guide", "klass", "race")

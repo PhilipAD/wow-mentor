@@ -263,3 +263,110 @@ class ProfessionSquaresTests(unittest.TestCase):
         self.assertEqual(autosquares.skill_chance(82, 115, 155), 1.0)
         self.assertAlmostEqual(autosquares.skill_chance(125, 115, 155), 0.75)
         self.assertEqual(autosquares.skill_chance(155, 115, 155), 0.0)
+
+
+def market_world():
+    g = prof_world()
+    c = sqlite3.connect(g.path)
+    for nid, name, lv, rank, flags in ((9500, "Lady Moongazer", 19, 4, 0), (9501, "Grizzled Old Rare", 41, 4, 0), (9502, "Rare Vendor", 19, 4, 128),
+                                       (9503, "Elite Brute", 20, 1, 0), (9504, "Gibblesnik", 21, 2, 0)):
+        c.execute("INSERT INTO npc VALUES(?,?,'',?,?,?,148,?)", (nid, name, lv, lv, flags, json.dumps({"rank": rank})))
+        c.execute("INSERT INTO spawn VALUES('npc',?,148,1439,44.5,61.2)", (nid,))
+    c.commit(); c.close()
+    return g
+
+
+def feed_market(prices=None, bank=None, **kw):
+    body = feed_prof(**kw).decode()
+    if prices is not None:
+        body += "--- AH_PRICES (updated 5s ago) ---\nah prices (Auctionator, last scan): x\n" + "".join(
+            "%d ah=%s age=1 vendor=unknown overlay\n" % (i, p) for i, p in prices.items())
+    if bank is not None:
+        body += "--- BANK (updated 5s ago) ---\nbank items: x\n" + "".join("%d bank=%d mail=%d bags=%d\n" % (i, a, m, b) for i, (a, m, b) in bank.items())
+    return body.encode()
+
+
+class MarketAndRareTests(unittest.TestCase):
+    def setUp(self):
+        self.doc = uidoc.Doc()
+        uidoc.apply_ops(self.doc, [{"op": "panel", "id": "squares", "title": "What to get here", "children": [{"type": "heading", "id": "hx", "text": "agent note"}]}])
+        self.a = autosquares.AutoSquares(market_world(), threading.Lock(), lambda: self.doc, lambda: None, uidoc.apply_ops,
+                                         normalize=uidoc.normalize_component, worker=False)
+
+    def kids(self):
+        return {c["id"]: c for c in self.doc.panels[0]["children"]}
+
+    def tips(self, row="p1_1"):
+        return [x.get("tip") for x in self.kids()[row]["children"]]
+
+    def test_feed_market_parser(self):
+        p, h = autosquares.feed_market(feed_market({2835: 15, 2589: "unknown"}, {2678: (1, 2, 3)}, skills={"Cooking": (82, 150)}))
+        self.assertEqual(p, {2835: 15})                                                     # unknown prices are left out
+        self.assertEqual(h, {2678: (3, 3)})                                                 # (bags, bank + mail)
+        self.assertEqual(autosquares.feed_market(b"--- FAST ---\nx\n"), (None, None))
+
+    def test_items_he_has_come_first(self):
+        self.a.on_feed(feed_market(bank={2678: (0, 0, 3), 2674: (5, 1, 0)}, skills={"Cooking": (82, 150)})); self.a.run()
+        self.assertIn("Mild Spices x1 (in your bags: 3)", self.tips())
+        self.assertIn("Crawler Meat x1 (in your bank: 6)", self.tips())                      # what he owns beats farming it
+        self.a.on_feed(feed_market(bank={2835: (2, 0, 0)}, skills={"Cooking": (82, 150)}))     # bank only
+        self.a.prices = {}
+        sv = self.a._source(self.a.gdb.connect(), 1439, 2835, 2)
+        self.assertEqual((sv["kind"], sv["where"], sv["cost"]), ("have", "in your bank: 2", 0.1))
+        sv = self.a._source(self.a.gdb.connect(), 1439, 2835, 3)                          # not enough: falls through to the AH
+        self.assertEqual(sv["kind"], "ah")
+
+    def test_ah_price_beats_a_remote_vendor_and_shows_in_the_tip(self):
+        self.a.on_feed(feed_market({4357: 50, 2835: 15}, skills={"Engineering": (25, 75)})); self.a.run()
+        tips = self.tips()
+        self.assertIn("Rough Blasting Powder x1 (buy on the AH ~50c each)", tips)          # 0.72 beats crafting it (0.1 + 0.706)
+        self.a.on_feed(feed_market({4357: 5000, 2835: 15}, skills={"Engineering": (25, 75)})); self.a.run()
+        self.assertIn("Rough Blasting Powder x1 (craft it: Rough Stone x1 (buy on the AH ~15c each))", self.tips())   # dear: craft it
+        self.assertEqual(autosquares.money(12345), "1g 23s 45c")
+        self.assertEqual(autosquares.money(500), "5s")
+        self.assertEqual(autosquares.money(7), "7c")
+
+    def test_rares_row(self):
+        self.a.on_feed(feed_market(skills={"Cooking": (82, 150)})); self.a.run()
+        k = self.kids()
+        self.assertEqual(k["hr"]["text"], "Rares here (none seen yet)")
+        names = [x.get("tip") for x in k["rr1"]["children"] if x.get("npc")]
+        self.assertEqual(set(names), {"Lady Moongazer", "Gibblesnik"})                     # not the level 41, not the vendor, not a plain elite
+        ids = [c["id"] for c in self.doc.panels[0]["children"]]
+        self.assertLess(ids.index("rr1"), ids.index("hp1"))                                 # after the quests, before the professions
+        self.assertIn("hx", ids)
+        self.a.on_events([{"type": "rare_seen", "data": {"npc": 9504, "map": 1439, "name": "Gibblesnik"}, "t": time.time()}]); self.a.run()
+        k = self.kids()
+        self.assertEqual(k["hr"]["text"], "Rares here: Gibblesnik seen alive in the last 15 min")
+        self.assertEqual(k["rr1"]["children"][0]["tip"], "Gibblesnik")
+        self.a.on_events([{"type": "zone_changed", "data": {"map": 1440}, "t": time.time() + 10}]); self.a.run()
+        self.assertNotIn("hr", self.kids())                                                 # none in the next zone: the rows go
+        self.assertNotIn("rr1", self.kids())
+
+    def test_market_and_rares_survive_a_restart(self):
+        path = os.path.join(tempfile.mkdtemp(), "as.json")
+        a = autosquares.AutoSquares(self.a.gdb, threading.Lock(), lambda: self.doc, lambda: None, uidoc.apply_ops, worker=False, state_path=path)
+        a.on_feed(feed_market({2835: 15}, {2678: (1, 0, 2)}, skills={"Cooking": (82, 150)}))
+        a.on_events([{"type": "rare_seen", "data": {"npc": 9500, "map": 1439}, "t": 1000.0}]); a.run()
+        b = autosquares.AutoSquares(self.a.gdb, threading.Lock(), lambda: self.doc, lambda: None, uidoc.apply_ops, worker=False, state_path=path)
+        self.assertEqual((b.prices, b.have, b.rare_seen), ({2835: 15}, {2678: (2, 1)}, {9500: (1000.0, 1439)}))
+
+    def test_db_rares_route(self):
+        code, r = self.a.gdb.handle("GET", "db/rares", {"map": "1439", "level": "19"}, None)
+        self.assertEqual(code, 200, r)
+        self.assertEqual([d["name"] for d in r["rares"]], ["Lady Moongazer", "Gibblesnik"])
+        self.assertEqual(r["rares"][1]["rank"], "rare elite")
+        self.assertEqual(r["rares"][0]["spawns"], [[44.5, 61.2]])
+        self.assertEqual(self.a.gdb.handle("GET", "db/rares", {}, None)[0], 400)
+
+    def test_prices_are_kept_when_an_item_leaves_the_section(self):
+        self.a.on_feed(feed_market({2835: 15}, skills={"Cooking": (82, 150)}))
+        self.a.on_feed(feed_market({4357: 50}, skills={"Cooking": (82, 150)}))           # 2835 left the overlay: its price stays
+        self.assertEqual(self.a.prices, {2835: 15, 4357: 50})
+
+    def test_dear_ah_loses_to_a_remote_vendor(self):
+        self.a.prices = {4357: 9000}                                                       # 0.7 + 3.6 > 1.5
+        sv = self.a._source(self.a.gdb.connect(), 1439, 4357)
+        self.assertEqual((sv["kind"], sv["who"]), ("vendor", "Remote Vendor"))
+        self.a.prices = {}
+        self.assertEqual(self.a._source(self.a.gdb.connect(), 1439, 4357)["kind"], "vendor")   # unknown price: the vendor, as before

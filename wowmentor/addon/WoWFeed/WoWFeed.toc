@@ -4,7 +4,7 @@
 ## Author: WoW Mentor contributors
 ## Version: 1.0.0
 ## SavedVariables: WoWFeedDB
-## OptionalDeps: ForeverLevelingBiS
+## OptionalDeps: ForeverLevelingBiS, Auctionator, BagBrother
 
 Codec.lua
 JSON.lua
@@ -13,3 +13,4 @@ UI.lua
 Coach.lua
 CoachState.lua
 CoachRules.lua
+CoachData.lua

@@ -1046,7 +1046,11 @@ Add a fresh `?t=<random number>` to every fetch (the edge caches otherwise). Sec
   uploader_alive_at. EVENTS_TAIL: the last 20 structured events (see 2b). Check SESSION_STATE before anything urgent.
 - Newer addon versions add: ACTIONBARS (what is on each bar, `known_not_on_bar`, `lower_rank_on_bar`), PET, TARGET, FIGHTS (last 5 fights),
   DEATHS (last 5 deaths), ITEMS (bag items with bind type; BoE green+ marked KEEP FOR AH), REWARDS (quest reward choices while the window is open),
-  TRAINER, NPCS, RULES (loaded rules and when they last fired), COACH_INBOX, COACH_QUESTIONS, SESSION_ADDON. A value the game hides is `unknown`
+  TRAINER, NPCS, RULES (loaded rules and when they last fired), COACH_INBOX, COACH_QUESTIONS, SESSION_ADDON. The newest add DAMAGE (Blizzard's damage
+  meter read after each fight: dealt and taken by spell with shares, session totals, dps history), AH_PRICES (`id ah=copper age=days vendor=copper why`),
+  BANK (`id bank= mail= bags=`, BagBrother's cache), XP (xp per active hour, time to level), THREAT (player vs pet on the pet's target; event threat_pulled)
+  and RARES (rares seen on nameplates; event rare_seen). The squares panel also gets a Rares row, and its profession reagents use what he owns and
+  Auctionator's prices automatically; `wowui db rares` lists a map's rares. A value the game hides is `unknown`
   (health, power and similar are secret in combat; "at pull" numbers are the last out-of-combat sample). Combat-log details are not available:
   fights are reconstructed, and the exact killer is a best guess. If a section is missing, the installed addon is older: do not assume it.
 If `seconds_since_last_game_update` is large (or SESSION_STATE says logged_out / game_closed) the game is closed or hidden: do not send urgent toasts then.
