@@ -23,11 +23,12 @@ CREATE TABLE sort(id INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE training(class TEXT, level INT, spell_id INT, cost INT, requires TEXT);
 CREATE TABLE drop_rate(npc INT, item INT, pct REAL, kills INT, src TEXT, quest INT);
 CREATE TABLE boss_loot(instance TEXT, instance_name TEXT, category TEXT, levels TEXT, boss TEXT, npc INT, item INT, rate REAL);
+CREATE TABLE recipe(profession TEXT, spell INT, name TEXT, product INT, learn INT, yellow INT, green INT, grey INT, learned TEXT, reagents TEXT);
 """
 INDEXES = """CREATE INDEX q_name ON quest(name COLLATE NOCASE); CREATE INDEX q_zone ON quest(zone_or_sort, minlevel);
 CREATE INDEX n_name ON npc(name COLLATE NOCASE); CREATE INDEX i_name ON item(name COLLATE NOCASE); CREATE INDEX o_name ON object(name COLLATE NOCASE);
 CREATE INDEX s_id ON spawn(kind,id); CREATE INDEX s_area ON spawn(area_id); CREATE INDEX s_map ON spawn(uimap_id);
-CREATE INDEX d_npc ON drop_rate(npc); CREATE INDEX d_item ON drop_rate(item); CREATE INDEX b_item ON boss_loot(item); CREATE INDEX b_boss ON boss_loot(boss COLLATE NOCASE);"""
+CREATE INDEX r_prof ON recipe(profession COLLATE NOCASE); CREATE INDEX d_npc ON drop_rate(npc); CREATE INDEX d_item ON drop_rate(item); CREATE INDEX b_item ON boss_loot(item); CREATE INDEX b_boss ON boss_loot(boss COLLATE NOCASE);"""
 
 
 def _j(v):
@@ -43,10 +44,10 @@ def toc_path(addons):
     return os.path.join(addons, "QuestieDB", "QuestieDB_Forever.toc")
 
 
-SCHEMA_TAG = "s3"          # bump when the tables change so every installed bridge rebuilds and re-uploads
+SCHEMA_TAG = "s4"          # bump when the tables change so every installed bridge rebuilds and re-uploads
 
 
-EXTRA_SOURCES = (("TnnysMobLoot", "TnnysMobLoot_Forever.toc"), ("NeedRoll", "NeedRoll.toc"))
+EXTRA_SOURCES = (("TnnysMobLoot", "TnnysMobLoot_Forever.toc"), ("NeedRoll", "NeedRoll.toc"))      # NeedRoll also supplies the recipes
 
 
 def fingerprint(addons):
@@ -97,6 +98,43 @@ def drop_rows(addons, min_classic_pct=0.5):
                         rows.append((int(m.group(1)), int(f[0]), pct, None, "classic", q))
             except ValueError:
                 continue
+    return rows
+
+
+def recipe_rows(addons):
+    """(profession, spell, name, product item, learn, yellow, green, grey skill, how it is learned, reagents json [[item, count]]) from
+    NeedRoll's profession files (Forever skill levels from Wowhead)."""
+    import re
+    d = os.path.join(addons, "NeedRoll", "Data", "Professions")
+    rows = []
+    if not os.path.isdir(d):
+        return rows
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith(".lua"):
+            continue
+        try:
+            t = open(os.path.join(d, fn), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        prof = re.search(r'\bname\s*=\s*"([^"]+)"', t)
+        prof = prof.group(1) if prof else fn[:-4]
+        starts = [m.start() for m in re.finditer(r'\{\s*id\s*=\s*"S\d+"', t)]
+        for k, a in enumerate(starts):
+            block = t[a:starts[k + 1] if k + 1 < len(starts) else len(t)]
+            try:
+                nm = re.search(r'name\s*=\s*"([^"]+)"', block).group(1)
+                sp = int(re.search(r'spellID\s*=\s*(\d+)', block).group(1))
+                sk = [int(x) for x in re.search(r'skill\s*=\s*\{\s*([\d\s,]+)\}', block).group(1).split(",") if x.strip()]
+                learned = re.search(r'learned\s*=\s*"([^"]*)"', block)
+                lm = re.search(r'loot\s*=\s*\{(.*?)\}\s*,?\s*reagents', block, re.S)
+                product = int(re.search(r'itemID\s*=\s*(\d+)', lm.group(1)).group(1)) if lm and re.search(r'itemID\s*=\s*(\d+)', lm.group(1)) else None
+                rm = re.search(r'reagents\s*=\s*\{(.*?)\}\s*\}', block, re.S)
+                reag = [[int(i), int(c)] for i, c in re.findall(r'itemID\s*=\s*(\d+)\s*,\s*count\s*=\s*(\d+)', rm.group(1))] if rm else []
+                while len(sk) < 4:
+                    sk.append(sk[-1] if sk else 0)
+                rows.append((prof, sp, nm, product, sk[0], sk[1], sk[2], sk[3], learned.group(1) if learned else None, json.dumps(reag)))
+            except (AttributeError, ValueError, IndexError):
+                continue                            # one odd recipe never stops the others
     return rows
 
 
@@ -194,7 +232,7 @@ def build(addons, out):
         c.execute("INSERT INTO item VALUES(?,?,?,?,?,?,?,?)", (i, n.get("name"), n.get("itemLevel"), n.get("requiredLevel"), n.get("class"), n.get("subClass"), n.get("startQuest"), _j(n)))
     for r in training_rows(addons):
         c.execute("INSERT INTO training VALUES(?,?,?,?,?)", r)
-    for table, fn in (("drop_rate", drop_rows), ("boss_loot", boss_rows)):
+    for table, fn in (("drop_rate", drop_rows), ("boss_loot", boss_rows), ("recipe", recipe_rows)):
         try:                                        # optional addons: a bad file must never stop the quest database from building
             rows = fn(addons)
             if rows:
