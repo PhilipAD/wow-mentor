@@ -419,7 +419,8 @@ def configure(cfg, data_path=None):
     mem = agentmem.AgentMemory(os.path.join(d, "agent_memory.json"))
     store = eventsmod.EventStore(os.path.join(d, "events.json"))
     gdb = gamedbmod.GameDB(d, _guide_text)
-    auto = autosquares.AutoSquares(gdb, ui_lock, lambda: doc, save_doc, uidoc.apply_ops, normalize=uidoc.normalize_component)
+    auto = autosquares.AutoSquares(gdb, ui_lock, lambda: doc, save_doc, uidoc.apply_ops, normalize=uidoc.normalize_component,
+                                   state_path=os.path.join(d, "autosquares.json"))
     _idem.clear()
 
 

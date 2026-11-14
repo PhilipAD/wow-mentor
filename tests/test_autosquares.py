@@ -243,6 +243,17 @@ class ProfessionSquaresTests(unittest.TestCase):
         self.assertIn("hc", self.kids())                                                    # untouched
         self.assertNotIn("hq", self.kids())
 
+    def test_state_survives_a_restart(self):
+        path = os.path.join(tempfile.mkdtemp(), "as.json")
+        a = autosquares.AutoSquares(self.a.gdb, threading.Lock(), lambda: self.doc, lambda: None, uidoc.apply_ops, worker=False, state_path=path)
+        a.on_feed(feed_prof({"Cooking": (82, 150)})); a.on_events([{"type": "quest_accepted", "data": {"quest": 4740}}]); a.run()
+        b = autosquares.AutoSquares(self.a.gdb, threading.Lock(), lambda: self.doc, lambda: None, uidoc.apply_ops, worker=False, state_path=path)
+        self.assertEqual(b.quests(), (1439, [4740]))
+        self.assertEqual(b.skills, {"Cooking": (82, 150)})
+        b.on_feed(b"--- FAST (updated 0s ago) ---\nPosition: map=1439 (D) x=1 y=2\n")        # restarted, sections not back yet
+        b.run()
+        self.assertIn("Murkdeep", [c for c in self.doc.panels[0]["children"] if c["id"] == "qall"][0]["targets"])
+
     def test_skill_chance_formula(self):
         self.assertEqual(autosquares.skill_chance(82, 115, 155), 1.0)
         self.assertAlmostEqual(autosquares.skill_chance(125, 115, 155), 0.75)

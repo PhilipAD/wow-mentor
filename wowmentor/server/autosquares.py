@@ -102,7 +102,7 @@ def skill_chance(cur, yellow, grey):
 
 
 class AutoSquares:
-    def __init__(self, gdb, lock, get_doc, save, apply_ops, delay=0.6, normalize=None, worker=True):
+    def __init__(self, gdb, lock, get_doc, save, apply_ops, delay=0.6, normalize=None, worker=True, state_path=None):
         self.gdb, self.lock, self.get_doc, self.save, self.apply_ops = gdb, lock, get_doc, save, apply_ops
         self.normalize = normalize
         self.delay = delay
@@ -111,6 +111,8 @@ class AutoSquares:
         self.feed_q, self.feed_t = set(), None        # in-progress quests from the newest QUESTS section, and when it was true
         self.ev = {}                                  # quest -> (time, in progress?) from events
         self.skills, self.level = {}, None            # {profession: (skill, max)}, character level
+        self.state_path = state_path                  # what it knew survives a server restart (the feed's sections take minutes to come back)
+        self._load()
         self.sig = None
         self.ours = None
         self.wake = threading.Event()
@@ -170,6 +172,35 @@ class AutoSquares:
             for q, (_t, present) in self.ev.items():
                 (cur.add if present else cur.discard)(q)
             return self.map, sorted(cur)
+
+    def _load(self):
+        if not self.state_path:
+            return
+        try:
+            with open(self.state_path) as f:
+                st = json.load(f)
+            self.map, self.map_t = st.get("map"), float(st.get("map_t") or -1.0)
+            self.feed_q, self.feed_t = set(int(q) for q in st.get("feed_q") or []), st.get("feed_t")
+            self.ev = {int(q): (float(v[0]), bool(v[1])) for q, v in (st.get("ev") or {}).items()}
+            self.skills = {k: (int(v[0]), int(v[1])) for k, v in (st.get("skills") or {}).items()}
+            self.level = st.get("level")
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+
+    def _save(self):
+        if not self.state_path:
+            return
+        with self.mu:
+            st = {"map": self.map, "map_t": self.map_t, "feed_q": sorted(self.feed_q), "feed_t": self.feed_t,
+                  "ev": {str(q): [t, p] for q, (t, p) in self.ev.items()}, "skills": self.skills, "level": self.level}
+        try:
+            tmp = self.state_path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(st, f)
+            import os
+            os.replace(tmp, self.state_path)
+        except OSError:
+            pass
 
     def schedule(self):
         self.wake.set()
@@ -481,6 +512,7 @@ class AutoSquares:
                 panel = next((p for p in doc.panels if p.get("id") == "squares"), None)
                 self.ours = json.dumps(self._current_ours(panel), sort_keys=True) if panel else None
             self.sig = sig
+            self._save()
             self.last = {"t": time.time(), "map": m, "quests": quests, "skills": skills, "level": level, "rows": len(ours), "rows_left_out": dropped,
                          "quests_skipped": skipped, "dropped_invalid_children": invalid, "error": None}
         except Exception as e:                              # never break the worker; the next input retries
