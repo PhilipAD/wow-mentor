@@ -203,7 +203,7 @@ end
 -- creature squares: a secure button so the player's own click targets the nearest living mob of that name (like Guidelime's previews).
 -- Secure frames cannot be created, moved or hidden in combat, so every touch is out-of-combat only (otherwise the plain hover button is used).
 local function nextSecure(P)
-	if InCombatLockdown and InCombatLockdown() then S.secureStale = true; return nil end
+	if truthy(call(InCombatLockdown)) then S.secureStale = true; return nil end
 	P.secN = (P.secN or 0) + 1
 	P.secure = P.secure or {}
 	local b = P.secure[P.secN]
@@ -234,7 +234,7 @@ local function endPool(P)
 	for i = P.n.tex + 1, #P.tex do P.tex[i]:Hide() end
 	for i = P.n.rows + 1, #P.rows do P.rows[i]:Hide(); P.rows[i]:EnableMouse(false) end
 	for i = P.n.bars + 1, #P.bars do P.bars[i]:Hide() end
-	if P.secure and not (InCombatLockdown and InCombatLockdown()) then
+	if P.secure and not truthy(call(InCombatLockdown)) then
 		for i = (P.secN or 0) + 1, #P.secure do P.secure[i]:Hide(); P.secure[i]:EnableMouse(false) end
 	end
 end
@@ -578,7 +578,7 @@ render.icon = function(P, c, x, w, y)
 		local targets = c.targets or (c.npc and (c.tip or c.text) and { c.tip or c.text }) or nil
 		local row = (targets and nextSecure(P)) or nextRow(P)
 		row:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y); row:SetSize(size, size); row:EnableMouse(true)
-		if targets and row.isSecure and not (InCombatLockdown and InCombatLockdown()) then
+		if targets and row.isSecure and not truthy(call(InCombatLockdown)) then
 			pcall(row.SetAttribute, row, "macrotext", targetMacro(targets))
 		end
 		row:SetScript("OnEnter", function(self) pcall(function() if c.npc then hoverModel(self, c) else hoverTip(self, c) end end) end)
@@ -830,7 +830,7 @@ driver:SetScript("OnUpdate", function(_, dt)
 	acc = acc + dt
 	if acc < 0.1 then return end
 	local step = acc; acc = 0
-	if S.secureStale and not (InCombatLockdown and InCombatLockdown()) then
+	if S.secureStale and not truthy(call(InCombatLockdown)) then
 		S.secureStale = false
 		for _, P in pairs(S.panels) do if P.data then P.dirty = true end end
 	end
