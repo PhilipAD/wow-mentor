@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .. import config as cfgmod
-from . import agentmem, events as eventsmod, gamedb as gamedbmod, tugapi, uidoc
+from . import autosquares, agentmem, events as eventsmod, gamedb as gamedbmod, tugapi, uidoc
 
 # Filled in by serve(); module level so the request handler can reach them.
 READ = WRITE = UI = ""
@@ -17,6 +17,7 @@ state = {"body": b"(no data yet)\n", "t": 0.0}
 ui_lock = threading.Lock()
 doc = uidoc.Doc()
 game = {"t": 0.0}      # last report from the bridge: what the addon applied and what the player did
+auto = None            # autosquares.AutoSquares: keeps the squares panel's Quests rows in step with his quest log and zone
 tug = mem = store = gdb = None
 UI_FILE = ""
 CFG = {}
@@ -262,6 +263,9 @@ class Handler(BaseHTTPRequestHandler):
             if route.startswith("db/"):
                 code, obj = gdb.handle("GET", route, self._query(), None)
                 return self._json(code, obj)
+            if route == "autosquares":
+                return self._json(200, dict({"ok": True, "map": auto.map if auto else None, "quests": auto.quests()[1] if auto else []},
+                                            last=auto.last if auto else None))
             with ui_lock:
                 if route.startswith("tug/"):
                     code, obj = tug.handle("GET", route, self._query(), None)
@@ -322,6 +326,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"ok": False, "errors": ["body is not valid JSON: %s" % e]})
             hit = store.handle("POST", route, self._query(), body)
             if hit is not None:
+                if route == "events/push" and hit[0] == 200 and auto and isinstance(body, dict):
+                    auto.on_events(body.get("events"))
                 return self._json(*hit)
             if route.startswith("db/"):
                 code, obj = gdb.handle("POST", route, self._query(), body if isinstance(body, dict) else {})
@@ -349,6 +355,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         state["body"] = raw
         state["t"] = time.time()
+        if auto:
+            auto.on_feed(raw)
         self._send(200, b"ok\n")
 
 
@@ -392,7 +400,7 @@ def schema():
 
 def configure(cfg, data_path=None):
     """Load secrets and persistent state. Returns nothing; call serve() or use make_server() afterwards."""
-    global READ, WRITE, UI, doc, tug, mem, store, gdb, UI_FILE, CFG
+    global READ, WRITE, UI, doc, tug, mem, store, gdb, UI_FILE, CFG, auto
     CFG = dict(cfg)
     READ, WRITE, UI = cfg["read_token"], cfg["write_secret"], cfg["ui_secret"]
     d = data_path or cfgmod.data_dir()
@@ -411,6 +419,7 @@ def configure(cfg, data_path=None):
     mem = agentmem.AgentMemory(os.path.join(d, "agent_memory.json"))
     store = eventsmod.EventStore(os.path.join(d, "events.json"))
     gdb = gamedbmod.GameDB(d, _guide_text)
+    auto = autosquares.AutoSquares(gdb, ui_lock, lambda: doc, save_doc, uidoc.apply_ops)
     _idem.clear()
 
 

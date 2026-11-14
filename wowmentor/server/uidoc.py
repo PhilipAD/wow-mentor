@@ -1085,7 +1085,10 @@ boss loot with drop chances, from NeedRoll). `db squares` now gives pct, kills a
 Feed section BIS (from Forever Leveling BiS): his picked spec and stat weights, every equipped slot with its score (EMPTY slots too), and the
 bag items that are upgrades with their gain. ITEMS and REWARDS lines end in `| bis score=.. gain=..` for gear: pick quest rewards by gain,
 never by guess. In game he can open them himself: /bis (Forever Leveling BiS), /nr (NeedRoll), Alt-click a mob (Tnny's Mob Loot).
-Fill preview squares from `wowui db squares` (defaults to his map and in-progress quests; add `--items 2674,3173` for profession materials):
+AUTOMATIC: once a panel with id `squares` exists, the server itself rebuilds its Quests section (ids hq, qall, q1, q2, ...) the moment he accepts,
+turns in or abandons a quest or changes zone, from the database with drop chances, dungeon spawns left out; the game hides a finished quest's
+squares instantly. Do not hand-edit those ids; add or edit only the other sections (Cooking, First Aid, Engineering, Alchemy, ...), which it
+keeps. `wowui autosquares` shows what it last did. For a one-off look use: Fill preview squares from `wowui db squares` (defaults to his map and in-progress quests; add `--items 2674,3173` for profession materials):
 it lists EVERY creature in the map that is a kill objective or drops an objective item, the objects that hold one, and quests with nothing here.
 Put every creature it lists for a quest into the Quests section and into target-all; do not hand-pick from memory.
 Preview squares (icon): `item` or `spell` shows that tooltip on hover; `npc` (creature id from `wowui db npc --name X`) shows a 3D model on hover and, when the
