@@ -32,6 +32,9 @@ RARE_NET = re.compile(r"^net npc=(\d+) state=up up_ago=(\d+) ", re.M)          #
 RARE_SEEN_S = 900      # a rare seen alive this recently on a nameplate goes first in the Rares row
 MAX_ROWS = 6
 SLACK_S = 5.0          # game event times are whole seconds and section ages are approximate: within this window the event wins
+# A section's time is when it reached the server, not when the game built it: a big section can wait this long in the send queue.
+# So an event the section does not agree with is kept until the section is this much newer (by then it was built after the event).
+TRANSIT_S = 180.0
 MAX_QUEST_ID = 10_000_000
 TARGETABLE = re.compile(r"^[\w' ,.:\-]{1,60}$")          # what the server accepts as a /targetexact name (unicode letters included)
 # Classic instance areas (QuestieDB/AreaTable ids): their quests' mobs are inside, even when Questie files spawns under the outdoor zone
@@ -67,6 +70,13 @@ def sections(text):
         end = marks[k + 1].start() if k + 1 < len(marks) else len(text)
         out[m.group(1)] = (text[m.end():end], int(m.group(2)) if m.group(2) else None)
     return out
+
+
+def _newer(at, seq, old):
+    """Is the event (at, seq) newer than the remembered one? Without sequence numbers a tie goes to the one that arrived last."""
+    if at != old[0]:
+        return at > old[0]
+    return seq > old[2] if seq and old[2] else True
 
 
 def feed_state(body, now=None):
@@ -127,7 +137,7 @@ class AutoSquares:
         self.mu = threading.Lock()
         self.map, self.map_t = None, -1.0
         self.feed_q, self.feed_t = set(), None        # in-progress quests from the newest QUESTS section, and when it was true
-        self.ev = {}                                  # quest -> (time, in progress?) from events
+        self.ev = {}                                  # quest -> (time, in progress?, seq) from events; (time, seq) orders them
         self.skills, self.level = {}, None            # {profession: (skill, max)}, character level
         self.prices, self.have = {}, {}               # {item: AH copper} (Auctionator), {item: (in bags, in bank + mail)} (BagBrother)
         self.rare_seen = {}                           # npc -> (time, map) of the last rare_seen event
@@ -171,7 +181,7 @@ class AutoSquares:
                 self.level = lv
             if q is not None and (self.feed_t is None or qt >= self.feed_t):
                 self.feed_q, self.feed_t = {i for i, st in q.items() if st == "in progress"}, qt
-                self.ev = {i: v for i, v in self.ev.items() if v[0] > qt - SLACK_S}   # the section is clearly newer: those events are in it now
+                self.ev = {i: v for i, v in self.ev.items() if not self._reflected(i, v[0], v[1])}
         self.wake.set()
 
     def on_events(self, events):
@@ -182,11 +192,12 @@ class AutoSquares:
                     continue
                 t, d = e.get("type"), e.get("data") if isinstance(e.get("data"), dict) else {}
                 at = e.get("t") if isinstance(e.get("t"), (int, float)) and not isinstance(e.get("t"), bool) else now
+                sq = e.get("seq") if isinstance(e.get("seq"), int) and not isinstance(e.get("seq"), bool) else 0
                 q = _qid(d.get("quest"))
                 if t == "quest_accepted" and q:
-                    self._event(q, at, True)
+                    self._event(q, at, True, sq)
                 elif t in ("quest_turned_in", "quest_removed", "quest_complete") and q:
-                    self._event(q, at, False)
+                    self._event(q, at, False, sq)
                 elif t == "level_up" and isinstance(d.get("level"), int) and not isinstance(d.get("level"), bool):
                     self.level = d["level"]
                 elif t == "rare_seen" and _qid(d.get("npc")):
@@ -197,17 +208,29 @@ class AutoSquares:
                     self.map, self.map_t = d["map"], at
         self.wake.set()
 
-    def _event(self, q, at, present):
-        if self.feed_t is not None and at <= self.feed_t - SLACK_S:
-            return                                     # clearly older than the QUESTS section we have: it already reflects this
+    def _reflected(self, q, at, present):
+        """The QUESTS section already shows this event: it agrees with it and is newer, or is newer by more than any send delay."""
+        if self.feed_t is None:
+            return False
+        if (q in self.feed_q) == present:
+            return at <= self.feed_t - SLACK_S
+        return at <= self.feed_t - TRANSIT_S
+
+    def _event(self, q, at, present, seq=0):
+        # the game stamps whole seconds, so an accept and its instant completion share a time: the sequence number orders them,
+        # and a redelivered copy of an older event (same or lower key) never overwrites a newer one
         old = self.ev.get(q)
-        if not old or at >= old[0]:
-            self.ev[q] = (at, present)
+        if self._reflected(q, at, present):
+            if old and _newer(at, seq, old):
+                del self.ev[q]                         # the section shows this newer event: an older remembered one is void
+            return
+        if not old or _newer(at, seq, old):
+            self.ev[q] = (at, present, seq)
 
     def quests(self):
         with self.mu:
             cur = set(self.feed_q)
-            for q, (_t, present) in self.ev.items():
+            for q, (_t, present, _s) in self.ev.items():
                 (cur.add if present else cur.discard)(q)
             return self.map, sorted(cur)
 
@@ -219,7 +242,7 @@ class AutoSquares:
                 st = json.load(f)
             self.map, self.map_t = st.get("map"), float(st.get("map_t") or -1.0)
             self.feed_q, self.feed_t = set(int(q) for q in st.get("feed_q") or []), st.get("feed_t")
-            self.ev = {int(q): (float(v[0]), bool(v[1])) for q, v in (st.get("ev") or {}).items()}
+            self.ev = {int(q): (float(v[0]), bool(v[1]), int(v[2]) if len(v) > 2 else 0) for q, v in (st.get("ev") or {}).items()}
             self.skills = {k: (int(v[0]), int(v[1])) for k, v in (st.get("skills") or {}).items()}
             self.level = st.get("level")
             self.prices = {int(k): int(v) for k, v in (st.get("prices") or {}).items()}
@@ -233,7 +256,7 @@ class AutoSquares:
             return
         with self.mu:
             st = {"map": self.map, "map_t": self.map_t, "feed_q": sorted(self.feed_q), "feed_t": self.feed_t,
-                  "ev": {str(q): [t, p] for q, (t, p) in self.ev.items()}, "skills": self.skills, "level": self.level,
+                  "ev": {str(q): [t, p, sq] for q, (t, p, sq) in self.ev.items()}, "skills": self.skills, "level": self.level,
                   "prices": {str(k): v for k, v in self.prices.items()}, "have": {str(k): list(v) for k, v in self.have.items()},
                   "rare_seen": {str(k): list(v) for k, v in self.rare_seen.items()}}
         try:

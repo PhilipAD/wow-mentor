@@ -67,6 +67,58 @@ class AutoSquaresTests(unittest.TestCase):
         names = [c for c in self.children() if c["id"] == "qall"][0]["targets"]
         self.assertEqual(names, ["Murkdeep", "Moonstalker Matriarch", "Moonstalker Sire"])     # 1, 2, 3 spawns: the game takes the first one alive
 
+    def test_a_section_built_before_the_event_but_received_after_it_does_not_drop_it(self):
+        # live 14 Nov: 951 accepted at T, the QUESTS section built before T reached the server at T+39 s without it
+        self.a.on_feed(FEED); self.a.run()
+        t = time.time()
+        self.a.on_events([{"type": "quest_accepted", "data": {"quest": 4740}, "t": t - 39},
+                          {"type": "quest_turned_in", "data": {"quest": 986}, "t": t - 39}])
+        self.a.on_feed(FEED); self.a.run()                    # stamped now, content from before both events
+        self.assertEqual(self.a.quests()[1], [1275, 4740])
+        self.a.on_events([{"type": "quest_accepted", "data": {"quest": 5001}, "t": t - 60}])   # arrives after that section: still counts
+        self.assertIn(5001, self.a.quests()[1])
+        self.a.on_feed(FEED.replace(b"[in progress] A Lost Master", b"[COMPLETE] A Lost Master"))
+        self.assertNotIn(986, self.a.quests()[1])
+
+    def test_same_second_accept_and_complete_and_a_redelivered_accept(self):
+        # live 14 Nov: 993 accepted and complete in the same second; after a restart the accept came again and won the tie
+        self.a.on_feed(FEED); self.a.run()
+        t = time.time()
+        acc = {"type": "quest_accepted", "data": {"quest": 993}, "t": t, "seq": 10}
+        done = {"type": "quest_complete", "data": {"quest": 993}, "t": t, "seq": 11}
+        self.a.on_events([acc, done])
+        self.assertNotIn(993, self.a.quests()[1])
+        self.a.on_events([acc])                                # redelivered
+        self.assertNotIn(993, self.a.quests()[1])
+        self.a.on_events([done, acc])                          # out of order in one batch
+        self.assertNotIn(993, self.a.quests()[1])
+
+    def test_a_completion_the_section_already_shows_clears_a_remembered_accept(self):
+        self.a.on_feed(FEED); self.a.run()
+        t = time.time() - 120
+        self.a.on_events([{"type": "quest_accepted", "data": {"quest": 993}, "t": t, "seq": 186}])
+        self.a.on_feed(FEED)                                   # built after both events, 993 not in progress
+        self.a.on_events([{"type": "quest_complete", "data": {"quest": 993}, "t": t, "seq": 187}])
+        self.assertNotIn(993, self.a.quests()[1])
+
+    def test_old_state_files_still_load(self):
+        path = os.path.join(tempfile.mkdtemp(), "as.json")
+        with open(path, "w") as f:
+            json.dump({"map": 1439, "map_t": 1, "feed_q": [986], "feed_t": 1, "ev": {"4740": [2, True]}}, f)
+        self.a.state_path = path; self.a._load()
+        self.assertEqual(self.a.ev[4740], (2.0, True, 0))
+
+    def test_an_event_the_section_agrees_with_is_folded_in(self):
+        self.a.on_feed(FEED); self.a.run()
+        self.a.on_events([{"type": "quest_accepted", "data": {"quest": 986}, "t": time.time() - 30}])
+        self.a.on_feed(FEED)
+        self.assertNotIn(986, self.a.ev)                     # the section has 986: nothing left to remember
+
+    def test_a_very_old_disagreeing_event_gives_way_to_the_section(self):
+        self.a.on_events([{"type": "quest_accepted", "data": {"quest": 4740}, "t": time.time() - 600}])
+        self.a.on_feed(FEED)
+        self.assertNotIn(4740, self.a.quests()[1])           # built long after the event, so the section's word wins (abandoned)
+
     def test_events_add_and_remove_before_the_feed_catches_up(self):
         self.a.on_feed(FEED); self.a.run()
         self.a.on_events([{"type": "quest_accepted", "data": {"quest": 4740}}, {"type": "quest_turned_in", "data": {"quest": 986}}])
