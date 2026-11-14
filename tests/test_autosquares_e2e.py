@@ -112,6 +112,18 @@ class AutoSquaresEndToEnd(unittest.TestCase):
         self.push_feed(feed([(4740, "in progress")]))
         self.assertTrue(self.wait(lambda: self.targets() == ["Murkdeep"]), self.targets())
 
+    def test_events_before_a_restart_are_replayed(self):
+        self.push_feed(feed([(986, "in progress"), (4740, "in progress")]))
+        self.assertTrue(self.wait(lambda: "Murkdeep" in self.targets()))
+        cfg = self.s.cfg
+        from wowmentor.server import app
+        app.auto.on_events = lambda events: None                                        # this process misses the turn-in...
+        self.push_events(ev("quest_turned_in", quest=4740))
+        self.s.close()
+        self.s = RunningServer(data_path=self.data, config=cfg)                         # ...the next one replays it from the event store
+        self.s_app_delay()
+        self.assertTrue(self.wait(lambda: "Murkdeep" not in self.targets()), self.targets())
+
     def test_bad_input_never_breaks_it(self):
         self.push_feed(b"garbage without sections")
         self.push_feed(feed([]))

@@ -421,6 +421,10 @@ def configure(cfg, data_path=None):
     gdb = gamedbmod.GameDB(d, _guide_text)
     auto = autosquares.AutoSquares(gdb, ui_lock, lambda: doc, save_doc, uidoc.apply_ops, normalize=uidoc.normalize_component,
                                    state_path=os.path.join(d, "autosquares.json"))
+    try:                                   # events that arrived just before a restart: replay them (their own times decide)
+        auto.on_events(list(store.events[-300:]))
+    except Exception:
+        pass
     _idem.clear()
 
 
