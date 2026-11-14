@@ -250,5 +250,27 @@ do
 	for p in table.concat(out, "\n"):gmatch("[^\n]+") do check(#p % 2 == 0, "UTF-8 pieces are cut on character boundaries") end
 end
 
+---------------------------------------------------------------- a flood of plain event lines cannot starve a big section
+do
+	local W, w = newWorld()
+	local API = WoWFeed_API
+	for _ = 1, 40 do API.nextMessage() end                       -- drain the boot backlog
+	for i = 1, 200 do API.logEvent("chat", "General: spam line number " .. i .. " with enough text to fill the strip quickly") end
+	local lines = {}
+	for i = 1, 60 do lines[i] = "quest line " .. i .. " " .. string.rep("x", 60) end
+	API.push("quests_flood_test", lines, 300)
+	local parts, got, evs, n = nil, 0, 0, 0
+	while n < 400 do
+		local m = API.nextMessage(); n = n + 1
+		if not m then break end
+		local sec, _, part, total = parse(m)
+		if sec == "quests_flood_test" then parts = total; got = got + 1; if got == total then break end
+		elseif sec == "ev" then evs = evs + 1 end
+	end
+	check(parts and got == parts, "the big section completed during the event flood (" .. tostring(got) .. "/" .. tostring(parts) .. ")")
+	check(parts and n <= 3 * parts + 10, "and promptly: " .. n .. " messages for " .. tostring(parts) .. " parts")
+	check(evs > 0, "event lines still went out during the section")
+end
+
 if fails > 0 then error(fails .. " strip test(s) failed", 0) end
 io.write("strip ok\n")

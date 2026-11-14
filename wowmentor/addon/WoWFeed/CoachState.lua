@@ -474,7 +474,7 @@ function ST.itemLines(rows)
 		if i > 80 then L[#L + 1] = "... " .. (#rows - 80) .. " more"; break end
 		L[#L + 1] = strfmt("%d.%d %s #%s x%d q%d bind=%s soulbound=%s slot=%s type=%s ilvl=%s stats=%s sell=%s%s", r.bag, r.slot, clean(r.name or "unknown"), val(r.id), r.count,
 			r.quality, r.bind or "unknown", r.bound == nil and "unknown" or (r.bound and "yes" or "no"), r.equipLoc or "-", clean(r.armor or "-"), val(r.ilvl),
-			statText(r.stats), val(r.price), r.keep and " | KEEP FOR AH" or "") .. ((r.equipLoc and r.equipLoc ~= "") and bisText(r.link) or "")
+			statText(r.stats), val(r.price), r.keep and " | KEEP FOR AH" or "")      -- (BiS scores live in the BIS section: ITEMS is the biggest strip section)
 	end
 	return L
 end
