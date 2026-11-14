@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Bigger agent memory
+
+- The mentor's memory holds 2000 notes (was 200) of up to 1200 characters (was 600) and a running summary of up to 12000 characters (was 3000). When the note list is full the oldest note moves to an archive (up to 20000 kept, read with `GET memory?archive=1`) instead of being deleted, and `memory show` reports how many are archived.
+
 ### Faster overlay updates
 
 - The game now checks for new overlay documents every 2 s while the agent is working (for 90 s after each change) and every 15 s when idle, down from 6 s and 30 s. This client never re-reads the doorbell file or plays the sound doorbell (sound off), so polling is the only inbound channel; each poll uses one of 1000 slots, refilled by `/reload`. The bridge also writes the new document 60 slots ahead of the game's reported slot (was 8), because that report lags a few seconds and the game outran the window. Measured by screen capture: 2 to 5 s while active, 14 to 17 s after a quiet spell. `wowui state` reports `applied_rev` 20 to 40 s late, so trust the screen, not that number.

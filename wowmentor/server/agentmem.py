@@ -25,7 +25,7 @@ class MemoryError_(ValueError):
 class AgentMemory:
     def __init__(self, path):
         self.path = path
-        self.d = {"notes": [], "summary": "", "seq": 0, "updated": 0}
+        self.d = {"notes": [], "summary": "", "seq": 0, "updated": 0, "archive": []}
         d = cfgmod.read_json(path)          # corrupt file: kept as .bak, start empty
         if isinstance(d, dict) and isinstance(d.get("notes", []), list) and isinstance(d.get("summary", ""), str):
             self.d.update(d)
@@ -41,7 +41,11 @@ class AgentMemory:
     def handle(self, method, route, q, body):
         try:
             if route == "memory":
-                return 200, {"ok": True, **self.d}
+                out = {k: v for k, v in self.d.items() if k != "archive"}
+                out["archived"] = len(self.d.get("archive", []))
+                if q and q.get("archive", ["0"])[0] in ("1", "true"):
+                    out["archive"] = self.d.get("archive", [])
+                return 200, {"ok": True, **out}
             if route == "memory/ops":
                 if method == "GET":
                     try:
@@ -74,7 +78,10 @@ class AgentMemory:
             note = {"id": self.d["seq"], "t": time.time(), "text": text.strip()[:MAX_NOTE]}
             if isinstance(op.get("tag"), str):
                 note["tag"] = op["tag"][:20]
-            self.d["notes"] = (self.d["notes"] + [note])[-MAX_NOTES:]
+            notes = self.d["notes"] + [note]
+            if len(notes) > MAX_NOTES:       # keep what falls off the end: an agent's decisions are never silently lost
+                self.d["archive"] = (self.d.get("archive", []) + notes[:-MAX_NOTES])[-MAX_ARCHIVE:]
+            self.d["notes"] = notes[-MAX_NOTES:]
         elif name == "summary":
             text = op.get("text")
             if not isinstance(text, str):
