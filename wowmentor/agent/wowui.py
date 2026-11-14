@@ -699,7 +699,7 @@ def cmd_watch(a):
 def cmd_db(a):
     route = a.dbcmd.replace("-", "_")
     params = {}
-    for k in ("id", "name", "zone", "level", "tol", "like", "which", "guide", "q", "npc", "quest", "frm"):
+    for k in ("id", "name", "zone", "level", "tol", "like", "which", "guide", "q", "npc", "quest", "frm", "map", "quests", "items"):
         v = getattr(a, k, None)
         if v is not None:
             params[k] = v
@@ -709,6 +709,15 @@ def cmd_db(a):
         params["from"] = params.pop("frm")
     if getattr(a, "race", None):
         params["race"] = a.race
+    if route == "squares" and ("map" not in params or "quests" not in params):
+        feed = read_feed(a)                     # default to where he is and the quests he is still working on
+        if "map" not in params:
+            pos = _fast(feed)
+            if not pos:
+                fail(["no position in the feed: pass --map <uiMapId>"])
+            params["map"] = pos[0]
+        if "quests" not in params:
+            params["quests"] = ",".join(str(i) for i, (st, _t) in sorted(_quest_log(feed).items()) if st == "in progress")
     q = urllib.parse.urlencode(params)
     code, res = get_json(base_url(a), "db/%s%s" % (route, "?" + q if q else ""))
     if code != 200 or not res.get("ok", True):
@@ -1634,6 +1643,7 @@ def main():
     p = dadd("waypoint", "where is an NPC or a quest's start/finish: --npc NAME | --quest ID [--which start|finish] [--set] (set pins it with TomTom and focuses the quest)", "npc", "quest", "which")
     p.add_argument("--set", action="store_true"); p.add_argument("--wid", default="w1", help="waypoint id used with --set")
     dadd("spots", "where to find the creatures a quest wants (densest spawn clusters): --quest ID or --npc NAME", "quest", "npc")
+    dadd("squares", "every creature or object in a map that holds an objective of his in-progress quests (full drop lists), plus droppers of --items; defaults to his map and quest log: [--map ID] [--quests 1,2] [--items 2674,3173]", "map", "quests", "items")
     dadd("training", "spells a class can train with cost (names via `wowui watch --spells`): --class Warlock [--level N] [--from M]", "klass", "level", "frm")
     dadd("validate", "check a guide's quest ids, class/race gates and [G] coordinates: --guide NAME [--class Warlock --race Human]", "guide", "klass", "race")
     p = add("mark", cmd_mark, "put an icon over a unit as soon as it is in view: wowui mark ID --name 'Salma Saldean' [--npc 235] --icon quest|turnin|talk|skull|star|... ; --remove / --clear"); p.add_argument("id", nargs="?", default="x")

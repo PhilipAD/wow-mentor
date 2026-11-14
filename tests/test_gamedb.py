@@ -146,3 +146,28 @@ class SpotsTrainingTests(unittest.TestCase):
         self.assertEqual(r["spells"][1]["requires"], [686])
         code, r = g.handle("GET", "db/training", {"class": ["warlock"], "from": ["4"], "level": ["10"]}, None)
         self.assertEqual([s["spell"] for s in r["spells"]], [695, 696])
+
+
+class SquaresTests(unittest.TestCase):
+    def test_squares_lists_every_local_holder(self):
+        d = tempfile.mkdtemp()
+        make_db(os.path.join(d, "forever.sqlite"))
+        c = sqlite3.connect(os.path.join(d, "forever.sqlite"))
+        for nid, name in ((8001, "Moonstalker Sire"), (8002, "Moonstalker Matriarch"), (8003, "Moonstalker"), (8004, "Far Sire")):
+            c.execute("INSERT INTO npc VALUES(?,?,'',17,18,0,12,'{}')", (nid, name))
+        for nid, n, mp in ((8001, 3, 1439), (8002, 2, 1439), (8003, 5, 1439), (8004, 4, 1440)):
+            for i in range(n):
+                c.execute("INSERT INTO spawn VALUES('npc',?,148,?,?,?)", (nid, mp, 40 + i, 80))
+        c.execute("INSERT INTO item VALUES(9001,'Fine Pelt',15,0,12,0,NULL,?)", (json.dumps({"npcDrops": [8004, 8002, 8001]}),))
+        c.execute("INSERT INTO item VALUES(9002,'Meat',10,0,7,8,NULL,?)", (json.dumps({"npcDrops": [8003]}),))
+        q = {"name": "A Lost Master", "objectives": {"3": [[9001, "Fine Pelt"]]}}
+        c.execute("INSERT INTO quest VALUES(986,'A Lost Master',20,15,NULL,148,0,0,'[]','[]','[]','[]','[]',NULL,NULL,0,?)", (json.dumps(q),))
+        c.commit(); c.close()
+        g = GameDB(d)
+        code, r = g.handle("GET", "db/squares", {"map": ["1439"], "quests": ["986"], "items": ["9002"]}, None)
+        self.assertEqual(code, 200, r)
+        holders = [x["name"] for x in r["quests"][0]["items"][0]["droppedHereBy"]]
+        self.assertEqual(holders, ["Moonstalker Sire", "Moonstalker Matriarch"])     # both droppers in the map, most spawns first; not the one elsewhere
+        self.assertFalse(r["quests"][0]["nothing_here"])
+        self.assertEqual(r["items"][0]["droppedHereBy"][0]["name"], "Moonstalker")
+        self.assertEqual(g.handle("GET", "db/squares", {"quests": ["986"]}, None)[0], 400)

@@ -1078,6 +1078,9 @@ idleFade, idleAlpha, hideWhenMounted, hideInInstance, minLevel, maxLevel}}, chil
 Components (type): heading, text, checklist (items: id, text, done, note, priority high|med|low), progress (bind bags|durability,
 or value+max; label), kv (rows [[k,v]]), callout (level info|tip|good|warn|bad, title, text), timer (until epoch | seconds), icon
 (spell|item|npc|texture id, text, tip, iconSize 12-64), divider, spacer, row (up to 6 side-by-side simple components).
+Fill preview squares from `wowui db squares` (defaults to his map and in-progress quests; add `--items 2674,3173` for profession materials):
+it lists EVERY creature in the map that is a kill objective or drops an objective item, the objects that hold one, and quests with nothing here.
+Put every creature it lists for a quest into the Quests section and into target-all; do not hand-pick from memory.
 Preview squares (icon): `item` or `spell` shows that tooltip on hover; `npc` (creature id from `wowui db npc --name X`) shows a 3D model on hover and, when the
 player clicks it out of combat, targets the nearest living mob named `tip` (set tip to the exact creature name; texture = an Interface\\Icons name for the square).
 Give each quest square `quest` (the quest id): the game hides it the moment that quest's objectives are complete or it is turned in, and
