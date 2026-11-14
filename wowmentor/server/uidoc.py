@@ -67,8 +67,8 @@ def _target_name(v):
 
 
 def _target_names(v):
-    if not isinstance(v, list) or not 1 <= len(v) <= 8:
-        raise ValueError("must be a list of 1 to 8 creature names")
+    if not isinstance(v, list) or not 1 <= len(v) <= 16:
+        raise ValueError("must be a list of 1 to 16 creature names")
     return [_target_name(x) for x in v]
 
 
@@ -1102,7 +1102,7 @@ Preview squares (icon): `item` or `spell` shows that tooltip on hover; `npc` (cr
 player clicks it out of combat, targets the nearest living mob named `tip` (set tip to the exact creature name; texture = an Interface\\Icons name for the square).
 Give each quest square `quest` (the quest id): the game hides it the moment that quest's objectives are complete or it is turned in, and
 drops that creature's name from the target-all square at once (after combat if it finishes mid-fight), so no agent round trip is needed.
-A target-all square: `targets` (1 to 8 exact creature names) makes one click target the nearest living one of any of them (Guidelime's multi button);
+A target-all square: `targets` (1 to 16 exact creature names, most important first) makes one click target the first living one of them, nearest of that name (Guidelime's multi button; long lists split into groups and a click that finds nothing moves to the next group);
 put it first in the Quests section and keep its list equal to the quest enemies shown. Names are plain text only (no newline, slash or ;).
 A row of two squares: `wowui component squares '{{"type":"row","id":"r1","children":[{{"type":"icon","npc":2237,"tip":"Moonstalker Sire","texture":"Ability_Hunter_Pet_Cat","iconSize":32}},{{"type":"icon","item":2589,"tip":"Linen Cloth","iconSize":32}}]}}'`
 (same id replaces it). Edit the squares with the zone, one row per enemy: the enemy square first, then what it drops for the player's quests
