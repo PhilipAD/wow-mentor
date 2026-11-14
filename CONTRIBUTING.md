@@ -184,6 +184,7 @@ wowmentor/
     Coach.lua                    event capture, fight and death reconstruction, NPC cache
     CoachState.lua               the extra feed sections
     CoachRules.lua               the rules engine, auto-complete, coach inbox, waypoint HUD
+    CoachData.lua                damage meter, AH prices, bank, XP rate, threat and rare sections for the coach
 docs/                            user and developer documentation
 .github/                         CI, issue and pull request templates, Dependabot
 ```
