@@ -234,8 +234,13 @@ local function endPool(P)
 	for i = P.n.tex + 1, #P.tex do P.tex[i]:Hide() end
 	for i = P.n.rows + 1, #P.rows do P.rows[i]:Hide(); P.rows[i]:EnableMouse(false) end
 	for i = P.n.bars + 1, #P.bars do P.bars[i]:Hide() end
-	if P.secure and not truthy(call(InCombatLockdown)) then
-		for i = (P.secN or 0) + 1, #P.secure do P.secure[i]:Hide(); P.secure[i]:EnableMouse(false) end
+	if P.secure then
+		if truthy(call(InCombatLockdown)) then
+			-- a secure button left over (its quest finished mid-fight) cannot be hidden now: redo the layout when combat ends
+			for i = (P.secN or 0) + 1, #P.secure do if P.secure[i]:IsShown() then S.secureStale = true end end
+		else
+			for i = (P.secN or 0) + 1, #P.secure do P.secure[i]:Hide(); P.secure[i]:EnableMouse(false) end
+		end
 	end
 end
 
