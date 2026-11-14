@@ -72,6 +72,22 @@ local function meterRead(session, mtype)
 			end
 		end
 	end
+	-- the meter lists one row per spell and caster (every mob's melee is its own "Attack"); merge rows with the same name and caster
+	local merged, byKey = {}, {}
+	for _, sp in ipairs(out.spells) do
+		local key = tostring(sp.name) .. "\31" .. tostring(sp.from or "")
+		local m = byKey[key]
+		if m then
+			m.amount = m.amount + sp.amount
+			m.overkill = (m.overkill or 0) + (sp.overkill or 0)
+			m.avoidable = m.avoidable or sp.avoidable
+			m.deadly = m.deadly or sp.deadly
+			m.n = m.n + 1
+		else
+			sp.n = 1; byKey[key] = sp; merged[#merged + 1] = sp
+		end
+	end
+	out.spells = merged
 	table.sort(out.spells, function(a, b) return a.amount > b.amount end)
 	return out
 end
@@ -83,8 +99,8 @@ local function spellText(r, withFrom)
 	for i = 1, min(#r.spells, TOP_SPELLS) do
 		local sp = r.spells[i]
 		local share = (r.total and r.total > 0) and floor(sp.amount * 100 / r.total + 0.5) or 0
-		parts[#parts + 1] = strfmt("%s%s %d (%d%%)%s", clean(sp.name), (withFrom and sp.from and sp.from ~= "") and (" from " .. clean(sp.from)) or "", sp.amount, share,
-			sp.avoidable and " avoidable" or "")
+		parts[#parts + 1] = strfmt("%s%s %d (%d%%)%s%s", clean(sp.name), (withFrom and sp.from and sp.from ~= "") and (" from " .. clean(sp.from)) or "", sp.amount, share,
+			(sp.n or 1) > 1 and strfmt(" x%d", sp.n) or "", sp.avoidable and " avoidable" or "")
 	end
 	if #r.spells > TOP_SPELLS then parts[#parts + 1] = strfmt("+%d more", #r.spells - TOP_SPELLS) end
 	return tconcat(parts, "; ")
