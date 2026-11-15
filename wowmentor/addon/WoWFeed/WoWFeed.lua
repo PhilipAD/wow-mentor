@@ -210,6 +210,8 @@ local function emit(section, lines)
 	if not queued[section] then queued[section] = true; order[#order+1] = section end
 end
 local FASTSEC = "fast"
+local PRIORITY = { quests = true, guides = true, professions = true }
+local sentAt = {}                -- section -> GetTime() of its last fully sent version
 local turn = 0
 local stickySec
 local lastWasEv = false
@@ -255,17 +257,24 @@ local function nextMessage()
 		local st = pending[stickySec or ""]
 		if st and st.i < #st.parts then sec = stickySec      -- finish a multi-part section back to back: the bridge drops one whose parts are far apart
 		else
-			for _ = 1, #order do
-				local s = table.remove(order, 1); order[#order+1] = s
+			-- the section whose last complete send is oldest goes next (QUESTS, GUIDES, PROFESSIONS win ties): with fifty sections a plain
+			-- round robin let a churning section resend while QUESTS and GUIDES waited most of an hour
+			local best, bestAt = nil, nil
+			for _, s in ipairs(order) do
 				local p = pending[s]
-				if p and p.i < #p.parts then sec = s; break end
+				if p and p.i < #p.parts then
+					local at = (sentAt[s] or 0) - (PRIORITY[s] and 30 or 0)
+					if not bestAt or at < bestAt then best, bestAt = s, at end
+				end
 			end
+			sec = best
 		end
 		if not sec and pending[FASTSEC] and pending[FASTSEC].i < #pending[FASTSEC].parts then sec = FASTSEC end
 	end
 	if not sec then return nil end
 	local p = pending[sec]; p.i = p.i + 1
 	stickySec = (sec ~= FASTSEC and p.i < #p.parts) and sec or nil
+	if p.i >= #p.parts then sentAt[sec] = GetTime and GetTime() or 0 end
 	return strfmt("%s\31%d\31%d\31%d\31%s", sec, p.sid, p.i, #p.parts, p.parts[p.i])
 end
 local lastSend, heartbeat = 0, 0
@@ -940,11 +949,14 @@ local function sSecrets()
 	probe("GetMoney", GetMoney()); probe("UnitXP", UnitXP("player")); probe("UnitLevel", UnitLevel("player"))
 	probe("UnitName", UnitName("player")); probe("UnitPosition.x", (UnitPosition("player")))
 	local mid = C_Map and try(C_Map.GetBestMapForUnit, "player"); probe("mapID", mid)
-		local pos = mid and try(C_Map.GetPlayerMapPosition, mid, "player"); L[#L+1] = "GetPlayerMapPosition -> " .. tostring(pos)
+		local pos = mid and try(C_Map.GetPlayerMapPosition, mid, "player"); L[#L+1] = "GetPlayerMapPosition -> " .. type(pos)   -- a table address would change every read
 		if mid and C_Map and CreateVector2D then
 		local ux, uy, uz, ui = try(UnitPosition, "player")
 		local c0, p0 = try(C_Map.GetWorldPosFromMapPos, mid, CreateVector2D(0, 0))
 		local c1, p1 = try(C_Map.GetWorldPosFromMapPos, mid, CreateVector2D(1, 1))
+		-- positions rounded to 50 yards: the diagnostic only needs to show whether the conversion works, not where he stands
+		if type(ux) == "number" and not (issecretvalue and issecretvalue(ux)) then ux = math.floor(ux / 50) * 50 end
+		if type(uy) == "number" and not (issecretvalue and issecretvalue(uy)) then uy = math.floor(uy / 50) * 50 end
 		L[#L+1] = strfmt("posdiag unit=(%s,%s) inst=%s | corner0 cont=%s (%s,%s) | corner1 cont=%s (%s,%s)", tostring(ux), tostring(uy), tostring(ui), tostring(c0), tostring(p0 and p0.x), tostring(p0 and p0.y), tostring(c1), tostring(p1 and p1.x), tostring(p1 and p1.y))
 	end
 	if CurveConstants and UnitHealthPercent then probe("UnitHealthPercent", try(UnitHealthPercent, "player", false, CurveConstants.ScaleTo100)) end
@@ -1329,10 +1341,12 @@ local function tickBody()
 	if tickN % 15 == 0 or dirty.slow then
 		dirty.slow = false
 		push("stats", safe(sStats), 120); push("equipment", safe(sEquipment), 300); push("bags", safe(sBags), 300)
-		push("quests", safe(sQuests), 300); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("secrets_diagnostic", safe(sSecrets), 60); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("flightpaths", safe(sFlightPaths), 300); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
+		push("quests", safe(sQuests), 300); push("pvp", safe(sPvP), 120); push("professions", safe(sProfessions), 120); push("talents_traits", safe(sTalents2), 300); push("social", safe(sSocial), 300); push("misc", safe(sMisc), 120); push("bag_value", safe(sItemsValue), 120); push("recipes", safe(sRecipes), 600); push("flightpaths", safe(sFlightPaths), 300); push("cooldowns", safe(sCooldowns), 30); push("system", safe(sSystem), 60)
 	end
 	if tickN % 60 == 1 then
 		push("talents", safe(sTalents), 600); push("skills", safe(sSkills), 600); push("reputation", safe(sRep), 600); push("currency", safe(sCurrency), 600)
+		-- a 6-part debug section: once a minute at most, and only when it really changed (its volatile values are masked below)
+		push("secrets_diagnostic", safe(sSecrets), 1800)
 	end
 end
 WoWFeed_API = {
