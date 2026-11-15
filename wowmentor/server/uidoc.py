@@ -27,7 +27,7 @@ PRIORITIES = ("high", "med", "low")
 COMBAT = ("show", "dim", "hide")
 FONTS = ("default", "friz", "arial", "morpheus", "skurri")
 SOUNDS = ("none", "ping", "warning", "quest", "levelup", "ready")
-ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi")
+ACTIONS = ("flash", "sound", "chat", "track_quest", "unfocus_quest", "guidelime", "speak", "tomtom_poi", "abandon_quest")
 GUIDELIME_CMDS = ("skip", "complete", "toggle_window", "arrow_tomtom", "arrow_builtin", "arrow_show", "arrow_hide", "open_guide", "skip_to", "refresh", "unskip", "skip_step", "complete_step")
 MARK_ICONS = ("star", "circle", "diamond", "triangle", "moon", "square", "cross", "skull", "quest", "turnin", "talk")
 MAX_MARKS = 30
@@ -658,8 +658,8 @@ class Doc:
             errs.append("action.name: required (one of %s)" % ", ".join(ACTIONS))
         elif a["name"] == "chat" and "text" not in a:
             errs.append("action.text: required for chat")
-        elif a["name"] == "track_quest" and "quest" not in a:
-            errs.append("action.quest: required for track_quest")
+        elif a["name"] in ("track_quest", "abandon_quest") and "quest" not in a:
+            errs.append("action.quest: required for %s" % a["name"])
         elif a["name"] == "speak" and "text" not in a:
             errs.append("action.text: required for speak")
         elif a["name"] == "guidelime" and "cmd" not in a:
@@ -927,7 +927,7 @@ def catalog():
             "coach": {"text": "message", "chat": "print a chat line (default true)", "toast": "also a banner (default false)", "level": list(LEVELS), "sound": list(SOUNDS)},
             "watch": {"items": "[item ids] replace the list", "add": "[item ids]", "remove": "[item ids]", "note": "up to %d; the ITEM_WATCH feed section reports name, quality, level, slot, stats, vendor and AH price, and how many the player owns" % MAX_WATCH},
             "builtin": {"me": "true|false: show or hide the built-in character panel (professions, skills, gear, talents), on by default"},
-            "action": {"name": list(ACTIONS), "text": "for chat", "sound": "for sound", "quest": "questID for track_quest"},
+            "action": {"name": list(ACTIONS), "text": "for chat", "sound": "for sound", "quest": "questID for track_quest and abandon_quest (abandon_quest drops that quest from his log, out of combat only: only for quests he asked to drop)"},
             "clear": "removes panels and waypoints", "reset": "removes everything including theme",
         },
         "theme_fields": names(THEME_FIELDS),
@@ -1083,7 +1083,7 @@ With partial the valid ops are applied and the bad ones come back as `rejected:[
 
 ### Model: one document, changed by ops
 Ops: panel (upsert), child (upsert a component by id), check (tick an item), remove, theme, toast, waypoint, waypoint_clear,
-action (flash | sound | chat | track_quest | unfocus_quest | guidelime with cmd = skip, complete, toggle_window, arrow_tomtom, arrow_builtin, arrow_show, arrow_hide, open_guide or skip_to{{step}}; tomtom_poi{{on}}), mark (an icon over a unit), builtin (me on/off), watch (item ids to report in ITEM_WATCH), rule, rule_remove, rules_clear, coach, coach_answer, set (replace all), clear, reset.
+action (flash | sound | chat | track_quest | unfocus_quest | abandon_quest (quest; only when he asked) | guidelime with cmd = skip, complete, toggle_window, arrow_tomtom, arrow_builtin, arrow_show, arrow_hide, open_guide or skip_to{{step}}; tomtom_poi{{on}}), mark (an icon over a unit), builtin (me on/off), watch (item ids to report in ITEM_WATCH), rule, rule_remove, rules_clear, coach, coach_answer, set (replace all), clear, reset.
 Panel: id, title, subtitle, anchor (TOPLEFT..CENTER), x, y, w, maxH, scale, alpha, bg, bgAlpha, border, accent, fontSize, font,
 padding, gap, collapsed, collapsible, draggable, interactive, header, ttl, pin, visibility {{combat: show|dim|hide, dim, mouseover,
 idleFade, idleAlpha, hideWhenMounted, hideInInstance, minLevel, maxLevel}}, children[].
