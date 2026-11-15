@@ -197,7 +197,7 @@ local function nextRow(P)
 	P.n.rows = P.n.rows + 1
 	local r = P.rows[P.n.rows]
 	if not r then r = CreateFrame("Button", nil, P.body); P.rows[P.n.rows] = r end
-	r:Show(); r:ClearAllPoints(); r:EnableMouse(false); r:SetScript("OnClick", nil); r:SetScript("OnEnter", nil); r:SetScript("OnLeave", nil)
+	r:Show(); r:ClearAllPoints(); r:EnableMouse(false); r:SetScript("OnClick", nil); r:SetScript("OnEnter", nil); r:SetScript("OnLeave", nil); r.wfFold = nil
 	return r
 end
 -- creature squares: a secure button so the player's own click targets the nearest living mob of that name (like Guidelime's previews).
@@ -275,9 +275,27 @@ local function placeText(P, c, x, w, y, template, size, colorSpec)
 	return h, fs
 end
 
+-- A heading with fold=true is a dropdown: a click opens or closes everything up to the next heading. Closed, it shows `short` on one
+-- line; the player's choice is kept per heading (saved variables) and wins over the document's `open`.
 render.heading = function(P, c, x, w, y)
 	local size = (c.size or P.t.size) + 2
-	local h = placeText(P, c, x, w, y, (c.icon and (c.icon .. " ") or "") .. c.text, size, c.color or P.t.accent)
+	local text = c.text
+	local fold = c.fold and c.id
+	local open = fold and P.foldOpen and P.foldOpen[c.id]
+	if fold then text = (open and "- " or "+ ") .. ((not open and c.short) or c.text) end
+	local h = placeText(P, c, x, w, y, (c.icon and (c.icon .. " ") or "") .. text, size, c.color or (fold and not open and P.t.text) or P.t.accent)
+	if fold then
+		local r = nextRow(P)
+		r:SetPoint("TOPLEFT", P.body, "TOPLEFT", x, -y); r:SetSize(w, max(h, 12)); r:EnableMouse(true)
+		r.wfFold = c.id
+		local pid, cid = P.id, c.id
+		r:SetScript("OnClick", function()
+			local u = userFor(pid)
+			u.fold = u.fold or {}
+			u.fold[cid] = not open
+			P.dirty = true; S.dirtyState = true
+		end)
+	end
 	return h
 end
 
@@ -776,10 +794,22 @@ layout = function(P)
 	else
 		P.body:Show()
 		local innerW = w - pad * 2
+		local folded = false
+		P.foldOpen = {}
 		for _, c0 in ipairs(d.children or {}) do
 			local c = withOverride(P, c0)
 			local f = render[c.type]
-			if f and componentVisible(c) then
+			local skip = false
+			if c.type == "heading" then
+				folded = false
+				if c.fold and c.id then
+					local open = c.open == true
+					if u and u.fold and u.fold[c.id] ~= nil then open = u.fold[c.id] == true end
+					P.foldOpen[c.id] = open
+					folded = not open
+				end
+			elseif folded then skip = true end
+			if f and not skip and componentVisible(c) then
 				local ok, h = pcall(f, P, c, c.indent or 0, innerW - (c.indent or 0), y)
 				if ok then y = y + (h or 0) + t.gap else lerr(c.type .. ": " .. tostring(h)) end
 			end

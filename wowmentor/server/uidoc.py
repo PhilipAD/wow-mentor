@@ -165,7 +165,7 @@ PANEL_FIELDS = {
 COMPONENT_COMMON = {"id": _id, "color": _color, "size": _num(8, 28), "align": _enum(("left", "center", "right")), "alpha": _num(0, 1),
                     "indent": _num(0, 60), "when": _enum(("always", "combat", "outofcombat"))}
 COMPONENT_FIELDS = {
-    "heading": {"text": _str, "icon": _str},
+    "heading": {"text": _str, "icon": _str, "fold": _bool, "open": _bool, "short": _str},
     "text": {"text": _str, "muted": _bool, "wrap": _bool},
     "progress": {"label": _str, "value": _num(-1e9, 1e9), "max": _num(0, 1e9), "bind": _bind, "height": _num(4, 30), "showText": _bool,
                  "fill": _color},

@@ -52,7 +52,7 @@ class AutoSquaresTests(unittest.TestCase):
     def test_feed_builds_quest_rows_and_keeps_profession_rows(self):
         self.a.on_feed(FEED); self.a.run()
         ch = self.children()
-        self.assertEqual([c["id"] for c in ch], ["hq", "qall", "q1", "hc", "c1"])
+        self.assertEqual([c["id"] for c in ch], ["qall", "hq", "q1", "hc", "c1"])
         row = [c for c in ch if c["id"] == "q1"][0]["children"]
         self.assertEqual(row[0]["tip"], "Moonstalker Matriarch")                     # measured 55% beats the 40% estimate: first
         self.assertEqual(row[1]["tip"], "Fine Moonstalker Pelt (55% from Moonstalker Matriarch)")
@@ -147,7 +147,7 @@ class AutoSquaresTests(unittest.TestCase):
         self.a.on_feed(FEED); self.a.run()
         uidoc.apply_ops(self.doc, [{"op": "panel", "id": "squares", "children": [{"type": "heading", "id": "hc", "text": "Cooking"}]}])
         self.a.on_feed(FEED); self.a.run()                                           # same quests and map, but our rows were wiped
-        self.assertEqual(self.ids()[:3], ["hq", "qall", "q1"])
+        self.assertEqual(self.ids()[:3], ["qall", "hq", "q1"])
         self.assertIn("hc", self.ids())
 
     def test_invalid_agent_child_is_dropped_not_blocking(self):
@@ -304,7 +304,21 @@ class ProfessionSquaresTests(unittest.TestCase):
         self.a.on_feed(feed_prof({"Cooking": (82, 150)}).replace(b"Quests in log: 0", b"Quests in log: 1\n[in progress] WANTED: Murkdeep! (L18) #4740"))
         self.a.run()
         self.assertEqual(self.kids()["qall"]["targets"], ["Murkdeep", "Reef Crawler"])
-        self.assertEqual([c["id"] for c in self.doc.panels[0]["children"]][:2], ["hq", "qall"])
+        self.assertEqual([c["id"] for c in self.doc.panels[0]["children"]][:2], ["qall", "hq"])
+
+    def test_sections_are_dropdowns_with_short_labels_and_target_any_leads(self):
+        self.a.on_feed(feed_prof({"Cooking": (82, 150)}).replace(b"Quests in log: 0", b"Quests in log: 1\n[in progress] WANTED: Murkdeep! (L18) #4740"))
+        self.a.run()
+        kids = self.doc.panels[0]["children"]
+        self.assertEqual(kids[0]["id"], "qall")
+        k = self.kids()
+        self.assertEqual((k["hq"]["fold"], k["hq"]["short"]), (True, "Quests (1)"))
+        self.assertEqual((k["hp1"]["fold"], k["hp1"]["short"], k["hp1"]["text"]), (True, "Cooking 82/150", "Cooking 82/150: Crab Cake (orange)"))
+        self.assertNotIn("open", k["hp1"])                                                   # closed until he opens it
+        self.a.on_feed(feed_prof({"Cooking": (60, 75)}, level=19)); self.a.run()
+        self.assertEqual(self.kids()["hp1"]["short"], "Cooking 60/75, train now")
+        self.a.on_feed(feed_prof({"Cooking": (75, 75)}, level=9)); self.a.run()
+        self.assertEqual(self.kids()["hp1"]["short"], "Cooking 75/75")                      # cannot train yet: no nudge
 
     def test_cap_and_level_gates(self):
         self.a.on_feed(feed_prof({"Cooking": (75, 75)}, level=19)); self.a.run()
