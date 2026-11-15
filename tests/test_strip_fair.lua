@@ -40,6 +40,27 @@ for _ = 1, 600 do
 	local sec, _, part, parts = (m or ""):match("^([^\31]*)\31([^\31]*)\31([^\31]*)\31([^\31]*)\31")
 	if sec and tonumber(part) == tonumber(parts) then done[sec] = true end
 end
+-- the KV line (SUMMARY) is never starved: a fresh SUMMARY completes within a few messages even while big sections are queued
+-- (15 Nov 2026: it waited 8 minutes behind a 22-part ITEM_WATCH, so a /reload and a live guide edit went unseen and the
+-- "type /reload" prompt stayed up)
+for k = 1, 30 do API.push("extra" .. k, lines("extra" .. k .. " again", 6), 1e9) end
+API.push("item_watch", lines("watch", 60), 1e9)
+local worst = 0
+for round = 1, 12 do
+	API.push("summary", { "SUMMARY round " .. round, "KV afk=0 uiboot=" .. (1000 + round) .. " glive=" .. (900 + round) }, 0)
+	local got
+	for n = 1, 200 do
+		version = version + 1
+		API.push("noisy", lines("noisy v" .. version, 12), 1e9)
+		local m = API.nextMessage()
+		local sec, _, part, parts = (m or ""):match("^([^\31]*)\31([^\31]*)\31([^\31]*)\31([^\31]*)\31")
+		if sec and tonumber(part) == tonumber(parts) then done[sec] = true end
+		if sec == "summary" and tonumber(part) == tonumber(parts) and m:find("uiboot=" .. (1000 + round), 1, true) then got = n; break end
+	end
+	worst = math.max(worst, got or 999)
+end
+check(worst <= 14, "SUMMARY (KV line) fully sent within 14 messages of every push, worst " .. worst)
+
 local quiet = 0
 for k = 1, 30 do if done["extra" .. k] then quiet = quiet + 1 end end
 check(quiet == 30, "every quiet section was sent, got " .. quiet .. " of 30")

@@ -210,6 +210,12 @@ local function emit(section, lines)
 	if not queued[section] then queued[section] = true; order[#order+1] = section end
 end
 local FASTSEC = "fast"
+-- SUMMARY carries the KV line the bridge acts on: uiboot (a /reload), glive (guide edits now live), uirev/uislot (overlay delivery),
+-- afk/combat. Under oldest-first scheduling it could wait behind big multi-part sections (ITEM_WATCH alone is 20+ parts) for 8 minutes,
+-- so the server never saw a reload or a live guide edit and kept the "type /reload" prompt up. It now goes out at least every KVEVERY
+-- messages whenever a newer version is waiting.
+local KVSEC, KVEVERY = "summary", 6
+local sinceKV = 0
 local PRIORITY = { quests = true, guides = true, professions = true }
 local sentAt = {}                -- section -> GetTime() of its last fully sent version
 local turn = 0
@@ -252,7 +258,10 @@ local function nextMessage()
 		end
 	end
 	local sec
+	sinceKV = sinceKV + 1
+	local kvp = pending[KVSEC]
 	if turn % 2 == 0 and pending[FASTSEC] and pending[FASTSEC].i < #pending[FASTSEC].parts then sec = FASTSEC
+	elseif kvp and kvp.i < #kvp.parts and (sinceKV >= KVEVERY or kvp.i > 0) then sec = KVSEC   -- overdue, or finish the parts it started
 	else
 		local st = pending[stickySec or ""]
 		if st and st.i < #st.parts then sec = stickySec      -- finish a multi-part section back to back: the bridge drops one whose parts are far apart
@@ -274,7 +283,7 @@ local function nextMessage()
 	if not sec then return nil end
 	local p = pending[sec]; p.i = p.i + 1
 	stickySec = (sec ~= FASTSEC and p.i < #p.parts) and sec or nil
-	if p.i >= #p.parts then sentAt[sec] = GetTime and GetTime() or 0 end
+	if p.i >= #p.parts then sentAt[sec] = GetTime and GetTime() or 0; if sec == KVSEC then sinceKV = 0 end end
 	return strfmt("%s\31%d\31%d\31%d\31%s", sec, p.sid, p.i, #p.parts, p.parts[p.i])
 end
 local lastSend, heartbeat = 0, 0
