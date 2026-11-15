@@ -19,10 +19,31 @@ local function clean(s) if API.clean then return API.clean(s) end return tostrin
 local function val(v) if v == nil then return "unknown" end return tostring(v) end
 local function itemName(id) return U.str(try(C_Item and C_Item.GetItemNameByID, id)) or U.str(try(GetItemInfo, id)) end
 local function count(id) return U.num(try(C_Item and C_Item.GetItemCount, id)) or U.num(try(GetItemCount, id)) or 0 end
+-- his names: Forever characters have a first name and a surname; UnitName gives the first, chat messages may carry both
+local function myNames()
+	local first = U.unitName("player")
+	local full = U.str(try(GetUnitName, "player", true))
+	if not full or full == first then
+		local n, sur = try(UnitFullName, "player")
+		n, sur = U.str(n), U.str(sur)
+		if n and sur and sur ~= "" then full = n .. " " .. sur end
+	end
+	return first, full
+end
+G.myNames = myNames
+local function isMe(n)
+	local first, full = myNames()
+	return n ~= nil and (n == first or n == full)
+end
+
+-- account-wide saved variables: one record per character
 local function db()
 	if type(WoWFeedDB) ~= "table" then return {} end
 	WoWFeedDB.goals = type(WoWFeedDB.goals) == "table" and WoWFeedDB.goals or {}
-	local g = WoWFeedDB.goals
+	local first, full = myNames()
+	local key = full or first or "?"
+	WoWFeedDB.goals[key] = type(WoWFeedDB.goals[key]) == "table" and WoWFeedDB.goals[key] or {}
+	local g = WoWFeedDB.goals[key]
 	g.accepted = type(g.accepted) == "table" and g.accepted or {}
 	g.done = type(g.done) == "table" and g.done or {}
 	g.zones = type(g.zones) == "table" and g.zones or {}
@@ -83,7 +104,9 @@ C.on("QUEST_ACCEPTED", function(a, b)
 	local qid = U.num(b) or U.num(a)
 	if not qid or qid <= 0 then return end
 	local g = db()
-	if not g.accepted[qid] then g.accepted[qid] = { t = U.epoch(), zone = zoneName() } end
+	local now = U.epoch()
+	g.accepted[qid] = { t = now, zone = zoneName() }                   -- a re-accepted quest starts its clock again
+	for id, r in pairs(g.accepted) do if type(r) ~= "table" or now - (r.t or 0) > 3 * 86400 then g.accepted[id] = nil end end   -- abandoned ones
 end)
 C.on("QUEST_TURNED_IN", function(qid, xp)
 	qid, xp = U.num(qid), U.num(xp)
@@ -119,14 +142,14 @@ function G.trackZone()
 	lastGained, lastActive = gained, active
 end
 
----------------------------------------------------------------- ENEMIES (enemy players on nameplates)
+---------------------------------------------------------------- ENEMIES (enemy players on nameplates; the enemy_player warning event comes from Coach.lua)
 local SEEN_KEEP = 120
 
 local function scanUnit(u, now)
 	if type(u) ~= "string" or secret(u) then return end
 	if not U.bool(try(UnitIsPlayer, u)) or not U.bool(try(UnitCanAttack, "player", u)) then return end
 	local guid = U.guid(u)
-	local name = U.unitName(u)
+	local name = U.str(try(GetUnitName, u, true)) or U.unitName(u)       -- "First Last" when the game gives it, like the duel messages
 	if not (guid or name) then return end
 	local key = guid or name
 	local _, cls = try(UnitClass, u)
@@ -137,14 +160,10 @@ local function scanUnit(u, now)
 	r.dead = U.bool(try(UnitIsDead, u))
 	r.last = now
 	r.first = r.first or now
+	if not S.enemies[key] or r.dead ~= S.enemies[key]._dead or r.level ~= S.enemies[key]._level then S.dirtyEnemies = true end
+	r._dead, r._level = r.dead, r.level
 	S.enemies[key] = r
-	-- warn once per 10 minutes about one that can kill him: skull (level -1) or 3+ levels above
-	local me = U.unitLevel("player") or 0
-	local danger = r.level and (r.level < 0 or r.level >= me + 3)
-	if danger and not r.dead and (not r.warned or now - r.warned > 600) then
-		r.warned = now
-		C.event("enemy_player", { name = r.name, class = r.class, level = r.level, guild = r.guild, pvp = r.pvp, zone = zoneName() })
-	end
+	-- the warning event is Coach.lua's enemy_player (class, level, race, flagged; no names): nothing to send here
 end
 
 function G.scanEnemies()
@@ -155,7 +174,7 @@ function G.scanEnemies()
 		for _, p in ipairs(plates) do pcall(scanUnit, p.namePlateUnitToken or p.unitToken or (p.UnitFrame and p.UnitFrame.unit), now) end
 	end
 	pcall(scanUnit, "target", now)
-	for k, r in pairs(S.enemies) do if now - (r.last or 0) > SEEN_KEEP then S.enemies[k] = nil end end
+	for k, r in pairs(S.enemies) do if now - (r.last or 0) > SEEN_KEEP then S.enemies[k] = nil; S.dirtyEnemies = true end end
 end
 
 function G.enemyLines()
@@ -207,15 +226,18 @@ C.on("CHAT_MSG_SYSTEM", function(msg)
 	if type(msg) ~= "string" or secret(msg) then return end
 	local winner, loser = duelResult(msg)
 	if not winner then return end
-	local me = U.unitName("player")
-	if not me or (winner ~= me and loser ~= me and not winner:find(me, 1, true) and not loser:find(me, 1, true)) then return end
-	local won = winner == me or winner:find(me, 1, true) == 1
+	local won
+	if isMe(winner) then won = true elseif isMe(loser) then won = false else return end      -- someone else's duel nearby
 	local opp = won and loser or winner
-	local cls
-	for _, r in pairs(S.enemies or {}) do if r.name == opp then cls = r.class end end
-	if not cls and U.unitName("target") == opp then local _, c = try(UnitClass, "target"); cls = U.str(c) end
+	local oppFirst = opp:match("^(%S+)")
+	local cls, lvl
+	for _, r in pairs(S.enemies or {}) do if r.name == opp or r.name == oppFirst then cls, lvl = r.class, r.level end end
+	if not cls then
+		local tn, tf = U.unitName("target"), U.str(try(GetUnitName, "target", true))
+		if tn and (tf == opp or tn == opp or tn == oppFirst) then local _, c = try(UnitClass, "target"); cls, lvl = U.str(c), U.unitLevel("target") end
+	end
 	local g = db()
-	g.duels[#g.duels + 1] = { t = U.epoch(), opp = opp, class = cls, won = won, level = U.unitLevel("target") }
+	g.duels[#g.duels + 1] = { t = U.epoch(), opp = opp, class = cls, won = won, level = lvl }
 	while #g.duels > 150 do table.remove(g.duels, 1) end
 	S.dirtyDuels = true
 	C.event("duel_result", { won = won, opponent = opp, class = cls })
@@ -254,7 +276,7 @@ end
 local KIT = {
 	{ "Free Action Potion", { 5634, 287976 } }, { "Limited Invulnerability Potion", { 3387 } }, { "Restorative Potion", { 9030 } },
 	{ "Swiftness Potion", { 2459, 287975, 288898 } }, { "Shadow Protection Potion", { 6048, 13459 } }, { "Living Action Potion", { 20008 } },
-	{ "healing potions", { 858, 929, 1710, 3928, 13446, 223913, 223914, 287977, 288896 } }, { "mana potions", { 3385, 3827, 6149, 13443, 13444 } },
+	{ "healing potions", { 118, 858, 929, 1710, 3928, 13446, 223913, 223914, 287977, 288896 } }, { "mana potions", { 2455, 3385, 3827, 6149, 13443, 13444 } },
 }
 local DEVICES = {
 	{ "grenades and bombs (shared 1 min cooldown)", { 4360, 4370, 4374, 4380, 4390, 4394, 10514, 10562, 15993, 4358, 4365, 6714, 10507, 18641, 4852 } },
@@ -315,11 +337,15 @@ C.on("BAG_UPDATE_DELAYED", function() S.dirtyKit = true; S.dirtyPvpGear = true e
 
 ---------------------------------------------------------------- PVP_GEAR (PvP weights, Stamina first)
 local W = { STAMINA = 1.0, SPELL_POWER = 0.9, SPELL_DAMAGE_DONE = 0.9, SHADOW_DAMAGE = 0.8, INTELLECT = 0.35, SPIRIT = 0.25, AGILITY = 0.05, STRENGTH = 0.02,
-	CRIT_SPELL_RATING = 0.5, HIT_SPELL_RATING = 0.6, SPELL_HIT = 8, SPELL_CRIT = 7, RESISTANCE0 = 0.02, RESILIENCE_RATING = 1.0 }
+	CRIT_SPELL_RATING = 0.5, HIT_SPELL_RATING = 0.6, SPELL_HIT = 8, SPELL_CRIT = 7, ARMOR = 0.02, RESILIENCE_RATING = 1.0 }
 local SLOTS = { INVTYPE_HEAD = { 1 }, INVTYPE_NECK = { 2 }, INVTYPE_SHOULDER = { 3 }, INVTYPE_CHEST = { 5 }, INVTYPE_ROBE = { 5 }, INVTYPE_WAIST = { 6 },
 	INVTYPE_LEGS = { 7 }, INVTYPE_FEET = { 8 }, INVTYPE_WRIST = { 9 }, INVTYPE_HAND = { 10 }, INVTYPE_FINGER = { 11, 12 }, INVTYPE_TRINKET = { 13, 14 },
-	INVTYPE_CLOAK = { 15 }, INVTYPE_WEAPON = { 16 }, INVTYPE_2HWEAPON = { 16 }, INVTYPE_WEAPONMAINHAND = { 16 }, INVTYPE_WEAPONOFFHAND = { 17 },
+	INVTYPE_CLOAK = { 15 }, INVTYPE_WEAPON = { 16 }, INVTYPE_2HWEAPON = { 16, 17, both = true }, INVTYPE_WEAPONMAINHAND = { 16 }, INVTYPE_WEAPONOFFHAND = { 17 },
 	INVTYPE_HOLDABLE = { 17 }, INVTYPE_SHIELD = { 17 }, INVTYPE_RANGED = { 18 }, INVTYPE_RANGEDRIGHT = { 18 }, INVTYPE_THROWN = { 18 } }
+
+-- what a warlock can use: cloth, and daggers, one-handed swords, staves, wands and off-hand items (neck, rings, trinkets, cloaks have no type)
+local WEARABLE = { Cloth = true, Miscellaneous = true, Daggers = true, ["One-Handed Swords"] = true, Staves = true, Wands = true }
+local NO_TYPE = { INVTYPE_NECK = true, INVTYPE_FINGER = true, INVTYPE_TRINKET = true, INVTYPE_CLOAK = true, INVTYPE_HOLDABLE = true }
 
 local function pvpScore(stats)
 	if type(stats) ~= "table" then return nil end
@@ -337,17 +363,24 @@ function G.pvpGearLines()
 	local ok, rows = pcall(ST.bagItems)
 	if not ok or type(rows) ~= "table" then return { "pvp gear: unknown (bags unreadable)" } end
 	local L, n = {}, 0
+	local lvl = U.unitLevel("player") or 0
 	for _, r in ipairs(rows) do
 		local slots = r.equipLoc and SLOTS[r.equipLoc]
-		local mine = slots and pvpScore(r.stats)
+		local info = r.link and U.itemInfo(r.link) or {}
+		local usable = slots and (NO_TYPE[r.equipLoc] or (r.armor and WEARABLE[r.armor])) and (info.minLevel or 0) <= lvl
+		local mine = usable and pvpScore(r.stats)
 		if mine then
-			local best
-			for _, slot in ipairs(slots) do
+			local best, unknown = nil, false
+			local function slotScore(slot)
 				local link = U.str(try(GetInventoryItemLink, "player", slot))
-				local cur = link and pvpScore(U.itemStats(link)) or 0
-				if not best or cur < best then best = cur end
+				if not link then return 0 end
+				local s = pvpScore(U.itemStats(link))
+				if s == nil then unknown = true; return 0 end                 -- stats not cached yet: no comparison this time
+				return s
 			end
-			local gain = mine - (best or 0)
+			if slots.both then best = slotScore(16) + slotScore(17)
+			else for _, slot in ipairs(slots) do local cur = slotScore(slot); if not best or cur < best then best = cur end end end
+			local gain = (not unknown) and (mine - (best or 0)) or 0
 			if gain > 0.5 then
 				n = n + 1
 				L[#L + 1] = strfmt("%s (%s) pvp_gain=+%.1f%s", clean(r.name or "?"), r.equipLoc:gsub("INVTYPE_", ""):lower(), gain, r.keep and " (BoE, could sell)" or "")
@@ -405,7 +438,7 @@ ST.tick = function(now)
 	if now >= nextEnemy then nextEnemy = now + 2; part("enemies", G.scanEnemies) end
 	if now >= nextZone then nextZone = now + 15; part("zonepace", G.trackZone) end
 	run("leveling", now, 30, 300, "dirtyLeveling", G.levelingLines, 600)
-	run("enemies", now, 3, 60, nil, G.enemyLines, 120)
+	run("enemies", now, 3, 120, "dirtyEnemies", G.enemyLines, 240)
 	run("duels", now, 2, 900, "dirtyDuels", G.duelLines, 1800)
 	run("pvp_kit", now, 30, 300, "dirtyKit", G.kitLines, 600)
 	run("pvp_gear", now, 60, 600, "dirtyPvpGear", G.pvpGearLines, 1200)

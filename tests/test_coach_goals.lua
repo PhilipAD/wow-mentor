@@ -74,37 +74,48 @@ local en = text("enemies")
 check(en:find("Stabby | ROGUE | L24 | guild Gankers | pvp=true | in view"), "enemy line: " .. en)
 check(en:find("Lowbie | MAGE | L15"), "low level enemy listed: " .. en)
 check(not en:find("Murloc"), "creatures are not enemy players")
-local n, last = evs("enemy_player")
-check(n == 1 and last.d.name == "Stabby" and last.d.level == 24, "one warning for the dangerous one, got " .. n)
-tick(10)
-check(evs("enemy_player") == 1, "no repeat inside 10 minutes")
+for _, e in ipairs(events) do if e.t == "enemy_player" then check(e.d.name == nil, "the enemy_player event never carries a name") end end
+-- a newcomer is pushed at once (dirty flag), not at the next 2 minute refresh
+w.units.nameplate4 = { exists = true, isPlayer = true, attackable = true, name = "Newcomer", level = 21, cls = "WARRIOR", guid = "Player-1-CCC" }
+w.plates = { "nameplate1", "nameplate3", "nameplate4" }
+tick(4)
+check(text("enemies"):find("Newcomer"), "new enemy pushed within seconds: " .. text("enemies"))
 w.plates = {}
 W.advance(200); tick(3)
 check(text("enemies"):find("no enemy players seen"), "forgotten after 2 min: " .. text("enemies"))
 
 ---------------------------------------------------------------- 3. DUELS and the record by class
+-- Forever names: "First Last"; his first name is Tester, his full name Tester Surname
+_G.GetUnitName = function(u, full) local x = w.units[u]; if u == "player" then return full and "Tester Surname" or "Tester" end; return x and x.full or (x and x.name) end
+w.units.nameplate1.full = "Stabby Knife"
 _G.DUEL_WINNER_KNOCKOUT = "%1$s has defeated %2$s in a duel"
 _G.DUEL_WINNER_RETREAT = "%2$s has fled from %1$s in a duel"
 local a, b = G.duelResult("Tester has defeated Stabby in a duel")
 check(a == "Tester" and b == "Stabby", "knockout parse")
 a, b = G.duelResult("Tester has fled from Stabby in a duel")
 check(a == "Stabby" and b == "Tester", "retreat: the one who fled lost")
-w.units.target = { exists = true, name = "Stabby", level = 24, cls = "ROGUE" }
-W.fire("CHAT_MSG_SYSTEM", "Stabby has defeated Tester in a duel")
-W.fire("CHAT_MSG_SYSTEM", "Tester has defeated Stabby in a duel")
-W.fire("CHAT_MSG_SYSTEM", "Someone has defeated Other in a duel")             -- not his duel
+w.plates = { "nameplate1" }; tick(3)                                       -- Stabby Knife (rogue) in view
+W.fire("CHAT_MSG_SYSTEM", "Stabby Knife has defeated Tester Surname in a duel")
+W.fire("CHAT_MSG_SYSTEM", "Tester Surname has defeated Stabby Knife in a duel")
+W.fire("CHAT_MSG_SYSTEM", "Someone Else has defeated Other Guy in a duel")   -- not his duel
+W.fire("CHAT_MSG_SYSTEM", "Testerina Moss has defeated Tester Surname in a duel")  -- a loss, even though her name starts like his
+W.fire("CHAT_MSG_SYSTEM", "Tester Surname has fled from Testerina Moss in a duel") -- fled: a loss
+W.fire("CHAT_MSG_SYSTEM", "Testerina Moss has defeated Bob Smith in a duel")       -- not his
 W.fire("CHAT_MSG_SYSTEM", "You are now AFK")
 _G.WarlordsForeverCharDB = { players = { g = { name = "Stabby", class = "ROGUE", kills = 1, deaths = 3 }, h = { name = "Zap", class = "MAGE", kills = 2, deaths = 0 } } }
 local du = table.concat(G.duelLines(), "\n")
-check(du:find("duels: won 1 lost 1"), "duel totals: " .. du)
-check(du:find("vs ROGUE: duels 1%-1, world pvp kills 1 deaths 3"), "rogue record: " .. du)
+check(du:find("duels: won 1 lost 3"), "duel totals: " .. du)
+check(du:find("vs ROGUE: duels 1%-1, world pvp kills 1 deaths 3"), "rogue record from the full name: " .. du)
+check(du:find("lost to Testerina Moss"), "the opponent, not himself: " .. du)
+check(not du:find("beat Tester"), "never recorded against himself: " .. du)
 check(du:find("vs MAGE: duels 0%-0, world pvp kills 2 deaths 0"), "mage record: " .. du)
-check(evs("duel_result") == 2, "two duel_result events")
+check(evs("duel_result") == 4, "four duel_result events, got " .. evs("duel_result"))
+check(type(WoWFeedDB.goals["Tester Surname"]) == "table", "goal data is kept per character")
 _G.WarlordsForeverCharDB = nil
 w.units.target = { exists = false }
 
 ---------------------------------------------------------------- 4. PVP_KIT
-w.counts = { [858] = 2, [5509] = 1, [6265] = 2, [4390] = 3 }
+w.counts = { [118] = 1, [858] = 1, [5509] = 1, [6265] = 2, [4390] = 3 }
 _G.GetItemCooldown = function(id) if id == 4390 then return W.clock - 20, 60, 1 end return 0, 0, 1 end
 local kit = table.concat(G.kitLines(), "\n")
 check(kit:find("healing potions=2"), "healing potions: " .. kit)
@@ -122,7 +133,11 @@ w.itemStats[9001] = { STAMINA = 10, INTELLECT = 2 }
 w.itemStats[9002] = { STAMINA = 2, INTELLECT = 4 }
 w.equipped[5] = "|Hitem:9002|h[Glass Robe]|h"
 w.bagItems["0:1"] = { hyperlink = "|cff1eff00|Hitem:9001::|h[Sturdy Robe]|h|r", quality = 2, stackCount = 1, itemID = 9001 }
+w.itemDB[9003] = { name = "Leather Vest", equipLoc = "INVTYPE_CHEST", quality = 2, sub = "Leather" }
+w.itemStats[9003] = { STAMINA = 30 }
+w.bagItems["0:2"] = { hyperlink = "|cff1eff00|Hitem:9003::|h[Leather Vest]|h|r", quality = 2, stackCount = 1, itemID = 9003 }
 local pg = table.concat(G.pvpGearLines(), "\n")
+check(not pg:find("Leather Vest"), "leather is not suggested to a warlock: " .. pg)
 check(pg:find("pvp gear upgrades in bags: 1"), "one upgrade: " .. pg)
 check(pg:find("Sturdy Robe %(robe%) pvp_gain=%+7%.3") or pg:find("Sturdy Robe %(robe%) pvp_gain=%+7%.%d"), "gain: " .. pg)
 check(G.pvpScore({ STAMINA = 10 }) == 10 and G.pvpScore({ SPELL_POWER = 10 }) == 9, "weights")
