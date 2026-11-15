@@ -9,7 +9,7 @@ local fails = 0
 local function check(cond, msg) if not cond then fails = fails + 1; io.stderr:write("FAIL: " .. msg .. "\n") end end
 
 local DIR = "wowmentor/addon/WoWFeed/"
-local FILES = { "Codec", "JSON", "WoWFeed", "UI", "Coach", "CoachState", "CoachRules", "CoachData" }
+local FILES = { "Codec", "JSON", "WoWFeed", "UI", "Coach", "CoachState", "CoachRules", "CoachData", "CoachGoals" }
 local src, lines = {}, {}
 for _, n in ipairs(FILES) do
 	local f = assert(io.open(DIR .. n .. ".lua", "rb"))

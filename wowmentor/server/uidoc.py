@@ -1053,7 +1053,11 @@ Add a fresh `?t=<random number>` to every fetch (the edge caches otherwise). Sec
   what other RareNet players saw in the last 2 hours). CRAFT_ROUTE: Crafter's Journal's cheapest skill-up route per profession from real AH prices
   (`Alchemy 53/75 (started route): Minor Mana Potion 53-60; ...`), present once he opened Crafter's Journal on that profession.
   PVP_LOG: Warledger (rank, rank points, honor/cap, marks, the battleground log) and Warlords Forever (world PvP kills, deaths, kills by class,
-  nemeses who keep killing him, the last kills and deaths). The squares panel also gets a Rares row, and its profession reagents use what he owns and
+  nemeses who keep killing him, the last kills and deaths). Goal sections: LEVELING (XP boosts present or missing, riding fund toward 40, XP/h per
+  zone, slowest and fastest quests by XP per minute), ENEMIES (enemy players on nameplates: class, level, guild, PvP flag; event enemy_player for a
+  skull or 3+ levels above him), DUELS (won/lost, the record against each class incl. Warlords Forever's world PvP; event duel_result), PVP_KIT
+  (potions, Engineering devices and cooldowns, healthstones/soulstone/shards, a "pvp ready" verdict), PVP_GEAR (bag items scored with PvP weights,
+  Stamina first, against what is equipped) and PROF_TARGETS (the PvP potions and devices to craft: skill needed, recipe source, known). The squares panel also gets a Rares row, and its profession reagents use what he owns and
   Auctionator's prices automatically; `wowui db rares` lists a map's rares. A value the game hides is `unknown`
   (health, power and similar are secret in combat; "at pull" numbers are the last out-of-combat sample). Combat-log details are not available:
   fights are reconstructed, and the exact killer is a best guess. If a section is missing, the installed addon is older: do not assume it.

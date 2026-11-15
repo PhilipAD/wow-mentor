@@ -14,3 +14,4 @@ Coach.lua
 CoachState.lua
 CoachRules.lua
 CoachData.lua
+CoachGoals.lua

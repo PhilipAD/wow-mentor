@@ -3,6 +3,7 @@
 --   CoachState.lua  state sections (ACTIONBARS, PET, TARGET, ITEMS, REWARDS, TRAINER, ...)
 --   CoachRules.lua  rules engine, checklist auto-complete, coach inbox, /coach, waypoint HUD
 --   CoachData.lua   DAMAGE (C_DamageMeter), AH_PRICES (Auctionator), BANK (BagBrother), XP rate, THREAT, RARES sections
+--   CoachGoals.lua  LEVELING, ENEMIES, DUELS, PVP_KIT, PVP_GEAR, PROF_TARGETS (the player's three goals)
 -- Everything optional is wrapped in pcall or a feature check: an API this client lacks degrades to "unknown", never raises.
 -- Level and XP only ever appear in event/feed data for the coach, never on the overlay. Display and advice only: nothing in
 -- these files equips, previews, uses or casts anything.

@@ -185,6 +185,7 @@ wowmentor/
     CoachState.lua               the extra feed sections
     CoachRules.lua               the rules engine, auto-complete, coach inbox, waypoint HUD
     CoachData.lua                damage meter, AH prices, bank, XP rate, threat and rare sections for the coach
+    CoachGoals.lua               leveling pace, enemy players, duels, PvP kit and gear, profession targets
 docs/                            user and developer documentation
 .github/                         CI, issue and pull request templates, Dependabot
 ```
