@@ -415,9 +415,10 @@ function G.profTargetLines()
 			for _, item in ipairs(TARGETS[prof] or {}) do
 				local e = byItem[item]
 				if e then
-					local learn = type(e.r.t) == "table" and e.r.t[1] or nil
+					-- Crafter's Journal: train = the skill it is learned at; t = { orange, yellow, green, grey }; scroll = the recipe item, else a trainer teaches it
+					local learn = tonumber(e.r.train) or (type(e.r.t) == "table" and e.r.t[1]) or nil
 					local known = ES.IsRecipeKnown and select(2, pcall(ES.IsRecipeKnown, ES, e.spell))
-					local src = e.r.scroll and ("recipe item " .. e.r.scroll) or (e.r.train and "trainer" or "unknown source")
+					local src = e.r.scroll and ("recipe item " .. e.r.scroll) or "trainer"
 					parts[#parts + 1] = strfmt("%s skill %s, %s%s", clean(e.r.name or itemName(item) or ("item " .. item)), val(learn), src, known == true and ", known" or "")
 				end
 			end
