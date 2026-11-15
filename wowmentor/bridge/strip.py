@@ -11,6 +11,17 @@ import time
 CW, CH, BARW, BARGAP = 3, 2, 120, 6
 CROP = 220   # rows of the captured window to look at (the strip sits at the very top of the game area)
 
+# A channel counts as "on" at or above TH. The game draws pure 0/255, but macOS (26+) lays a translucent title bar over the top of a
+# windowed game, which darkens the strip's first row to about two thirds (white reads ~171, an "off" blue ~57). magic() resets TH from the
+# measured brightness of the white anchor each frame, so decoding follows the dimming; full-brightness strips keep the classic 128.
+TH = 128
+ANCHOR_MIN = 120   # the darkest a channel of the white anchor may be (was 200: a dimmed anchor was never found)
+GREY = 48          # the anchor is white or grey: its channels differ by at most this much
+
+def threshold_for(level):
+    """The on/off threshold for a strip whose white anchor measures `level` (its darkest channel)."""
+    return max(72, min(128, level // 2))
+
 class Frame(object):
     """Read-only view of captured BGRA pixels: frame[x, y] -> (r, g, b, a). No imaging library needed.
 
@@ -35,16 +46,20 @@ class Frame(object):
         """The 3-bit cell value at (x, y): bit 2 = red on, bit 1 = green on, bit 0 = blue on (a channel >= 128 counts as on)."""
         o = y * self.stride + x * 4
         d = self.raw
-        return (4 if d[o + 2] >= 128 else 0) + (2 if d[o + 1] >= 128 else 0) + (1 if d[o] >= 128 else 0)
+        t = TH
+        return (4 if d[o + 2] >= t else 0) + (2 if d[o + 1] >= t else 0) + (1 if d[o] >= t else 0)
 
 
 def cellv(px, x, y):
     c = getattr(px, "cell", None)
     if c is not None: return c(x, y)
     r, g, b = px[x, y][:3]
-    return (4 if r >= 128 else 0) + (2 if g >= 128 else 0) + (1 if b >= 128 else 0)
+    t = TH
+    return (4 if r >= t else 0) + (2 if g >= t else 0) + (1 if b >= t else 0)
 
-def white(p): return p[0] >= 200 and p[1] >= 200 and p[2] >= 200
+def white(p):
+    lo, hi = min(p[0], p[1], p[2]), max(p[0], p[1], p[2])
+    return lo >= ANCHOR_MIN and hi - lo <= GREY
 
 def cell_xy(h, c):
     u, ox, oy = h
@@ -53,8 +68,11 @@ def cell_xy(h, c):
 def magic(px, W, H, h):
     u, ox, oy = h
     if oy + CH * u >= H or ox + CW * u * 8 >= W: return False
+    global TH
     x, y = cell_xy(h, 0)
-    if not white(px[x, y]): return False
+    p = px[x, y]
+    if not white(p): return False
+    TH = threshold_for(min(p[0], p[1], p[2]))
     acc = 0
     for c in range(1, 7):
         x, y = cell_xy(h, c); acc = (acc << 3) | cellv(px, x, y)
@@ -70,8 +88,8 @@ def decode(px, W, H, h):
     while True:
         if x >= W: return None
         if row is not None:
-            o = x * 4
-            v = (4 if row[o + 2] >= 128 else 0) + (2 if row[o + 1] >= 128 else 0) + (1 if row[o] >= 128 else 0)
+            o = x * 4; t = TH
+            v = (4 if row[o + 2] >= t else 0) + (2 if row[o + 1] >= t else 0) + (1 if row[o] >= t else 0)
         else:
             v = cellv(px, x, y)
         x += step
@@ -100,7 +118,8 @@ def find_hint(px, W, H):
                 x = ox + (CW * u) // 2
                 if raw is not None:                       # fast path: look at the bytes, build no tuples
                     o = y * stride + x * 4
-                    if raw[o] < 200 or raw[o + 1] < 200 or raw[o + 2] < 200: continue
+                    b0, g0, r0 = raw[o], raw[o + 1], raw[o + 2]
+                    if b0 < ANCHOR_MIN or g0 < ANCHOR_MIN or r0 < ANCHOR_MIN or max(b0, g0, r0) - min(b0, g0, r0) > GREY: continue
                 elif not white(px[x, y]): continue
                 h = (u, ox, oy)
                 if magic(px, W, H, h): return h
