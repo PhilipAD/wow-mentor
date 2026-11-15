@@ -237,6 +237,21 @@ check(cr:find("Cooking 82/150: no route yet"), "no route yet: " .. cr)
 _G.CraftersJournal = nil
 check(D.craftRouteLines()[1]:find("not loaded"), "without Crafter's Journal")
 
+-- PVP_LOG from Warledger and Warlords Forever
+check(D.pvpLines()[1]:find("not loaded"), "pvp log without the addons")
+_G.GetUnitName = function() return "Tester Surname" end
+_G.WarledgerDB = { characters = { ["Tester Surname"] = { rank = 2, bestRank = 2, rankPoints = 820, honor = 1500, honorMax = 25000, marks = { [20558] = 3 },
+	matches = { { name = "Warsong Gulch", result = "won", duration = 900, honor = 300, rankPoints = 60, kills = 7, killingBlows = 2, deaths = 3 } } } } }
+_G.WarlordsForeverCharDB = { totals = { kills = 12, killingBlows = 5, assists = 7, deaths = 4, bgKills = 7, bgDeaths = 3 }, streak = { current = 1, best = 3 }, class = { ROGUE = 5, MAGE = 2 },
+	players = { g1 = { name = "Stabby Mcstab", class = "ROGUE", level = 22, deaths = 3, kills = 1 } }, log = { { kind = "death", name = "Stabby Mcstab", class = "ROGUE", level = 22, zone = "Duskwood", t = 1794300000 } } }
+local pv = table.concat(D.pvpLines(), "\n")
+check(pv:find("warledger: rank=2 best_rank=2 rank_points=820 honor=1500/25000 marks=20558=3"), "warledger: " .. pv)
+check(pv:find("bg Warsong Gulch won 900s honor=300 rank_points=60 kills=7 killing_blows=2 deaths=3"), "bg log: " .. pv)
+check(pv:find("kills by class: ROGUE=5 MAGE=2"), "kills by class: " .. pv)
+check(pv:find("nemesis Stabby Mcstab ROGUE L22 guild=none killed_you=3 you_killed=1"), "nemesis: " .. pv)
+check(pv:find("death by Stabby Mcstab ROGUE L22 in Duskwood"), "pvp log entry: " .. pv)
+_G.WarledgerDB, _G.WarlordsForeverCharDB = nil, nil
+
 check(#S.errors == 0, "errors: " .. table.concat(S.errors, " | "))
 check(#W.unsafe == 0, "unsafe calls: " .. table.concat(W.unsafe, ","))
 if fails > 0 then error(fails .. " failure(s)", 0) end
