@@ -53,7 +53,10 @@ TEXTURES = (("moonstalker", "Ability_Hunter_Pet_Cat"), ("crawler", "Ability_Hunt
             ("scorpid", "Ability_Hunter_Pet_Scorpid"), ("kobold", "INV_Misc_Head_Kobold_01"), ("gnoll", "INV_Misc_Head_Gnoll_01"),
             ("trogg", "INV_Misc_Head_Troll_01"), ("furbolg", "Ability_Druid_Mangle"), ("fanatic", "Spell_Shadow_ShadowWordPain"),
             ("cultist", "Spell_Shadow_ShadowWordPain"), ("elemental", "Spell_Nature_EarthElemental_Totem"), ("defias", "INV_Misc_Bandana_01"),
-            ("satyr", "Spell_Shadow_SummonFelHunter"))
+            ("satyr", "Spell_Shadow_SummonFelHunter"), ("greymist", "INV_Misc_Head_Murloc_01"), ("moonkin", "Ability_Hunter_Pet_Owl"),
+            ("blackwood", "Ability_Druid_Mangle"), ("twilight", "Spell_Shadow_ShadowWordPain"), ("stormscale", "Spell_Frost_SummonWaterElemental"),
+            ("highborne", "Spell_Shadow_RaiseDead"), ("grell", "Spell_Shadow_SummonImp"), ("sprite", "Spell_Shadow_SummonImp"),
+            ("thresher", "INV_Misc_Fish_02"), ("frenzy", "INV_Misc_Fish_02"), ("shark", "INV_Misc_Fish_02"), ("saber", "Ability_Hunter_Pet_Cat"))
 
 
 def texture(name):
@@ -631,6 +634,32 @@ class AutoSquares:
         return [{"type": "heading", "id": "hr", "text": text},
                 {"type": "row", "id": "rr1", "gap": 4, "children": cells + [{"type": "spacer"}] * (4 - len(cells))}]
 
+    @staticmethod
+    def _tidy(kids):
+        """Target any first; every section heading becomes a dropdown with a one-line label (closed unless a rare is up)."""
+        kids = sorted(kids, key=lambda ch: ch.get("id") != "qall")            # stable: only Target any moves, to the top
+        for i, ch in enumerate(kids):
+            cid, text = str(ch.get("id") or ""), ch.get("text") or ""
+            if ch.get("type") != "heading":
+                continue
+            if cid == "hq":
+                n = 0
+                for nx in kids[i + 1:]:
+                    if nx.get("type") == "heading":
+                        break
+                    n += sum(1 for k in nx.get("children", []) if k.get("npc") or k.get("item"))
+                ch.update(fold=True, short="Quests (%d)" % n if n else "Quests: none here")
+            elif cid == "hr":
+                hot = "seen alive" in text
+                n = sum(1 for nx in kids[i + 1:i + 2] for k in nx.get("children", []) if k.get("npc"))
+                ch.update(fold=True, open=hot, short=("Rare up: " + text.split(": ", 1)[1].split(" seen alive")[0]) if hot else "Rares (%d)" % n)
+            elif PROF_ROW.match(cid):
+                short = text.split(":", 1)[0]
+                if "train" in text and "needs skill" not in text:
+                    short += ", train now"
+                ch.update(fold=True, short=short)
+        return kids
+
     def _current_ours(self, panel):
         return [ch for ch in panel.get("children", []) if ch.get("id") in OURS or QUEST_ROW.match(str(ch.get("id") or ""))]
 
@@ -671,9 +700,11 @@ class AutoSquares:
                 qall = next((ch for ch in ours if ch.get("id") == "qall"), None)
                 if qall is None:
                     qall = {"type": "icon", "id": "qall", "targets": [], "texture": "Ability_Hunter_SniperShot", "iconSize": 26, "text": "Target any"}
-                    ours.insert(1, qall)
+                    ours.insert(0, qall)
                 qall["targets"] = list(dict.fromkeys(list(qall["targets"]) + extra))[:MAX_TARGETS]
                 qall["tip"] = "Target the nearest quest or profession enemy"
+            ours = self._tidy(ours)
+            prof = self._tidy(prof)
             invalid = []
             with self.lock:
                 doc = self.get_doc()
