@@ -275,6 +275,37 @@ class ProfessionSquaresTests(unittest.TestCase):
         self.assertNotIn("hc", k)                                                            # the hand-made row is replaced
         self.assertIn("hx", k)                                                               # an agent's own section stays
 
+    def test_farm_rows_list_every_dropper_and_feed_target_any(self):
+        g = self.a.gdb
+        c = sqlite3.connect(g.path)
+        for nid, nm, lvl, n in ((2236, "Tide Crawler", 16, 3), (2237, "Deep Crawler", 40, 5), (2238, "Sewer Crawler", 16, 4)):
+            c.execute("INSERT INTO npc VALUES(?,?,'',?,?,0,148,'{}')", (nid, nm, lvl, lvl))
+            for i in range(n):
+                c.execute("INSERT INTO spawn VALUES('npc',?,?,1439,?,60)", (nid, 719 if nid == 2238 else 148, 30 + i))
+            c.execute("INSERT INTO drop_rate VALUES(?,2674,35.0,NULL,'classic',0)", (nid,))
+        c.execute("INSERT INTO recipe VALUES('Cooking',9997,'Later Dish',2683,100,140,160,180,'Trainer',?)", (json.dumps([[2589, 1]]),))
+        c.execute("INSERT INTO recipe VALUES('Cooking',9996,'Far Dish',2683,140,160,180,200,'Trainer',?)", (json.dumps([[2835, 1]]),))
+        c.commit(); c.close()
+        self.a.have = {2674: (3, 2)}
+        self.a.on_feed(feed_prof({"Cooking": (82, 150)}, level=19)); self.a.run()
+        k = self.kids()
+        row = k["p1_2"]["children"]                                                          # the next craft's reagent first
+        self.assertEqual(row[0]["item"], 2674)
+        self.assertEqual([x["tip"] for x in row if x.get("npc")], ["Reef Crawler", "Tide Crawler"])   # not the level 40 one, not the dungeon one
+        self.assertIn("Reef Crawler 38%, Tide Crawler 35%", row[0]["tip"])
+        self.assertIn("You have 5.", row[0]["tip"])
+        self.assertEqual(len(row), 1 + autosquares.FARM_MOBS)
+        self.assertEqual(k["p1_3"]["children"][0]["item"], 2589)                             # a recipe 18 points ahead counts; one 58 ahead does not
+        self.assertNotIn("p1_4", k)
+        self.assertEqual(k["qall"]["targets"], ["Reef Crawler", "Tide Crawler"])             # no quest creatures here: the droppers alone
+        self.assertEqual(k["qall"]["text"], "Target any")
+
+    def test_target_any_puts_quest_creatures_before_droppers(self):
+        self.a.on_feed(feed_prof({"Cooking": (82, 150)}).replace(b"Quests in log: 0", b"Quests in log: 1\n[in progress] WANTED: Murkdeep! (L18) #4740"))
+        self.a.run()
+        self.assertEqual(self.kids()["qall"]["targets"], ["Murkdeep", "Reef Crawler"])
+        self.assertEqual([c["id"] for c in self.doc.panels[0]["children"]][:2], ["hq", "qall"])
+
     def test_cap_and_level_gates(self):
         self.a.on_feed(feed_prof({"Cooking": (75, 75)}, level=19)); self.a.run()
         self.assertEqual(self.kids()["hp1"]["text"], "Cooking 75/75: at the cap, train Journeyman now")

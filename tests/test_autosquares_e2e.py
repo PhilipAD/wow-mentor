@@ -181,7 +181,7 @@ class AutoSquaresEndToEnd(unittest.TestCase):
         self.assertTrue(self.wait(lambda: len([x for x in (self.squares() or []) if str(x.get("id", "")).startswith("q") and x["id"] != "qall"]) == autosquares.MAX_ROWS))
         st = self.status()["last"]
         self.assertGreater(st["rows_left_out"], 0)
-        self.assertEqual(len(self.targets()), 16)
+        self.assertEqual(len(self.targets()), autosquares.MAX_TARGETS)
 
 
 if __name__ == "__main__":

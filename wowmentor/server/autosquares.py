@@ -30,7 +30,12 @@ AH_LINE = re.compile(r"^(\d+) ah=(\d+) ", re.M)                                 
 HAVE_LINE = re.compile(r"^(\d+) bank=(\d+) mail=(\d+) bags=(\d+)\s*$", re.M)        # CoachData BANK (BagBrother)
 RARE_NET = re.compile(r"^net npc=(\d+) state=up up_ago=(\d+) ", re.M)          # CoachData RARES: RareNet's network sightings
 RARE_SEEN_S = 900      # a rare seen alive this recently on a nameplate goes first in the Rares row
-MAX_ROWS = 6
+MAX_ROWS = 8
+QUEST_DROPPERS = 6     # creatures shown per quest item (every one of them is also in Target any)
+FARM_ROWS = 5          # reagent rows per profession (the ones his next crafts need come first)
+FARM_MOBS = 5          # creatures per reagent row; the item's tooltip lists them all
+FARM_AHEAD = 25        # recipes he can learn within this many skill points count too
+MAX_TARGETS = 24       # names in Target any: quest creatures first, then profession droppers
 SLACK_S = 5.0          # game event times are whole seconds and section ages are approximate: within this window the event wins
 # A section's time is when it reached the server, not when the game built it: a big section can wait this long in the send queue.
 # So an event the section does not agree with is kept until the section is this much newer (by then it was built after the event).
@@ -338,7 +343,7 @@ class AutoSquares:
                                 if n and nm and TARGETABLE.match(nm):
                                     drops.append((rates.get(nid, {}).get("pct") or 0, n, nid, nm))
                             drops.sort(key=lambda d: (-d[0], -d[1]))
-                            for pct, n, nid, nm in drops[:3]:
+                            for pct, n, nid, nm in drops[:QUEST_DROPPERS]:
                                 tip = "%s (%s from %s)" % (r["name"], ("%g%%" % round(pct, 1)) if pct else "drops", nm)
                                 cells.append([{"type": "icon", "npc": nid, "tip": nm, "texture": texture(nm), "iconSize": 26, "quest": qid},
                                               {"type": "icon", "item": iid, "tip": tip, "iconSize": 26, "quest": qid}])
@@ -366,7 +371,7 @@ class AutoSquares:
         out = [{"type": "heading", "id": "hq", "text": "Quests: kill, then loot" if rows else "Quests: nothing to kill or loot here"}]
         # the game's macro takes the FIRST living match, so the rare ones (few spawns, the best drop chance) lead and the common ones follow
         order = [nm for _n, _p, nm in sorted(names, key=lambda x: (x[0], -x[1])) if nm in shown]
-        order = list(dict.fromkeys(order))[:16]
+        order = list(dict.fromkeys(order))[:MAX_TARGETS]
         if order:
             out.append({"type": "icon", "id": "qall", "targets": order, "tip": "Target the nearest quest enemy", "texture": "Ability_Hunter_SniperShot",
                         "iconSize": 26, "text": "Target any"})
@@ -376,6 +381,44 @@ class AutoSquares:
 
 
     # ------------------------------------------------------------------ professions (generated, like the quests)
+    def _instance_areas(self, c):
+        """area id -> is it a dungeon area (its creatures are filed under the outdoor map but are inside)."""
+        g, names, memo = self.gdb, set(), {}
+        if g._has(c, "boss_loot"):
+            names = {r[0].lower() for r in c.execute("SELECT DISTINCT instance_name FROM boss_loot") if r[0]}
+
+        def is_instance(area):
+            if not area:
+                return False
+            if area not in memo:
+                z = c.execute("SELECT name, parent FROM zone WHERE area_id=?", (area,)).fetchone()
+                memo[area] = area in INSTANCE_AREAS or bool(z and ((z[0] or "").lower() in names or (z[1] and z[1] in INSTANCE_AREAS)))
+            return memo[area]
+        return is_instance
+
+    def _droppers(self, c, m, iid, level=None, is_instance=None):
+        """Every creature in this map worth killing for the item: [(score, pct, spawns, npc id, name)], best first. Left out: rare world
+        drops (under 5%), thin Forever samples, quest givers and vendors, one-off spawns, dungeon creatures and ones well above his level."""
+        g, out = self.gdb, []
+        is_instance = is_instance or self._instance_areas(c)
+        for d in g._rates(c, item=iid):
+            if (d.get("pct") or 0) < 5 or (d.get("src") == "forever" and (d.get("kills") or 0) < 10):
+                continue
+            row = c.execute("SELECT name, flags, minlevel FROM npc WHERE id=?", (d["npc"],)).fetchone()
+            if not row or (row["flags"] or 0) != 0:
+                continue
+            nm = row["name"]
+            if not (nm and TARGETABLE.match(nm)):
+                continue
+            if level and row["minlevel"] and row["minlevel"] > level + 3:
+                continue
+            n = sum(1 for r in c.execute("SELECT area_id FROM spawn WHERE kind='npc' AND id=? AND uimap_id=?", (d["npc"], m)) if not is_instance(r[0]))
+            if n < 2:
+                continue
+            out.append((d["pct"] * min(n, 10), d["pct"], n, d["npc"], nm))
+        out.sort(key=lambda x: (-x[0], x[4]))
+        return out
+
     def _source(self, c, m, iid, cnt=1):
         """Where he gets one reagent from here: his bags or bank (BagBrother), a creature in this map that drops it (measured chance >= 5%),
         a vendor here, a vendor in a capital, the auction house (Auctionator's last price when known) or a remote vendor."""
@@ -393,21 +436,10 @@ class AutoSquares:
             if c.execute("SELECT 1 FROM spawn WHERE kind='npc' AND id=? AND uimap_id=? LIMIT 1", (v, m)).fetchone():
                 return {"kind": "vendor_here", "who": g._name(c, "npc", v), "name": name, "cost": 0.2}
         best = None
-        for d in g._rates(c, item=iid):
-            if (d.get("pct") or 0) < 5 or (d.get("src") == "forever" and (d.get("kills") or 0) < 10):
-                continue                                # rare world drops and thin samples are not a farming source
-            row = c.execute("SELECT name, flags FROM npc WHERE id=?", (d["npc"],)).fetchone()
-            if not row or (row["flags"] or 0) != 0:
-                continue                                # quest givers, vendors, trainers: not something he kills
-            nm = row["name"]
-            if not (nm and TARGETABLE.match(nm)):
-                continue
-            n = c.execute("SELECT COUNT(*) FROM spawn WHERE kind='npc' AND id=? AND uimap_id=?", (d["npc"], m)).fetchone()[0]
-            if n < 2:
-                continue                                # a one-off rare or event mob
-            score = d["pct"] * min(n, 10)
-            if best is None or score > best["score"]:
-                best = {"kind": "drop", "npc": d["npc"], "who": nm, "pct": d["pct"], "cost": 0.0, "score": score}
+        dr = self._droppers(c, m, iid)
+        if dr:
+            sc, pct, _n, nid, nm = dr[0]
+            best = {"kind": "drop", "npc": nid, "who": nm, "pct": pct, "cost": 0.0, "score": sc}
         if best:
             best["name"] = name
             return best
@@ -459,9 +491,34 @@ class AutoSquares:
         r2 = c.execute("SELECT name FROM item WHERE id=?", (iid,)).fetchone()
         return {"kind": "craft", "name": r2["name"] if r2 else r["name"], "cost": cost, "parts": desc}
 
+    def _farm(self, c, m, prof, cur, mx, level, first, is_instance):
+        """Every reagent of his coming recipes that drops in this map: [(item id, name, recipes, droppers)], the next craft's first."""
+        want = {}
+        for r in c.execute("SELECT * FROM recipe WHERE profession=? COLLATE NOCASE AND learn<=? AND grey>?", (prof, min(mx, cur + FARM_AHEAD), cur)):
+            train = (r["learned"] or "") in TRAINABLE   # vendor, drop and quest recipes count too, after the trainer ones
+            try:
+                reag = [int(a) for a, _b in json.loads(r["reagents"] or "[]")]
+            except (ValueError, TypeError):
+                continue
+            for iid in reag:
+                e = want.setdefault(iid, {"recipes": [], "now": False, "train": False})
+                e["recipes"].insert(0, r["name"]) if train else e["recipes"].append(r["name"] + " (needs the recipe)")
+                e["now"] = e["now"] or (train and r["learn"] <= cur)
+                e["train"] = e["train"] or train
+        rows = []
+        for iid, e in want.items():
+            dr = self._droppers(c, m, iid, level, is_instance)
+            if not dr:
+                continue
+            r = c.execute("SELECT name FROM item WHERE id=?", (iid,)).fetchone()
+            rows.append((0 if iid in first else 1, 0 if e["train"] else 1, 0 if e["now"] else 1, -dr[0][0], iid, r["name"] if r else "item %d" % iid, e["recipes"], dr))
+        rows.sort(key=lambda x: x[:5])
+        return [(iid, nm, recs, dr) for _a, _t, _b, _c, iid, nm, recs, dr in rows]
+
     def build_professions(self, m, skills, level):
         g = self.gdb
         out = []
+        self.prof_targets, self.farm_left_out = [], 0
         if not skills:
             return out
         with g.lock:
@@ -469,6 +526,7 @@ class AutoSquares:
             try:
                 if not g._has(c, "recipe"):
                     return out
+                is_instance = self._instance_areas(c)
                 order = sorted(skills, key=lambda n: (n in ("Cooking", "First Aid"), CRAFTING.index(n) if n in CRAFTING else 99))
                 for k, prof in enumerate(order, 1):
                     cur, mx = skills[prof]
@@ -513,27 +571,33 @@ class AutoSquares:
                         cells = []
                         if r["product"]:
                             cells.append({"type": "icon", "item": r["product"], "tip": "Makes %s (%s)" % (r["name"], "trainer recipe" if r["learned"] != "Starting recipe" else "known"), "iconSize": 26})
-                        drops = []
                         for iid, cnt, sv in best[3]:
                             if sv["kind"] == "drop":
                                 where = "%g%% from %s" % (round(sv["pct"], 1), sv["who"])
-                                drops.append(sv)
                             else:
                                 where = self._where(sv, zone=True)
                             cells.append({"type": "icon", "item": iid, "tip": "%s x%d (%s)" % (sv["name"], cnt, where), "iconSize": 26})
                         for n in range(0, len(cells), 4):
                             part = cells[n:n + 4]
                             rows.append(part + [{"type": "spacer"}] * (4 - len(part)))
-                        seen = set()
-                        npc_cells = []
-                        for sv in drops:
-                            if sv["npc"] not in seen:
-                                seen.add(sv["npc"])
-                                npc_cells.append({"type": "icon", "npc": sv["npc"], "tip": sv["who"], "texture": texture(sv["who"]), "iconSize": 26})
-                        if npc_cells:
-                            rows.append(npc_cells[:4] + [{"type": "spacer"}] * (4 - len(npc_cells[:4])))
                     else:
                         text = "%s %d/%d: no trainer recipe gives points now%s" % (prof, cur, mx, ("; train %s" % nxt[3]) if can_train else "")
+                    try:                                # farm rows: every reagent of his coming recipes that drops here, with its creatures
+                        farm = self._farm(c, m, prof, cur, mx, level, {i for i, _c, _s in best[3]} if best else set(), is_instance)
+                    except Exception:
+                        farm = []
+                    self.farm_left_out += max(0, len(farm) - FARM_ROWS)
+                    for iid, nm, recs, dr in farm[:FARM_ROWS]:
+                        bags, bank = self.have.get(iid, (0, 0))
+                        who = ", ".join("%s %g%%" % (d[4], round(d[1], 1)) for d in dr)
+                        tip = "%s for %s. Here: %s." % (nm, ", ".join(list(dict.fromkeys(recs))[:3]), who)
+                        if bags or bank:
+                            tip += " You have %d." % (bags + bank)
+                        cells = [{"type": "icon", "item": iid, "tip": tip[:780], "iconSize": 20}]
+                        for d in dr[:FARM_MOBS]:
+                            cells.append({"type": "icon", "npc": d[3], "tip": d[4], "texture": texture(d[4]), "iconSize": 20})
+                            self.prof_targets.append(d[4])
+                        rows.append(cells + [{"type": "spacer"}] * (1 + FARM_MOBS - len(cells)))
                     out.append({"type": "heading", "id": hid, "text": text})
                     for n, rr in enumerate(rows, 1):
                         out.append({"type": "row", "id": "p%d_%d" % (k, n), "gap": 4, "children": rr})
@@ -602,6 +666,14 @@ class AutoSquares:
                 except Exception as e:                  # professions must never block the quest squares
                     skipped.append("professions: %s" % type(e).__name__)
                     keep_prof = True
+            extra = list(dict.fromkeys(getattr(self, "prof_targets", []))) if prof else []
+            if extra:                                   # one Target any for everything listed: quest creatures first, then profession droppers
+                qall = next((ch for ch in ours if ch.get("id") == "qall"), None)
+                if qall is None:
+                    qall = {"type": "icon", "id": "qall", "targets": [], "texture": "Ability_Hunter_SniperShot", "iconSize": 26, "text": "Target any"}
+                    ours.insert(1, qall)
+                qall["targets"] = list(dict.fromkeys(list(qall["targets"]) + extra))[:MAX_TARGETS]
+                qall["tip"] = "Target the nearest quest or profession enemy"
             invalid = []
             with self.lock:
                 doc = self.get_doc()
@@ -631,7 +703,7 @@ class AutoSquares:
                 self.ours = json.dumps(self._current_ours(panel), sort_keys=True) if panel else None
             self.sig = sig
             self._save()
-            self.last = {"t": time.time(), "map": m, "quests": quests, "skills": skills, "level": level, "rows": len(ours), "rows_left_out": dropped,
+            self.last = {"t": time.time(), "map": m, "quests": quests, "skills": skills, "level": level, "rows": len(ours), "rows_left_out": dropped, "farm_rows_left_out": getattr(self, "farm_left_out", 0),
                          "quests_skipped": skipped, "dropped_invalid_children": invalid, "error": None}
         except Exception as e:                              # never break the worker; the next input retries
             self.last = {"t": time.time(), "error": "%s: %s" % (type(e).__name__, e)}
