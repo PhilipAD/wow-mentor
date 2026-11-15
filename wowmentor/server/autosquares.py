@@ -598,7 +598,10 @@ class AutoSquares:
                             tip += " You have %d." % (bags + bank)
                         cells = [{"type": "icon", "item": iid, "tip": tip[:780], "iconSize": 20}]
                         for d in dr[:FARM_MOBS]:
-                            cells.append({"type": "icon", "npc": d[3], "tip": d[4], "texture": texture(d[4]), "iconSize": 20})
+                            # `why` is shown in the creature's own tooltip in the game (hover, or after Target any picked it)
+                            why = "%s %d/%d: drops %s%s, for %s" % (prof, cur, mx, nm, (" %g%%" % round(d[1], 1)) if d[1] else "",
+                                                                     list(dict.fromkeys(recs))[0])
+                            cells.append({"type": "icon", "npc": d[3], "tip": d[4], "texture": texture(d[4]), "iconSize": 20, "why": why[:200]})
                             self.prof_targets.append(d[4])
                         rows.append(cells + [{"type": "spacer"}] * (1 + FARM_MOBS - len(cells)))
                     out.append({"type": "heading", "id": hid, "text": text})
@@ -630,9 +633,18 @@ class AutoSquares:
             text = "Rares here: %s seen alive in the last %d min" % (hot[0]["name"], RARE_SEEN_S // 60)
         else:
             text = "Rares here (none seen yet)"
-        cells = [{"type": "icon", "npc": r["npc"], "tip": r["name"], "texture": "Ability_Hunter_MarkedForDeath", "iconSize": 26} for r in rares]
+        cells = [{"type": "icon", "npc": r["npc"], "tip": r["name"], "texture": "Ability_Hunter_MarkedForDeath", "iconSize": 26,
+                  "why": self._rare_why(r)} for r in rares]
         return [{"type": "heading", "id": "hr", "text": text},
                 {"type": "row", "id": "rr1", "gap": 4, "children": cells + [{"type": "spacer"}] * (4 - len(cells))}]
+
+    @staticmethod
+    def _rare_why(r):
+        """One tooltip line for a rare: rank and level range (static, so the document does not change while it stands still)."""
+        lv = r.get("level") or [0, 0]
+        lvl = ("level %d" % lv[0]) if lv[0] == lv[1] or not lv[1] else ("level %d to %d" % (lv[0], lv[1]))
+        rank = (r.get("rank") or "rare").replace("_", " ")
+        return ("%s, %s: worth killing for its loot and XP" % (rank[:1].upper() + rank[1:], lvl))[:200]
 
     @staticmethod
     def _tidy(kids):

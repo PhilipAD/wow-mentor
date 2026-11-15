@@ -1200,6 +1200,62 @@ local function hookTooltips()
 	end)
 	if ok then S.tooltipHooked = true end
 end
+-- "What to get here" in creature tooltips: the squares panel lists profession droppers and rares with a one-line `why` from the server.
+-- Hovering such a creature (or one Target any picked) adds that line, so the player sees why it was listed or targeted. Quest
+-- creatures are left out: Questie already names their quest in the tooltip.
+local function npcIdOf(guid)
+	if type(guid) ~= "string" or (issecretvalue and issecretvalue(guid)) then return nil end
+	local kind, id = guid:match("^(%a+)%-[^%-]*%-[^%-]*%-[^%-]*%-[^%-]*%-(%d+)%-")   -- Creature-0-server-instance-zone-npcId-spawn
+	if kind ~= "Creature" and kind ~= "Vehicle" then return nil end
+	return tonumber(id)
+end
+UI.npcIdOf = npcIdOf
+local function collectWhy(list, byId, byName)
+	for _, c in ipairs(list or {}) do
+		if type(c) == "table" then
+			if c.type == "icon" and c.npc and type(c.why) == "string" and c.why ~= "" and not c.quest then
+				local cur = byId[c.npc]
+				if not cur then byId[c.npc] = c.why elseif not cur:find(c.why, 1, true) then byId[c.npc] = cur .. "\n" .. c.why end
+				if type(c.tip) == "string" and c.tip ~= "" then byName[c.tip] = byId[c.npc] end
+			end
+			if type(c.children) == "table" then collectWhy(c.children, byId, byName) end
+		end
+	end
+end
+function UI.buildUnitWhy(doc)
+	local byId, byName = {}, {}
+	for _, p in ipairs(type(doc) == "table" and doc.panels or {}) do
+		if type(p) == "table" and p.id == "squares" then collectWhy(p.children, byId, byName) end
+	end
+	S.unitWhy, S.unitWhyName = byId, byName
+	return byId, byName
+end
+function UI.unitWhy(guid, name)
+	local id = npcIdOf(guid)
+	local w = id and S.unitWhy and S.unitWhy[id]
+	if not w and type(name) == "string" and not (issecretvalue and issecretvalue(name)) and S.unitWhyName then w = S.unitWhyName[name] end
+	return w
+end
+local function hookUnitTooltips()
+	if S.unitTipHooked then return end
+	if not (TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit) then return end
+	local ok = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Unit, function(tt, data)
+		if not (tt and tt.AddLine) then return end
+		local guid = type(data) == "table" and data.guid or nil
+		local name
+		if not guid and tt.GetUnit then local okn, n = pcall(tt.GetUnit, tt); if okn then name = n end end
+		local okw, w = pcall(UI.unitWhy, guid, name)
+		if not (okw and w) then return end
+		local n, more = 0, 0
+		for line in tostring(w):gmatch("[^\n]+") do
+			n = n + 1
+			if n <= 3 then tt:AddLine("|cff33ccffWhat to get here:|r " .. line, 1, 1, 1, true) else more = more + 1 end
+		end
+		if more > 0 then tt:AddLine(strfmt("|cff33ccffWhat to get here:|r and %d more (open the panel)", more), 0.7, 0.7, 0.7, true) end
+	end)
+	if ok then S.unitTipHooked = true end
+end
+UI.hookUnitTooltips = hookUnitTooltips
 function UI.watchSpells() return S.watchSpells or {} end
 
 -- owner "rule" marks a waypoint created by a rule action: a new document revision does not sweep it away.
@@ -1666,6 +1722,7 @@ local function applyDoc(doc)
 	end
 	S.voice = type(doc.builtin) == "table" and doc.builtin.voice == true
 	if next(S.verdicts) ~= nil then pcall(hookTooltips) end
+	do local okw = pcall(UI.buildUnitWhy, doc); if okw and next(S.unitWhy or {}) ~= nil then pcall(hookUnitTooltips) end end
 	if type(doc.guide_live) == "table" and #doc.guide_live > 0 then local okg, eg = pcall(UI.applyGuideLive, doc.guide_live); if not okg then lerr("guide live: " .. tostring(eg)) end end
 	S.inbox = type(doc.inbox) == "table" and doc.inbox or {}
 	S.docNow = nowEpoch

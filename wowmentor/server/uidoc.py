@@ -171,7 +171,7 @@ COMPONENT_FIELDS = {
                  "fill": _color},
     "callout": {"text": _str, "title": _str, "level": _enum(LEVELS)},
     "timer": {"text": _str, "until": _num(0, 4e9), "seconds": _num(0, 864000), "format": _enum(("clock", "words"))},
-    "icon": {"text": _str, "tip": _str, "spell": _int(1, 10_000_000), "item": _int(1, 10_000_000), "npc": _int(1, 10_000_000), "quest": _int(1, 10_000_000), "targets": _target_names, "texture": _str, "iconSize": _num(12, 64)},
+    "icon": {"text": _str, "tip": _str, "why": _str, "spell": _int(1, 10_000_000), "item": _int(1, 10_000_000), "npc": _int(1, 10_000_000), "quest": _int(1, 10_000_000), "targets": _target_names, "texture": _str, "iconSize": _num(12, 64)},
     "divider": {"thickness": _num(1, 4)},
     "spacer": {"height": _num(1, 80)},
     "kv": {"keyColor": _color},
