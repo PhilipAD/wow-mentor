@@ -2,12 +2,12 @@
 
 No step touches your characters or WTF settings. Files written outside the config folder:
   <WoW>/Interface/AddOns/WoWFeed        the addon (draws the data strip and the overlay)
-  <WoW>/Interface/AddOns/WFSlot000-1000 empty load-on-demand slots the overlay is delivered through
+  <WoW>/Interface/AddOns/WFSlot000-2000 empty load-on-demand slots the overlay is delivered through
 plus whatever the host installs for the services (see wowmentor/host/darwin.py).
 """
 import os, shutil
 
-POOL = 1000
+POOL = 2000
 ADDON = "WoWFeed"
 PKG = os.path.dirname(os.path.abspath(__file__))
 PKG_ROOT = os.path.dirname(PKG)

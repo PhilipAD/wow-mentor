@@ -11,7 +11,7 @@ from . import localnet
 from .. import host
 
 ADDONS = ""      # set by configure()
-POOL = 1000
+POOL = 2000
 AHEAD = 60        # slots written ahead of the game's reported slot
 LOCAL = ""
 
@@ -150,7 +150,7 @@ class UISync:
             return
         slot, door, mode = to_int(kv.get("uislot")), to_int(kv.get("uidoor")), kv.get("uidb", "?")
         if slot >= POOL - 5:
-            self.log("overlay slot pool nearly used up (%d/%d): /reload in game to refresh" % (slot, POOL))
+            self.log("overlay slot pool nearly used up (%d/%d): the addon reloads itself at a quiet moment (or /reload)" % (slot, POOL))
         # The slot counter in the strip lags the game by a few seconds and the game polls every 2 s, so write far
         # ahead; for an unchanged revision only the newly reachable slots need writing.
         lo, hi = slot + 1, slot + AHEAD

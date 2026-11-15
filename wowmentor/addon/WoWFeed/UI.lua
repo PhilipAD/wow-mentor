@@ -25,14 +25,14 @@ local UI = {}
 WoWFeedUI = UI
 
 local PANEL_CAP = 60   -- panel frames ever created (they are never freed)
-local POOL = 1000   -- folders exist up to this; the client only knows the ones present at launch (S.poolMax shrinks to match)
+local POOL = 2000   -- folders exist up to this; the client only knows the ones present at launch (S.poolMax shrinks to match)
 local SIG_PATH = "Interface\\AddOns\\WoWFeed\\sig\\%s.wav"
 local SLOT_FMT = "WFSlot%03d"
 
 local S = {
 	rev = 0, theme = {}, panels = {}, order = {}, toastId = 0, actionId = 0, wps = {}, errors = {}, tickSeq = 0, ticks = {},
 	slot = 0, door = 0, doorMode = "?", hidden = false, boot = true, docTime = 0, selftest = "", lastLoad = "", docs = 0,
-	bootId = (time and time() or 0), builtin = {}, autoY = 0, dirtyState = true, backoff = 5, nextPoll = 0, poolMax = 1000, meta = nil, metaMode = "unknown", metaChanges = 0, lastApply = -999, lastMetaLoad = -999,
+	bootId = (time and time() or 0), builtin = {}, autoY = 0, dirtyState = true, backoff = 5, nextPoll = 0, poolMax = 2000, lastCombat = -999, refreshWanted = false, refreshing = false, meta = nil, metaMode = "unknown", metaChanges = 0, lastApply = -999, lastMetaLoad = -999,
 	wpDismissed = {}, wpOrder = {}, wpNote = {}, override = {}, rules = {}, inbox = {}, docNow = 0,
 }
 UI.state = S
@@ -1702,6 +1702,7 @@ local function loadSlot(n)
 	if not ok then S.lastLoad = name .. ": " .. tostring(loaded):sub(1, 60); return false end
 	if not loaded and (reason == "MISSING" or reason == "DISABLED" or reason == "INTERFACE_VERSION") then
 		S.poolMax = min(S.poolMax, n - 1)       -- this slot (and later ones) are unknown to the client: restart WoW to discover more
+		S.refreshWanted = true                  -- the known slots are used up: a reload refills them
 		S.lastLoad = name .. ": " .. tostring(reason)
 		return false
 	end
@@ -1716,12 +1717,36 @@ local function loadSlot(n)
 end
 
 local function loadNext()
-	if S.slot >= S.poolMax then lerr("slot pool used up (" .. S.slot .. "): /reload refreshes slots, a restart discovers more"); return end
+	if S.slot >= S.poolMax then S.refreshWanted = true; lerr("slot pool used up (" .. S.slot .. "): the addon reloads itself at a quiet moment (or /reload); a restart discovers more folders"); return end
 	S.slot = S.slot + 1
-	if S.slot == floor(S.poolMax * 0.85) then
-		pcall(showToast, { text = "Overlay inbox is 85% used. Type /reload when convenient to refill it.", level = "warn", ttl = 12 })
-	end
+	if S.slot >= floor(S.poolMax * 0.85) then S.refreshWanted = true end      -- see maybeRefresh: the addon reloads itself at a quiet moment
 	loadSlot(S.slot)
+end
+
+-- Slots only come back with a reload, so the addon does it itself once the pool is 85% used, never in a hurry: out of combat for
+-- 15 s, alive, not casting or on a flight, not typing in chat, not twice within 10 minutes. A toast says so 5 s before.
+local REFRESH_COOLDOWN = 600
+local function quietEnough()
+	if truthy(call(UnitAffectingCombat, "player")) or truthy(call(InCombatLockdown)) then S.lastCombat = now(); return false end
+	if now() - S.lastCombat < 15 then return false end
+	if truthy(call(UnitIsDeadOrGhost, "player")) or truthy(call(UnitOnTaxi, "player")) then return false end
+	if plainStr(call(UnitCastingInfo, "player")) or plainStr(call(UnitChannelInfo, "player")) then return false end
+	if call(ChatEdit_GetActiveWindow) ~= nil then return false end
+	return true
+end
+local function maybeRefresh()
+	if not S.refreshWanted or S.refreshing or type(ReloadUI) ~= "function" then return end
+	local t = time and time() or 0
+	if DB.lastAutoReload and t - DB.lastAutoReload < REFRESH_COOLDOWN then return end
+	if not quietEnough() then return end
+	S.refreshing = true
+	pcall(showToast, { text = "Refreshing the overlay in 5 seconds (automatic, slots are 85% used).", level = "info", ttl = 6 })
+	C_Timer.After(5, function()
+		S.refreshing = false
+		if not quietEnough() then return end                         -- something started: the next tick tries again
+		DB.lastAutoReload = time and time() or 0                      -- saved by the reload itself
+		pcall(ReloadUI)
+	end)
 end
 
 -- The bridge advertises the newest revision in WFSlot000.toc as "## X-Door: <rev>". If the client re-reads TOC metadata
@@ -1733,6 +1758,8 @@ end
 
 local function pollTick()
 	local t = now()
+	if truthy(call(UnitAffectingCombat, "player")) then S.lastCombat = t end       -- the quiet period counts from the last fight, wanted or not
+	maybeRefresh()
 	local m = metaDoor()
 	if m ~= nil then
 		if S.meta == nil then S.meta = m
@@ -1745,14 +1772,37 @@ local function pollTick()
 	if S.hidden or truthy(call(UnitAffectingCombat, "player")) then return end
 	-- fallback: poll slots, quickly right after activity, slowly otherwise (each poll burns one slot)
 	if t >= S.nextPoll then
-		-- every poll burns one slot (pool of 1000, refilled by /reload): poll fast while the agent is working, slowly when idle
-		local hot = (t - S.lastApply) < 90
-		S.nextPoll = t + (hot and 2 or 15)
+		-- every poll burns one slot (refilled by a reload, which maybeRefresh does by itself): poll fast for 40 s after an update, slowly when idle
+		local hot = (t - S.lastApply) < 40
+		S.nextPoll = t + (hot and 3 or 30)
 		loadNext()
 	end
 end
 
+-- How many slot folders the client knows (it only notices folders present at launch): the highest contiguous one, found by bisection.
+-- Without the addon-info API the full pool is assumed and the MISSING handling in loadSlot shrinks it.
+local function slotKnown(n)
+	local info = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo
+	if type(info) ~= "function" then return true end
+	local ok, a = pcall(info, strfmt(SLOT_FMT, n))
+	if not ok then return true end
+	if type(a) == "table" then return a.name ~= nil end
+	return a ~= nil
+end
+local function knownPool()
+	if not slotKnown(1) then return nil end
+	local lo, hi = 1, POOL
+	if slotKnown(hi) then return hi end
+	while hi - lo > 1 do
+		local mid = floor((lo + hi) / 2)
+		if slotKnown(mid) then lo = mid else hi = mid end
+	end
+	return lo
+end
+
 local function bootInbound()
+	local kp = knownPool()
+	if kp then S.poolMax = min(POOL, kp) end
 	-- silent-sound doorbell self-test (kept for diagnostics: on this client empty files report as playable, so it is off)
 	local okOk, missing, zero = sigPlayable("ok"), sigPlayable("missing"), sigPlayable("zero")
 	S.selftest = strfmt("valid=%s missing=%s zero=%s", tostring(okOk), tostring(missing), tostring(zero))

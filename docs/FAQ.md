@@ -51,10 +51,10 @@ WoW Mentor is free and open source (MIT license). The free Cloudflare tunnel (on
 ## Using it
 
 **Why do I have to restart WoW once?**
-The overlay is delivered through a pool of 1001 empty addon folders that the installer creates. The game only notices addon folders when it starts. After this one restart you do not need another. Details: [HOW-IT-WORKS.md](HOW-IT-WORKS.md).
+The overlay is delivered through a pool of 2001 empty addon folders that the installer creates. The game only notices addon folders when it starts. After this one restart you do not need another. Details: [HOW-IT-WORKS.md](HOW-IT-WORKS.md).
 
 **What are "slots"?**
-Those empty addon folders (`WFSlot000` to `WFSlot1000`). Every overlay change uses one until you `/reload`. If you see "Overlay inbox is 85% used", type `/reload` when you are out of combat.
+Those empty addon folders (`WFSlot000` to `WFSlot2000`). Every overlay change uses one until a reload. The addon reloads itself when 85% are used, at a quiet moment (out of combat, alive, not casting), with a toast 5 seconds before; you can also `/reload` any time.
 
 **Can I use it without an AI?**
 The overlay and rules are controlled by commands, so you can use them by hand: `/wfui demo` shows a sample panel, and `wowui` can draw panels and install rules from Terminal (PowerShell on Windows). But the point is the AI.
