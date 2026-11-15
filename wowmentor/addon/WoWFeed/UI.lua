@@ -513,6 +513,8 @@ local function scanQuestSquares(P, kids, done)
 			elseif k.npc and k.tip then
 				done.alive[k.tip] = true          -- another open quest still wants this creature
 			end
+		elseif k.type == "icon" and k.npc and k.tip then
+			done.alive[k.tip] = true              -- a profession or rare square still wants this creature: keep it in Target any
 		elseif k.type == "row" then scanQuestSquares(P, k.children, done) end
 	end
 end
@@ -559,6 +561,7 @@ local function hoverTip(owner, c)
 	GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
 	if c.item then
 		if GameTooltip.SetItemByID then GameTooltip:SetItemByID(c.item) else GameTooltip:SetHyperlink("item:" .. c.item) end
+		if c.tip and c.tip ~= "" then GameTooltip:AddLine(c.tip, 0.6, 0.8, 1, true) end      -- where to get it, who drops it
 	elseif c.spell then
 		if GameTooltip.SetSpellByID then GameTooltip:SetSpellByID(c.spell) else GameTooltip:SetHyperlink("spell:" .. c.spell) end
 	elseif c.targets then
