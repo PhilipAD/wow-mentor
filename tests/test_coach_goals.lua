@@ -146,6 +146,7 @@ check(G.pvpScore({ STAMINA = 10 }) == 10 and G.pvpScore({ SPELL_POWER = 10 }) ==
 check(G.profTargetLines()[1]:find("not loaded"), "without Crafter's Journal")
 _G.CraftersJournal = { Data = { Alchemy = { skillLine = 171, recipes = {
 	[6624] = { name = "Free Action Potion", t = { 1, 175, 195, 215 }, train = 150, scroll = 5642, out = { 5634, 1 } },
+	[11452] = { name = "Restorative Potion", t = { 1, 225, 245, 265 }, out = { 9030, 1 } },
 	[2335] = { name = "Swiftness Potion", t = { 1, 90, 110, 130 }, train = 60, out = { 2459, 1 } } } },
 	Engineering = { skillLine = 202, recipes = { [3962] = { name = "Iron Grenade", t = { 1, 175, 195, 215 }, train = 175, out = { 4390, 1 } } } } },
 	GetProfessionSkill = function(self, line) if line == 171 then return 53, 75 elseif line == 202 then return 25, 75 end end,
@@ -153,6 +154,7 @@ _G.CraftersJournal = { Data = { Alchemy = { skillLine = 171, recipes = {
 local pt = table.concat(G.profTargetLines(), "\n")
 check(pt:find("Alchemy %(skill 53%): Swiftness Potion skill 60, trainer, known; Free Action Potion skill 150, recipe item 5642"), "alchemy targets: " .. pt)
 check(pt:find("Engineering %(skill 25%): Iron Grenade skill 175, trainer"), "engineering targets: " .. pt)
+check(pt:find("Restorative Potion skill about 215, quest or reputation recipe"), "a recipe with no train skill is estimated, not skill 1: " .. pt)
 _G.CraftersJournal = nil
 
 tick(5)

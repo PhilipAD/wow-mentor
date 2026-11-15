@@ -542,7 +542,10 @@ function D.craftRouteLines()
 				local lock = type(db.prof) == "table" and type(db.prof[key]) == "table" and db.prof[key].lock
 				local route, src = nil, nil
 				if type(lock) == "table" and type(lock.choice) == "table" then route, src = lock.choice, "started"
-				elseif type(ES.lastRoutes) == "table" and type(ES.lastRoutes[key]) == "table" and type(ES.lastRoutes[key].choice) == "table" then route, src = ES.lastRoutes[key].choice, "calculated" end
+				elseif type(ES.lockedPlans) == "table" and type(ES.lockedPlans[key]) == "table" and type(ES.lockedPlans[key].choice) == "table" then route, src = ES.lockedPlans[key].choice, "started"
+				elseif type(ES.lastRoutes) == "table" and type(ES.lastRoutes[key]) == "table" and type(ES.lastRoutes[key].choice) == "table" then route, src = ES.lastRoutes[key].choice, "calculated"
+				elseif type(ES.homePlanCache) == "table" and type(ES.homePlanCache[key]) == "table" and type(ES.homePlanCache[key].plan) == "table"
+					and type(ES.homePlanCache[key].plan.choice) == "table" then route, src = ES.homePlanCache[key].plan.choice, "calculated" end
 				if not route then
 					L[#L + 1] = strfmt("%s %d/%s: no route yet (open Crafter's Journal on %s once)", key, rank, val(maxRank), key)
 				else
@@ -658,6 +661,6 @@ ST.tick = function(now)
 	run("rares", now, 2, 120, "dirtyRares", D.rareLines, 900)
 	run("bank", now, 60, 900, "dirtyBank", D.bankLines, 1800)
 	run("ah_prices", now, 120, 900, "dirtyAh", D.ahLines, 1800)
-	run("craft_route", now, 30, 600, "dirtyCraft", D.craftRouteLines, 1200)
+	run("craft_route", now, 30, 90, "dirtyCraft", D.craftRouteLines, 1200)     -- cheap to rebuild; only resent when a route appears or changes
 	run("pvp_log", now, 10, 600, "dirtyPvp", D.pvpLines, 1200)
 end

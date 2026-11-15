@@ -416,9 +416,12 @@ function G.profTargetLines()
 				local e = byItem[item]
 				if e then
 					-- Crafter's Journal: train = the skill it is learned at; t = { orange, yellow, green, grey }; scroll = the recipe item, else a trainer teaches it
-					local learn = tonumber(e.r.train) or (type(e.r.t) == "table" and e.r.t[1]) or nil
+					-- no train skill and no recipe item: a quest or reputation recipe (Restorative Potion); Crafter's Journal estimates yellow - 10
+					local learn, about = tonumber(e.r.train), ""
+					if not learn and type(e.r.t) == "table" and tonumber(e.r.t[2]) then learn, about = math.max(1, e.r.t[2] - 10), "about " end
 					local known = ES.IsRecipeKnown and select(2, pcall(ES.IsRecipeKnown, ES, e.spell))
-					local src = e.r.scroll and ("recipe item " .. e.r.scroll) or "trainer"
+					local src = e.r.scroll and ("recipe item " .. e.r.scroll) or ((e.r.train or e.r.trainer) and "trainer" or "quest or reputation recipe")
+					learn = learn and (about .. learn) or nil
 					parts[#parts + 1] = strfmt("%s skill %s, %s%s", clean(e.r.name or itemName(item) or ("item " .. item)), val(learn), src, known == true and ", known" or "")
 				end
 			end

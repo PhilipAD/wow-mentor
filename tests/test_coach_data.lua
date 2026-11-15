@@ -234,6 +234,10 @@ for k = 60, 75 do ch[k] = 2337 end
 local cr = table.concat(D.craftRouteLines(), "\n")
 check(cr:find("Alchemy 53/75 %(started route%): Minor Mana Potion 53%-60; Lesser Healing Potion 60%-76"), "craft route: " .. cr)
 check(cr:find("Cooking 82/150: no route yet"), "no route yet: " .. cr)
+CraftersJournal.homePlanCache = { Cooking = { plan = { choice = {} } } }
+for k = 82, 90 do CraftersJournal.homePlanCache.Cooking.plan.choice[k] = 2544 end
+CraftersJournal.Data.Cooking.recipes[2544] = { name = "Crab Cake" }
+check(table.concat(D.craftRouteLines(), "\n"):find("Cooking 82/150 %(calculated route%): Crab Cake 82%-91"), "route from the home page cache: " .. table.concat(D.craftRouteLines(), "\n"))
 _G.CraftersJournal = nil
 check(D.craftRouteLines()[1]:find("not loaded"), "without Crafter's Journal")
 
