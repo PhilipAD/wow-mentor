@@ -254,7 +254,7 @@ end
 
 -- load the addon files in .toc order (everything the coach tests need)
 function W.loadAddon()
-	local files = { "Codec", "JSON", "WoWFeed", "UI", "Coach", "CoachState", "CoachRules", "CoachData" }
+	local files = { "Codec", "JSON", "WoWFeed", "UI", "Coach", "CoachState", "CoachRules", "CoachData", "CoachGoals" }
 	for _, n in ipairs(files) do
 		local chunk = assert(loadfile("wowmentor/addon/WoWFeed/" .. n .. ".lua"))
 		chunk("WoWFeed")
