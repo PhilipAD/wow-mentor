@@ -44,7 +44,7 @@ Running setup...
 WoW Mentor 1.0.0 setup
 
 1/5  Found WoW at /Applications/World of Warcraft/_forever_
-2/5  Installed the addon (1001 overlay slots created)
+2/5  Installed the addon (2001 overlay slots created)
 3/5  Built the helpers: launcher ok, screen overlay ok
 4/5  Started the server and the bridge (running)
 5/5  One permission is needed: opening System Settings > Privacy & Security > Screen & System Audio Recording.
@@ -148,13 +148,13 @@ WoW Mentor 1.0.0
 ✅ Config found (/Users/you/.config/wowmentor)
 ✅ WoW folder: /Applications/World of Warcraft/_forever_
 ✅ Addon installed (version 1.0.0)
-✅ Overlay slots: 1001 of 1001
+✅ Overlay slots: 2001 of 2001
 ✅ Server is running
 ✅ Bridge is running
 ✅ WoW is running
 ✅ Screen capture works
 ✅ Live feed is flowing
-✅ Overlay is connected (slot 1 of 1000 used this session)
+✅ Overlay is connected (slot 1 of 2000 used this session)
 ✅ Overlay is empty (your agent has not drawn anything yet)
 ✅ Game session: in_world (WoW is in front)
 ⚠️  Guidelime guide packs: none found (guide editing will be unavailable)

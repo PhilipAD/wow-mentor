@@ -27,7 +27,7 @@ Status icons: a green tick means fine, a warning sign means "works but look at t
 | WoW folder not found (path) | The saved WoW location is missing or has no `Interface/AddOns` folder. | Run `wowmentor setup --wow-dir` with your own path. Mac: `--wow-dir "/Applications/World of Warcraft/_forever_"`. Windows: `--wow-dir "D:\Games\World of Warcraft\_forever_"`. Start the game once so the folder exists. |
 | Addon is not installed | The `WoWFeed` folder is not in your AddOns folder. | Run `wowmentor setup`, then restart WoW. |
 | Addon is out of date (a, newest b) | You updated WoW Mentor but the game still has the old addon files. | Run `wowmentor setup`, then type `/reload` in the game. |
-| Overlay slots: N of 1001 | The empty "slot" folders are missing. Fewer than 1001 means setup did not finish or something deleted them. | Run `wowmentor setup`, then fully quit and restart WoW (a `/reload` is not enough). See [Slots](#slots-and-the-restart). |
+| Overlay slots: N of 2001 | The empty "slot" folders are missing. Fewer than 2001 means setup did not finish or something deleted them. | Run `wowmentor setup`, then fully quit and restart WoW (a `/reload` is not enough). See [Slots](#slots-and-the-restart). |
 | Server is not running | The local server is down. | Run `wowmentor start`. If it fails again run `wowmentor logs`. |
 | Bridge is not running | The screen reader is down. | Run `wowmentor start`. See also [Mac permission](#screen-recording-permission) or [Windows capture](#windows-the-feed-is-stale-or-capture-fails). |
 | WoW is not running | No process named "World of Warcraft" was found. | Start the game and log in to a character. |
@@ -38,7 +38,7 @@ Status icons: a green tick means fine, a warning sign means "works but look at t
 | Feed is stale (the game is closed, minimised or on a login screen) | The newest data is older than 15 seconds. | Log in to a character and keep the game window visible for a few seconds. A minimised window is not captured (Mac: not reliably; Windows: not at all). |
 | Live feed is flowing | Good. | Nothing. |
 | Overlay slots not detected in the game | The feed is live but the addon does not report using any slot. | Fully quit and restart WoW once, then `/reload`. |
-| Overlay is connected (slot X of 1000 used this session) | Good. Each overlay update uses up one slot until the next `/reload`. | Nothing. |
+| Overlay is connected (slot X of 2000 used this session) | Good. Each overlay update uses up one slot until the next `/reload`. | Nothing. |
 | Overlay is empty (your agent has not drawn anything yet) | Good, just nothing to show yet. | Connect your AI. |
 | Overlay is in sync (revision N) | Good. | Nothing. |
 | Overlay update is on its way (game shows X, newest Y) | The AI sent a change that the game has not received yet. | Wait up to 30 seconds. If it stays stuck, see [Overlay not updating](#the-overlay-is-not-updating). |
@@ -162,17 +162,17 @@ Symptoms: you or your AI changed something and the game still shows the old pane
 2. Ask your AI to run `wowui state`, or run it yourself (`~/.wowmentor/app/wowui state`). Look at `in_sync`. If it is `true`, the game has the newest version. If `false`, the game has not yet received it.
 3. The game must be running, with a character logged in and the window visible. The bridge delivers by writing files and the game picks them up by loading a "slot". This takes a few seconds, and up to about 30 seconds on the slowest path.
 4. Type `/reload` in the game. That reloads the interface and the addon reads the newest version immediately.
-5. If you see the toast "Overlay inbox is 85% used. Type /reload when convenient to refill it.", do that. See [Slots](#slots-and-the-restart).
-6. `wowmentor logs`. A line like `overlay slot pool nearly used up (950/1000): /reload in game to refresh` means the same thing.
+5. The addon refreshes the inbox by itself when it is 85% used (a toast says so 5 seconds before); nothing to do. See [Slots](#slots-and-the-restart).
+6. `wowmentor logs`. A line like `overlay slot pool nearly used up (1950/2000)` means the pool is about to be refilled by the automatic reload (a manual `/reload` also works).
 7. If your AI keeps rewriting the same panel every few seconds it will use up slots quickly. Tell it to update on events, not on a timer.
 
 ## Slots and the restart
 
-The overlay is delivered through 1001 pre-made, empty "load on demand" addons named `WFSlot000` to `WFSlot1000` that setup created in your AddOns folder. The game only learns about addon folders when it starts, so it needed one restart after the installer created them. Each overlay update uses one slot. A `/reload` gives all of them back.
+The overlay is delivered through 2001 pre-made, empty "load on demand" addons named `WFSlot000` to `WFSlot2000` that setup created in your AddOns folder. The game only learns about addon folders when it starts, so it needed one restart after the installer created them. Each overlay update uses one slot. A `/reload` gives all of them back, and the addon does that itself: when 85% are used it waits for a quiet moment (out of combat for 15 seconds, alive, not casting, not on a flight, not typing in chat, not twice within 10 minutes), shows a toast and reloads 5 seconds later. Folders above the old 1001 are only noticed after one full restart of WoW; until then the addon uses what the game knows.
 
 | Message you see | What it means | Fix |
 | --- | --- | --- |
-| Doctor: `Overlay slots: N of 1001` | Folders are missing on disk. | `wowmentor setup`, then fully quit and restart WoW. |
+| Doctor: `Overlay slots: N of 2001` | Folders are missing on disk. | `wowmentor setup`, then fully quit and restart WoW. |
 | Doctor: `Overlay slots not detected in the game` | The folders exist but the running game does not know them (you did not restart after setup). | Fully quit and restart WoW, not just `/reload`. Mac: Command and Q. Windows: close the game completely (Escape menu, then Exit Game) and check it is gone from Task Manager. |
 | `/wfui dump` in the game lists an error mentioning "slot pool used up" | The game has used all slots it knows about. | `/reload`. If it keeps happening soon after a reload, restart WoW. |
 | Toast "Overlay inbox is 85% used" | Slots are running low. | `/reload` when convenient (not in combat). |
