@@ -564,7 +564,13 @@ end
 -- After a click (the button-up half, so after the macro ran whichever half runs it): a living listed target resets to the first
 -- group; nothing found moves the next click on to the next group. Out of combat only (attributes are locked in combat).
 local function targetPostClick(self, _, down)
-	if down or not self.wfChunks or #self.wfChunks < 2 or truthy(call(InCombatLockdown)) then return end
+	if down or not self.wfChunks or truthy(call(InCombatLockdown)) then return end
+	if self.wfCycled == true then                                     -- the nameplate pick ran: put the name macro back for a combat click
+		self.wfCycled = false
+		pcall(self.SetAttribute, self, "macrotext", self.wfChunks[self.wfChunk or 1] or self.wfChunks[1])
+		return
+	end
+	if #self.wfChunks < 2 then return end
 	local hit = false
 	if truthy(call(UnitExists, "target")) and not truthy(call(UnitIsDead, "target")) then
 		local okN, nm = pcall(UnitName, "target")
@@ -573,6 +579,48 @@ local function targetPostClick(self, _, down)
 	self.wfChunk = hit and 1 or ((self.wfChunk or 1) % #self.wfChunks + 1)
 	pcall(self.SetAttribute, self, "macrotext", self.wfChunks[self.wfChunk])
 end
+
+-- Cycling (out of combat): each click targets the NEXT listed creature among the enemy nameplates in view, so repeated clicks walk
+-- through every one nearby instead of landing on the same nearest match. Listed names keep their priority (rare first), units
+-- already picked in this round are skipped, and the round restarts once all were visited. In combat, with enemy nameplates hidden,
+-- or when the game hides names, the plain macro above runs instead.
+local function plain(v) return v ~= nil and not (issecretvalue and issecretvalue(v)) end
+local function cycleCandidates(names, order)
+	local out = {}
+	for i = 1, 40 do
+		local u = "nameplate" .. i
+		if truthy(call(UnitExists, u)) and not truthy(call(UnitIsDead, u)) and truthy(call(UnitCanAttack, "player", u)) then
+			local okN, nm = pcall(UnitName, u)
+			if okN and plain(nm) and type(nm) == "string" and names[nm] then
+				local okG, g = pcall(UnitGUID, u)
+				out[#out + 1] = { unit = u, guid = (okG and plain(g)) and g or u, rank = order[nm] or 99, i = i }
+			end
+		end
+	end
+	table.sort(out, function(a, b) if a.rank ~= b.rank then return a.rank < b.rank end return a.i < b.i end)
+	return out
+end
+local function targetPreClick(self, _, down)
+	if truthy(call(InCombatLockdown)) or type(self.wfNames) ~= "table" then return end
+	local t = now()
+	if type(self.wfPickT) == "number" and t - self.wfPickT < 0.4 then return end        -- one pick per physical click (the down and up halves both call this)
+	local cands = cycleCandidates(self.wfNames, type(self.wfOrder) == "table" and self.wfOrder or {})
+	if #cands == 0 then self.wfCycled = false; return end
+	if type(self.wfSeen) ~= "table" then self.wfSeen = {} end
+	local pick
+	for _, c in ipairs(cands) do
+		if not self.wfSeen[c.guid] and not truthy(call(UnitIsUnit, c.unit, "target")) then pick = c; break end
+	end
+	if not pick then                                                  -- everyone in view was visited: start a new round
+		self.wfSeen = {}
+		for _, c in ipairs(cands) do if not truthy(call(UnitIsUnit, c.unit, "target")) then pick = c; break end end
+		pick = pick or cands[1]
+	end
+	self.wfSeen[pick.guid] = true
+	self.wfPickT, self.wfCycled = t, true
+	pcall(self.SetAttribute, self, "macrotext", "/target " .. pick.unit)
+end
+UI.targetPreClick, UI.cycleCandidates = targetPreClick, cycleCandidates
 
 -- hover helpers for icon squares: item/spell tooltip, or a model preview for a creature (npc id)
 local function hoverTip(owner, c)
@@ -585,7 +633,7 @@ local function hoverTip(owner, c)
 	elseif c.targets then
 		GameTooltip:SetText(c.tip or "Target the nearest of these")
 		for _, n in ipairs(c.targets) do GameTooltip:AddLine(cleanName(n), 1, 1, 1) end
-		GameTooltip:AddLine("Click (out of combat): targets the first one alive nearby, top of the list first", 0.6, 0.8, 1, true)
+		GameTooltip:AddLine("Click (out of combat): targets the next one in view; keep clicking to cycle through every one nearby (needs enemy nameplates on, V)", 0.6, 0.8, 1, true)
 		local b = owner
 		if b and b.wfChunks and #b.wfChunks > 1 then
 			GameTooltip:AddLine(("Nothing targeted? Click again for the next group (%d of %d)"):format(b.wfChunk or 1, #b.wfChunks), 0.6, 0.8, 1, true)
@@ -668,9 +716,10 @@ render.icon = function(P, c, x, w, y)
 		if targets and row.isSecure and not truthy(call(InCombatLockdown)) then
 			local key = table.concat(targets, "|")
 			if row.wfKey ~= key then                   -- a new list starts at its first group; a relayout keeps the group reached
-				row.wfKey, row.wfChunks, row.wfChunk, row.wfNames = key, targetMacros(targets), 1, {}
-				for _, n in ipairs(targets) do row.wfNames[cleanName(n)] = true end
+				row.wfKey, row.wfChunks, row.wfChunk, row.wfNames, row.wfOrder, row.wfSeen = key, targetMacros(targets), 1, {}, {}, {}
+				for k, n in ipairs(targets) do row.wfNames[cleanName(n)] = true; row.wfOrder[cleanName(n)] = row.wfOrder[cleanName(n)] or k end
 			end
+			row:SetScript("PreClick", targetPreClick)
 			row:SetScript("PostClick", targetPostClick)
 			pcall(row.SetAttribute, row, "macrotext", row.wfChunks[row.wfChunk] or row.wfChunks[1])
 			if c.text then secRow = row end            -- the label becomes part of the button below
@@ -1200,6 +1249,62 @@ local function hookTooltips()
 	end)
 	if ok then S.tooltipHooked = true end
 end
+-- "What to get here" in creature tooltips: the squares panel lists profession droppers and rares with a one-line `why` from the server.
+-- Hovering such a creature (or one Target any picked) adds that line, so the player sees why it was listed or targeted. Quest
+-- creatures are left out: Questie already names their quest in the tooltip.
+local function npcIdOf(guid)
+	if type(guid) ~= "string" or (issecretvalue and issecretvalue(guid)) then return nil end
+	local kind, id = guid:match("^(%a+)%-[^%-]*%-[^%-]*%-[^%-]*%-[^%-]*%-(%d+)%-")   -- Creature-0-server-instance-zone-npcId-spawn
+	if kind ~= "Creature" and kind ~= "Vehicle" then return nil end
+	return tonumber(id)
+end
+UI.npcIdOf = npcIdOf
+local function collectWhy(list, byId, byName)
+	for _, c in ipairs(list or {}) do
+		if type(c) == "table" then
+			if c.type == "icon" and c.npc and type(c.why) == "string" and c.why ~= "" and not c.quest then
+				local cur = byId[c.npc]
+				if not cur then byId[c.npc] = c.why elseif not cur:find(c.why, 1, true) then byId[c.npc] = cur .. "\n" .. c.why end
+				if type(c.tip) == "string" and c.tip ~= "" then byName[c.tip] = byId[c.npc] end
+			end
+			if type(c.children) == "table" then collectWhy(c.children, byId, byName) end
+		end
+	end
+end
+function UI.buildUnitWhy(doc)
+	local byId, byName = {}, {}
+	for _, p in ipairs(type(doc) == "table" and doc.panels or {}) do
+		if type(p) == "table" and p.id == "squares" then collectWhy(p.children, byId, byName) end
+	end
+	S.unitWhy, S.unitWhyName = byId, byName
+	return byId, byName
+end
+function UI.unitWhy(guid, name)
+	local id = npcIdOf(guid)
+	local w = id and S.unitWhy and S.unitWhy[id]
+	if not w and type(name) == "string" and not (issecretvalue and issecretvalue(name)) and S.unitWhyName then w = S.unitWhyName[name] end
+	return w
+end
+local function hookUnitTooltips()
+	if S.unitTipHooked then return end
+	if not (TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Unit) then return end
+	local ok = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Unit, function(tt, data)
+		if not (tt and tt.AddLine) then return end
+		local guid = type(data) == "table" and data.guid or nil
+		local name
+		if not guid and tt.GetUnit then local okn, n = pcall(tt.GetUnit, tt); if okn then name = n end end
+		local okw, w = pcall(UI.unitWhy, guid, name)
+		if not (okw and w) then return end
+		local n, more = 0, 0
+		for line in tostring(w):gmatch("[^\n]+") do
+			n = n + 1
+			if n <= 3 then tt:AddLine("|cff33ccffWhat to get here:|r " .. line, 1, 1, 1, true) else more = more + 1 end
+		end
+		if more > 0 then tt:AddLine(strfmt("|cff33ccffWhat to get here:|r and %d more (open the panel)", more), 0.7, 0.7, 0.7, true) end
+	end)
+	if ok then S.unitTipHooked = true end
+end
+UI.hookUnitTooltips = hookUnitTooltips
 function UI.watchSpells() return S.watchSpells or {} end
 
 -- owner "rule" marks a waypoint created by a rule action: a new document revision does not sweep it away.
@@ -1666,6 +1771,7 @@ local function applyDoc(doc)
 	end
 	S.voice = type(doc.builtin) == "table" and doc.builtin.voice == true
 	if next(S.verdicts) ~= nil then pcall(hookTooltips) end
+	do local okw = pcall(UI.buildUnitWhy, doc); if okw and next(S.unitWhy or {}) ~= nil then pcall(hookUnitTooltips) end end
 	if type(doc.guide_live) == "table" and #doc.guide_live > 0 then local okg, eg = pcall(UI.applyGuideLive, doc.guide_live); if not okg then lerr("guide live: " .. tostring(eg)) end end
 	S.inbox = type(doc.inbox) == "table" and doc.inbox or {}
 	S.docNow = nowEpoch

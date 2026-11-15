@@ -299,6 +299,9 @@ class ProfessionSquaresTests(unittest.TestCase):
         self.assertNotIn("p1_4", k)
         self.assertEqual(k["qall"]["targets"], ["Reef Crawler", "Tide Crawler"])             # no quest creatures here: the droppers alone
         self.assertEqual(k["qall"]["text"], "Target any")
+        whys = {x["tip"]: x["why"] for x in row if x.get("npc")}                           # the creature tooltip line in the game
+        self.assertRegex(whys["Tide Crawler"], r"^Cooking 82/150: drops .+ 35%, for ")
+        self.assertTrue(all(len(w) <= 200 for w in whys.values()))
 
     def test_target_any_puts_quest_creatures_before_droppers(self):
         self.a.on_feed(feed_prof({"Cooking": (82, 150)}).replace(b"Quests in log: 0", b"Quests in log: 1\n[in progress] WANTED: Murkdeep! (L18) #4740"))
@@ -429,6 +432,9 @@ class MarketAndRareTests(unittest.TestCase):
         self.assertEqual(k["hr"]["text"], "Rares here (none seen yet)")
         names = [x.get("tip") for x in k["rr1"]["children"] if x.get("npc")]
         self.assertEqual(set(names), {"Lady Moongazer", "Gibblesnik"})                     # not the level 41, not the vendor, not a plain elite
+        for x in k["rr1"]["children"]:
+            if x.get("npc"):
+                self.assertRegex(x["why"], r"^Rare( elite)?, level \d+( to \d+)?: worth killing")
         ids = [c["id"] for c in self.doc.panels[0]["children"]]
         self.assertLess(ids.index("rr1"), ids.index("hp1"))                                 # after the quests, before the professions
         self.assertIn("hx", ids)
