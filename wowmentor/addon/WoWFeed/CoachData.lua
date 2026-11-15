@@ -562,6 +562,82 @@ function D.craftRouteLines()
 	return L
 end
 
+---------------------------------------------------------------- PVP_LOG (Warledger + Warlords Forever)
+-- Warledger: WarledgerDB.characters["First Last"] = { rank, rankPoints, honor, honorMax, marks = {item = n}, matches = { ... } }
+-- Warlords Forever: WarlordsForeverCharDB = { totals, class = {CLASS = kills}, players = {guid = {name, class, level, kills, deaths}}, log = {newest first} }
+local function myFullName()
+	local n = U.str(try(GetUnitName, "player", true))
+	if n then return n end
+	local name, surname = try(UnitFullName, "player")
+	name, surname = U.str(name), U.str(surname)
+	if name and surname and surname ~= "" then return name .. " " .. surname end
+	return name
+end
+
+function D.pvpLines()
+	local L = {}
+	local wl = type(WarledgerDB) == "table" and type(WarledgerDB.characters) == "table" and WarledgerDB.characters
+	if wl then
+		local me = myFullName()
+		local r = me and wl[me]
+		if not r then for k, v in pairs(wl) do if type(v) == "table" and me and tostring(k):find(me, 1, true) == 1 then r = v end end end
+		if type(r) == "table" then
+			local marks = {}
+			for id, n in pairs(type(r.marks) == "table" and r.marks or {}) do if tonumber(n) and n > 0 then marks[#marks + 1] = strfmt("%s=%d", tostring(id), n) end end
+			table.sort(marks)
+			L[#L + 1] = strfmt("warledger: rank=%s best_rank=%s rank_points=%s honor=%s/%s marks=%s", val(r.rank), val(r.bestRank), val(r.rankPoints), val(r.honor), val(r.honorMax),
+				#marks > 0 and tconcat(marks, ",") or "none")
+			local m = type(r.matches) == "table" and r.matches or {}
+			local wins, n = 0, 0
+			for _, g in ipairs(m) do if type(g) == "table" then n = n + 1; if g.result == "won" or g.result == "win" then wins = wins + 1 end end end
+			L[#L + 1] = strfmt("battlegrounds logged: %d, won %d", n, wins)
+			for i = #m, max(1, #m - 7), -1 do
+				local g = m[i]
+				if type(g) == "table" then
+					L[#L + 1] = strfmt("  bg %s %s %ss honor=%s rank_points=%s kills=%s killing_blows=%s deaths=%s", clean(g.name or "?"), tostring(g.result or "?"), val(g.duration and floor(g.duration)),
+						val(g.honor), val(g.rankPoints), val(g.kills), val(g.killingBlows), val(g.deaths))
+				end
+			end
+		else
+			L[#L + 1] = "warledger: no record for this character yet"
+		end
+	end
+	local wf = type(WarlordsForeverCharDB) == "table" and WarlordsForeverCharDB
+	if wf then
+		local t = type(wf.totals) == "table" and wf.totals or {}
+		L[#L + 1] = strfmt("world pvp (Warlords Forever): kills=%s killing_blows=%s assists=%s deaths=%s bg_kills=%s bg_deaths=%s streak=%s best_streak=%s", val(t.kills), val(t.killingBlows), val(t.assists),
+			val(t.deaths), val(t.bgKills), val(t.bgDeaths), val(type(wf.streak) == "table" and wf.streak.current), val(type(wf.streak) == "table" and wf.streak.best))
+		local cls = {}
+		for k, v in pairs(type(wf.class) == "table" and wf.class or {}) do if tonumber(v) then cls[#cls + 1] = { k, v } end end
+		table.sort(cls, function(a, b) return a[2] > b[2] end)
+		local parts = {}
+		for i = 1, min(#cls, 9) do parts[#parts + 1] = strfmt("%s=%d", tostring(cls[i][1]), cls[i][2]) end
+		if #parts > 0 then L[#L + 1] = "  kills by class: " .. tconcat(parts, " ") end
+		local foes = {}
+		for _, p in pairs(type(wf.players) == "table" and wf.players or {}) do if type(p) == "table" then foes[#foes + 1] = p end end
+		table.sort(foes, function(a, b) return (tonumber(a.deaths) or 0) > (tonumber(b.deaths) or 0) end)
+		for i = 1, min(#foes, 5) do
+			local p = foes[i]
+			if (tonumber(p.deaths) or 0) > 0 then
+				L[#L + 1] = strfmt("  nemesis %s %s L%s guild=%s killed_you=%s you_killed=%s", clean(p.name or "?"), tostring(p.class or "?"), val(p.level), clean(p.guild or "none"), val(p.deaths), val(p.kills))
+			end
+		end
+		local log = type(wf.log) == "table" and wf.log or {}
+		for i = 1, min(#log, 10) do
+			local e = log[i]
+			if type(e) == "table" then
+				L[#L + 1] = strfmt("  %s %s %s L%s in %s at %s", e.kind == "death" and "death by" or tostring(e.kind or "?"), clean(e.name or "?"), tostring(e.class or "?"), val(e.level), clean(e.zone or "?"),
+					date and e.t and date("%m-%d %H:%M", e.t) or val(e.t))
+			end
+		end
+	end
+	if #L == 0 then L[1] = "pvp log: none (Warledger and Warlords Forever not loaded)" end
+	return L
+end
+C.on("PLAYER_PVP_KILLS_CHANGED", function() S.dirtyPvp = true end)
+C.on("PLAYER_DEAD", function() S.dirtyPvp = true end)
+C.on("ZONE_CHANGED_NEW_AREA", function() S.dirtyPvp = true end)
+
 ---------------------------------------------------------------- scheduling (runs after the CoachState sections)
 local nextRare, nextXp, nextThreat = -1e9, -1e9, -1e9
 local prevTick = ST.tick
@@ -583,4 +659,5 @@ ST.tick = function(now)
 	run("bank", now, 60, 900, "dirtyBank", D.bankLines, 1800)
 	run("ah_prices", now, 120, 900, "dirtyAh", D.ahLines, 1800)
 	run("craft_route", now, 30, 600, "dirtyCraft", D.craftRouteLines, 1200)
+	run("pvp_log", now, 10, 600, "dirtyPvp", D.pvpLines, 1200)
 end

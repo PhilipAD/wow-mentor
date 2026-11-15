@@ -1051,7 +1051,9 @@ Add a fresh `?t=<random number>` to every fetch (the edge caches otherwise). Sec
   BANK (`id bank= mail= bags=`, BagBrother's cache), XP (xp per active hour, time to level), THREAT (player vs pet on the pet's target; event threat_pulled)
   and RARES (rares seen on nameplates; event rare_seen; with RareNet installed also `net npc= state=up|dead up_ago= dead_ago= layer=mine|other`,
   what other RareNet players saw in the last 2 hours). CRAFT_ROUTE: Crafter's Journal's cheapest skill-up route per profession from real AH prices
-  (`Alchemy 53/75 (started route): Minor Mana Potion 53-60; ...`), present once he opened Crafter's Journal on that profession. The squares panel also gets a Rares row, and its profession reagents use what he owns and
+  (`Alchemy 53/75 (started route): Minor Mana Potion 53-60; ...`), present once he opened Crafter's Journal on that profession.
+  PVP_LOG: Warledger (rank, rank points, honor/cap, marks, the battleground log) and Warlords Forever (world PvP kills, deaths, kills by class,
+  nemeses who keep killing him, the last kills and deaths). The squares panel also gets a Rares row, and its profession reagents use what he owns and
   Auctionator's prices automatically; `wowui db rares` lists a map's rares. A value the game hides is `unknown`
   (health, power and similar are secret in combat; "at pull" numbers are the last out-of-combat sample). Combat-log details are not available:
   fights are reconstructed, and the exact killer is a best guess. If a section is missing, the installed addon is older: do not assume it.
