@@ -145,9 +145,9 @@ check(G.pvpScore({ STAMINA = 10 }) == 10 and G.pvpScore({ SPELL_POWER = 10 }) ==
 ---------------------------------------------------------------- 6. PROF_TARGETS
 check(G.profTargetLines()[1]:find("not loaded"), "without Crafter's Journal")
 _G.CraftersJournal = { Data = { Alchemy = { skillLine = 171, recipes = {
-	[6624] = { name = "Free Action Potion", t = { 150, 175, 195, 215 }, scroll = 5642, out = { 5634, 1 } },
-	[2335] = { name = "Swiftness Potion", t = { 60, 90, 110, 130 }, train = 100, out = { 2459, 1 } } } },
-	Engineering = { skillLine = 202, recipes = { [3962] = { name = "Iron Grenade", t = { 175, 175, 195, 215 }, train = 900, out = { 4390, 1 } } } } },
+	[6624] = { name = "Free Action Potion", t = { 1, 175, 195, 215 }, train = 150, scroll = 5642, out = { 5634, 1 } },
+	[2335] = { name = "Swiftness Potion", t = { 1, 90, 110, 130 }, train = 60, out = { 2459, 1 } } } },
+	Engineering = { skillLine = 202, recipes = { [3962] = { name = "Iron Grenade", t = { 1, 175, 195, 215 }, train = 175, out = { 4390, 1 } } } } },
 	GetProfessionSkill = function(self, line) if line == 171 then return 53, 75 elseif line == 202 then return 25, 75 end end,
 	IsRecipeKnown = function(self, spell) return spell == 2335 end }
 local pt = table.concat(G.profTargetLines(), "\n")
