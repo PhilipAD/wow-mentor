@@ -328,15 +328,35 @@ def grab_top(handle, rows):
     """A Frame of the top rows of the window, or None if the capture failed."""
     return hostmod.get().capture.grab_top(handle, rows)
 
-def frames():
+# A long-running bridge can lose sight of the game's window for good (seen on macOS after the game was restarted on another display:
+# the process kept reporting "game window not found" for hours while a fresh process found it at once). When the game is running but
+# its window stays invisible this long, the bridge exits so its supervisor (launchd KeepAlive, the Windows supervisor) starts a fresh one.
+BLIND_EXIT_S = 90
+
+def _game_running(cap):
+    try:
+        return bool(cap.game_running())
+    except Exception:
+        return False
+
+def frames(exit_fn=None, clock=time.time, sleep=time.sleep):
     cap = hostmod.get().capture
-    wid = None; wid_t = 0.0; warned = 0.0
+    wid = None; wid_t = 0.0; warned = 0.0; blind_since = None
     while True:
-        t0 = time.time()
+        t0 = clock()
         if not wid or t0 - wid_t > 15: wid, wid_t = cap.find_game(), t0
         if not wid:
             if t0 - warned > 30: warned = t0; print("game window not found", flush=True)
-            time.sleep(3); continue
+            if _game_running(cap):
+                blind_since = blind_since or t0
+                if t0 - blind_since >= BLIND_EXIT_S:
+                    print("the game is running but this process cannot see its window: exiting so a fresh bridge starts", flush=True)
+                    (exit_fn or (lambda: os._exit(75)))()
+                    return
+            else:
+                blind_since = None
+            sleep(3); continue
+        blind_since = None
         im = cap.grab_top(wid, CROP)
         if im is None:
             wid = None

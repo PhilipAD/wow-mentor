@@ -95,3 +95,89 @@ class DecoderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def dim_top_row(frame, oy, u, factor, black_rows=0):
+    """What macOS 26's translucent title bar does to a windowed game: the strip's first row darker, its top line(s) black."""
+    buf = bytearray(frame.raw)
+    for y in range(oy, oy + CH * u):
+        row = y * frame.stride
+        for x in range(frame.width):
+            o = row + x * 4
+            if y < oy + black_rows:
+                buf[o:o + 3] = b"\x00\x00\x00"
+            else:
+                for k in range(3):
+                    buf[o + k] = int(buf[o + k] * factor + 7)
+    return bridge.Frame(bytes(buf), frame.width, frame.height, frame.stride)
+
+
+class DimmedStripTests(unittest.TestCase):
+    """15 Nov 2026: in a windowed game under macOS 26 the title bar darkened the strip to ~67% (white read 171) and the bridge, which
+    wanted a white anchor of 200+, decoded nothing for hours: the server thought he was logged out and the overlay went stale."""
+    text = "summary\x1f7\x1f1\x1f1\x1fKV level=22 zone=Redridge Mountains"
+
+    def tearDown(self):
+        from wowmentor.bridge import strip
+        strip.TH = 128
+
+    def test_title_bar_dimmed_strip_decodes(self):
+        for factor in (0.67, 0.55):
+            frame = dim_top_row(make_frame(encode(3771, self.text.encode("utf-8")), u=1, oy=56), 56, 1, factor, black_rows=1)
+            hint = bridge.find_hint(frame, *frame.size)
+            self.assertIsNotNone(hint, factor)
+            self.assertEqual(bridge.decode(frame, *frame.size, hint), (3771, self.text))
+
+    def test_full_brightness_keeps_the_classic_threshold(self):
+        from wowmentor.bridge import strip
+        frame = make_frame(encode(9, self.text.encode("utf-8")), u=2, oy=60)
+        hint = bridge.find_hint(frame, *frame.size)
+        self.assertEqual(bridge.decode(frame, *frame.size, hint), (9, self.text))
+        self.assertEqual(strip.TH, 127)
+
+    def test_threshold_follows_the_anchor(self):
+        from wowmentor.bridge import strip
+        self.assertEqual(strip.threshold_for(255), 127)
+        self.assertEqual(strip.threshold_for(171), 85)
+        self.assertEqual(strip.threshold_for(100), 72)
+
+    def test_coloured_pixel_is_not_an_anchor(self):
+        self.assertFalse(bridge.white((255, 200, 60)))
+        self.assertTrue(bridge.white((171, 171, 171)))
+        self.assertFalse(bridge.white((110, 110, 110)))
+
+
+class BlindWindowTests(unittest.TestCase):
+    """A bridge that cannot see a running game's window exits, so launchd or the Windows supervisor starts a fresh one."""
+
+    def run_frames(self, running, minutes=3):
+        import types
+        from wowmentor import host as hostmod
+        cap = types.SimpleNamespace(find_game=lambda: None, game_running=lambda: running)
+        orig = hostmod.get
+        hostmod.get = lambda: types.SimpleNamespace(capture=cap)
+        t = [1000.0]; exits = []
+
+        class Done(Exception):
+            pass
+
+        def sleep(s):                       # the loop never yields without a window: stop it from inside once time is up
+            t[0] += s
+            if t[0] > 1000 + minutes * 60: raise Done()
+        try:
+            gen = bridge.frames(exit_fn=lambda: exits.append(t[0]), clock=lambda: t[0], sleep=sleep)
+            import io, contextlib
+            with contextlib.redirect_stdout(io.StringIO()):
+                try: next(gen)
+                except (StopIteration, Done): pass
+        finally:
+            hostmod.get = orig
+        return exits
+
+    def test_running_game_with_no_window_exits_after_the_grace_period(self):
+        exits = self.run_frames(True)
+        self.assertEqual(len(exits), 1)
+        self.assertGreaterEqual(exits[0] - 1000, bridge.BLIND_EXIT_S)
+
+    def test_closed_game_never_exits(self):
+        self.assertEqual(self.run_frames(False), [])
