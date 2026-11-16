@@ -88,5 +88,44 @@ local ok = pcall(UI.targetPreClick, btn, "LeftButton", true)
 check(ok and btn.attrs.macrotext == btn.wfChunks[1], "secret names: name macro kept, no error")
 issecretvalue = nil
 
+-- nearest first (16 Nov: a Tarantula stood next to him but Target any picked a Great Goretusk, which is higher on the list)
+issecretvalue = nil
+local yards = {}
+CheckInteractDistance = function(u, idx) local y = yards[u]; if not y then return nil end; if idx == 3 then return y <= 8 end; if idx == 4 then return y <= 28 end; return nil end
+C_Spell = { IsSpellInRange = function(spell, u) local y = yards[u]; if not y then return nil end; if spell == 5782 then return y <= 20 end; if spell == 686 then return y <= 30 end; return nil end }
+local b2 = { attrs = {} }
+function b2:SetAttribute(k, v) self.attrs[k] = v end
+b2.wfNames = { ["Great Goretusk"] = true, ["Tarantula"] = true }
+b2.wfOrder = { ["Great Goretusk"] = 1, ["Tarantula"] = 2 }
+b2.wfChunks = { "/cleartarget\n/targetexact Great Goretusk\n/targetexact [noexists][dead]Tarantula\n/cleartarget [dead]" }
+b2.wfChunk = 1
+plates = {
+	{ unit = "nameplate1", name = "Great Goretusk", guid = "Creature-0-1-0-1-547-01" },
+	{ unit = "nameplate2", name = "Tarantula", guid = "Creature-0-1-0-1-505-02" },
+	{ unit = "nameplate3", name = "Great Goretusk", guid = "Creature-0-1-0-1-547-03" },
+}
+yards = { nameplate1 = 25, nameplate2 = 5, nameplate3 = 29 }
+target = nil
+local function click2() clock = clock + 1; UI.targetPreClick(b2, "LeftButton", true); local u = (b2.attrs.macrotext or ""):match("^/target (nameplate%d+)$"); if u then target = u end; return u end
+check(click2() == "nameplate2", "the Tarantula 5 yards away comes before a Goretusk 25 yards away")
+check(click2() == "nameplate1", "then the next nearest (25 yards)")
+check(click2() == "nameplate3", "then the farthest (29 yards)")
+-- same distance band: the list order decides
+yards = { nameplate1 = 15, nameplate2 = 15, nameplate3 = 40 }
+b2.wfSeen = {}; target = nil
+check(click2() == "nameplate1", "same band: list order (Goretusk first)")
+
+-- enemy nameplates switched on once, out of combat, never in combat
+local cv = { nameplateShowEnemies = "0" }
+GetCVar = function(k) return cv[k] end
+SetCVar = function(k, v) cv[k] = tostring(v); return true end
+local S = WoWFeedUI.state
+S.platesChecked = nil; combat = true
+check(UI.ensureEnemyPlates() == false and cv.nameplateShowEnemies == "0", "not touched in combat")
+combat = false
+check(UI.ensureEnemyPlates() == true and cv.nameplateShowEnemies == "1", "turned on out of combat")
+cv.nameplateShowEnemies = "0"
+check(UI.ensureEnemyPlates() == false and cv.nameplateShowEnemies == "0", "only once per session: if he hides them again (V), the choice stands")
+
 if fails > 0 then error(fails .. " failure(s)", 0) end
 io.write("target cycle ok\n")
