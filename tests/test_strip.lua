@@ -22,6 +22,32 @@ local function parse(m)
 	return sec, id, tonumber(part), tonumber(parts), payload
 end
 
+---------------------------------------------------------------- window resized after login (16 Nov 2026)
+do
+	local W, w = newWorld(2996, 1936)
+	local API = WoWFeed_API
+	local scales = {}
+	local base = WoWFeedStrip and WoWFeedStrip.SetScale
+	local f = _G.WoWFeedStrip
+	if f then
+		local orig = f.SetScale
+		f.SetScale = function(self, v) scales[#scales + 1] = v; if orig then return orig(self, v) end end
+	end
+	API.refreshGeometry()                                          -- first call only records the size
+	local maxpayBefore = API.maxpay()
+	eq(API.refreshGeometry(), false, "no change: nothing to redo")
+	_G.GetPhysicalScreenSize = function() return 3006, 1936 end   -- the window was dragged 10 px wider
+	eq(API.refreshGeometry(), true, "a resized window is detected")
+	check(API.maxpay() >= maxpayBefore, "MAXPAY follows the new width")
+	eq(API.refreshGeometry(), false, "settled again")
+	_G.GetPhysicalScreenSize = function() return 1728, 1117 end   -- or a smaller window
+	eq(API.refreshGeometry(), true, "shrinking is detected too")
+	eq(API.maxpay(), 157, "MAXPAY at 1728 px after shrinking")
+	if f then check(#scales >= 2, "the strip was re-laid out on each change, got " .. #scales) end
+	_G.GetPhysicalScreenSize = function() error("not available") end
+	eq(API.refreshGeometry(), false, "no physical size: nothing changes and nothing errors")
+end
+
 ---------------------------------------------------------------- MAXPAY at the narrow width
 do
 	local W, w = newWorld()
