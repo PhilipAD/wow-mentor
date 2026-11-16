@@ -616,13 +616,25 @@ local function cycleCandidates(names, order)
 			local okN, nm = pcall(UnitName, u)
 			if okN and plain(nm) and type(nm) == "string" and names[nm] then
 				local okG, g = pcall(UnitGUID, u)
-				out[#out + 1] = { unit = u, guid = (okG and plain(g)) and g or u, rank = order[nm] or 99, i = i, d = distanceBucket(u) }
+				-- inside a distance band the nameplate itself tells who is closer: a nearer unit's plate draws larger (distance scaling)
+				-- and lower on screen (perspective). Both are plain frame geometry, never secret.
+				local sc, low = 0, 1e9
+				pcall(function()
+					local f = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(u)
+					if f then
+						local e = f.GetEffectiveScale and f:GetEffectiveScale(); if type(e) == "number" then sc = e end
+						local b = f.GetBottom and f:GetBottom(); if type(b) == "number" then low = b end
+					end
+				end)
+				out[#out + 1] = { unit = u, guid = (okG and plain(g)) and g or u, rank = order[nm] or 99, i = i, d = distanceBucket(u), sc = sc, low = low }
 			end
 		end
 	end
 	-- nearest first; within the same distance band the list order decides (rares and quest creatures lead)
 	table.sort(out, function(a, b)
 		if a.d ~= b.d then return a.d < b.d end
+		if math.abs(a.sc - b.sc) > 0.02 then return a.sc > b.sc end          -- larger plate = nearer
+		if math.abs(a.low - b.low) > 4 then return a.low < b.low end         -- lower on screen = nearer
 		if a.rank ~= b.rank then return a.rank < b.rank end
 		return a.i < b.i
 	end)
@@ -634,13 +646,17 @@ function UI.ensureEnemyPlates()
 	if truthy(call(InCombatLockdown)) or S.platesChecked then return false end
 	S.platesChecked = true
 	if not (GetCVar and SetCVar) then return false end
-	local ok, v = pcall(GetCVar, "nameplateShowEnemies")
-	if ok and tostring(v) == "1" then return false end
-	if pcall(SetCVar, "nameplateShowEnemies", "1") then
-		if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffMentor|r: enemy nameplates are now on, so Target any picks the nearest one (V hides them again)") end
-		return true
+	-- nameplateShowEnemies: enemy plates at all; nameplateShowAll ("Always Show Nameplates"): without it the client only draws plates
+	-- for mobs already in combat with him, so Target any saw one creature while skeletons and spiders stood around (16 Nov).
+	local changed = false
+	for _, cv in ipairs({ "nameplateShowEnemies", "nameplateShowAll" }) do
+		local ok, v = pcall(GetCVar, cv)
+		if not (ok and tostring(v) == "1") and pcall(SetCVar, cv, "1") then changed = true end
 	end
-	return false
+	if changed and DEFAULT_CHAT_FRAME then
+		DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffMentor|r: enemy nameplates now always show, so Target any can cycle through every listed creature around you (V hides them again)")
+	end
+	return changed
 end
 local function targetPreClick(self, _, down)
 	if truthy(call(InCombatLockdown)) or type(self.wfNames) ~= "table" then return end
@@ -648,7 +664,13 @@ local function targetPreClick(self, _, down)
 	local t = now()
 	if type(self.wfPickT) == "number" and t - self.wfPickT < 0.4 then return end        -- one pick per physical click (the down and up halves both call this)
 	local cands = cycleCandidates(self.wfNames, type(self.wfOrder) == "table" and self.wfOrder or {})
-	if #cands == 0 then self.wfCycled = false; return end
+	local platesOn = false
+	do local okc, v = pcall(GetCVar, "nameplateShowEnemies"); platesOn = okc and tostring(v) == "1" end
+	if #cands == 0 then
+		self.wfCycled = false
+		S.targetDiag = strfmt("fallback name macro (no listed creature on a visible enemy nameplate; plates %s)", platesOn and "on" or "off")
+		return
+	end
 	if type(self.wfSeen) ~= "table" then self.wfSeen = {} end
 	local pick
 	for _, c in ipairs(cands) do
@@ -661,6 +683,11 @@ local function targetPreClick(self, _, down)
 	end
 	self.wfSeen[pick.guid] = true
 	self.wfPickT, self.wfCycled = t, true
+	do
+		local nm; pcall(function() local n = UnitName(pick.unit); if plain(n) then nm = n end end)
+		local seen = 0; for _ in pairs(self.wfSeen) do seen = seen + 1 end
+		S.targetDiag = strfmt("cycle: %d listed in view, picked %s (band %d), %d visited this round", #cands, tostring(nm or pick.unit), pick.d or 9, seen)
+	end
 	pcall(self.SetAttribute, self, "macrotext", "/target " .. pick.unit)
 end
 UI.targetPreClick, UI.cycleCandidates = targetPreClick, cycleCandidates
@@ -2015,6 +2042,13 @@ local function stateLines()
 	L[#L + 1] = "doorbell selftest: " .. S.selftest
 	L[#L + 1] = strfmt("guide live updates (no /reload): last applied edit %s%s", tostring(S.glive or DB.glive or 0), S.gliveErr and (" | PROBLEM: " .. S.gliveErr) or "")
 	L[#L + 1] = strfmt("overlay: hidden=%s locked=%s edit=%s alpha=%.2f scale=%.2f", tostring(S.hidden), tostring(DB.locked), tostring(editMode or manualEdit), DB.alpha, DB.scale)
+	do
+		local okc, v = pcall(GetCVar, "nameplateShowEnemies"); local oka, a = pcall(GetCVar, "nameplateShowAll")
+		local np = C_NamePlate and C_NamePlate.GetNamePlates and select(2, pcall(C_NamePlate.GetNamePlates))
+		L[#L + 1] = strfmt("enemy nameplates (Target any needs them): %s, always show %s, %d drawn now", (okc and tostring(v) == "1") and "on" or "off",
+			(oka and tostring(a) == "1") and "on" or "off", type(np) == "table" and #np or -1)
+	end
+	if S.targetDiag then L[#L + 1] = "target any, last click: " .. S.targetDiag end
 	for _, spec in ipairs(BUILTINS) do
 		local bp = S.panels[spec.id]
 		L[#L + 1] = strfmt("builtin %s panel: %s", spec.key == "me" and "character" or spec.key, (bp and bp.data and not bp.removed) and ("on, shown=" .. tostring(bp.shown and true or false)) or "off")
