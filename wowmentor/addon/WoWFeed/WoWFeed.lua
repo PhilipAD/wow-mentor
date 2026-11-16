@@ -106,6 +106,24 @@ local function layoutStrip()
 	strip:SetScale((768 / physH) / es * (WoWFeedDB.pxScale or 1))
 	strip:SetSize((MAXCELLS + 1) * CW, CH * 2)
 end
+-- The strip is pixel-perfect only for the window size it was laid out for. 16 Nov 2026: the player resized the game window
+-- (2996 to 3006 px wide) after login, every cell landed on a fractional pixel, the bridge saw a blended, undecodable strip for 90 minutes
+-- and every section went stale until a /reload. The layout is now redone whenever the window or UI scale changes.
+local lastGeom = ""
+local function refreshGeometry()
+	local okp, w, h = pcall(GetPhysicalScreenSize)
+	if not (okp and type(w) == "number" and type(h) == "number" and w > 0 and h > 0) then return false end
+	local okE, es = pcall(function() return UIParent:GetEffectiveScale() end)
+	local sig = w .. "x" .. h .. "@" .. tostring(okE and es or "?")
+	if sig == lastGeom then return false end
+	local first = lastGeom == ""
+	lastGeom = sig
+	physW, physH = w, h
+	MAXCELLS = math.max(64, math.floor(physW / CW) - 6)
+	MAXPAY = math.max(80, math.floor((MAXCELLS - 1) * 3 / 8) - 8 - 48)
+	layoutStrip()
+	return not first
+end
 local anchor = strip:CreateTexture(nil, "ARTWORK")
 anchor:SetColorTexture(1, 1, 1, 1)
 anchor:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, 0)
@@ -1359,6 +1377,7 @@ local function tickBody()
 	end
 end
 WoWFeed_API = {
+	refreshGeometry = function() return refreshGeometry() end,   -- tests
 	push = push, try = try, clean = clean, num = num, coords = coordText,
 	position = playerMapPos,          -- mapID, x, y (fractions 0..1 or nil), mapInfo
 	spellbook = spellbook,            -- { { name, items = { { name, id, sub, rank, passive } } } }
@@ -1377,7 +1396,11 @@ local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function()
 	C_Timer.After(3, function()
-			layoutStrip(); C_Timer.NewTicker(0.5, sendTick); print("|cff00ff00WoWFeed|r active (hairline strip, top edge)")
+			layoutStrip(); refreshGeometry(); C_Timer.NewTicker(0.5, sendTick); print("|cff00ff00WoWFeed|r active (hairline strip, top edge)")
+			C_Timer.NewTicker(1, function() pcall(refreshGeometry) end)       -- window drag or resize, UI scale, fullscreen toggle
+			local gf = CreateFrame("Frame")
+			for _, e in ipairs({ "DISPLAY_SIZE_CHANGED", "UI_SCALE_CHANGED" }) do pcall(gf.RegisterEvent, gf, e) end
+			gf:SetScript("OnEvent", function() pcall(refreshGeometry) end)
 		tick()
 	end)
 end)
