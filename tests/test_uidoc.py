@@ -112,6 +112,13 @@ class AwarenessOpTests(unittest.TestCase):
             page = text(None) if callable(text) else str(text)
             self.assertIn("active_only", page)
 
+    def test_abandon_quest_needs_a_quest(self):
+        d = uidoc.Doc()
+        uidoc.apply_ops(d, {"op": "action", "name": "abandon_quest", "quest": 98025})
+        self.assertEqual((d.actions[-1]["name"], d.actions[-1]["quest"]), ("abandon_quest", 98025))
+        with self.assertRaises(uidoc.OpError):
+            uidoc.apply_ops(d, {"op": "action", "name": "abandon_quest"})
+
     def test_marks_tomtom_poi_and_skip_to(self):
         d = uidoc.Doc()
         uidoc.apply_ops(d, [{"op": "mark", "id": "g1", "name": "Salma Saldean", "npc": 235, "icon": "quest", "text": "QA 22"},

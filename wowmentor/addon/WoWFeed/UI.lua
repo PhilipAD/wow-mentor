@@ -1335,6 +1335,31 @@ local function setWaypoint(w, owner)
 	S.wps[w.id] = rec
 end
 
+-- Drop one quest from the log (the player asked the mentor to clear old quests). Out of combat only; a quest that is not in the
+-- log is left alone. Says what it dropped in chat. Returns the title it abandoned, or nil.
+function UI.abandonQuest(qid)
+	qid = tonumber(qid)
+	if not qid or truthy(call(InCombatLockdown)) then return nil end
+	local title
+	local ok = pcall(function()
+		if C_QuestLog and C_QuestLog.GetLogIndexForQuestID and C_QuestLog.SetAbandonQuest then
+			local idx = C_QuestLog.GetLogIndexForQuestID(qid)
+			if not idx then return end
+			local info = C_QuestLog.GetInfo and C_QuestLog.GetInfo(idx)
+			title = (type(info) == "table" and info.title) or ("quest " .. qid)
+			if C_QuestLog.SetSelectedQuest then C_QuestLog.SetSelectedQuest(qid) end
+			C_QuestLog.SetAbandonQuest(); C_QuestLog.AbandonQuest()
+		elseif GetNumQuestLogEntries and GetQuestLogTitle and SelectQuestLogEntry and SetAbandonQuest and AbandonQuest then
+			for i = 1, (GetNumQuestLogEntries()) do
+				local t, _, _, header, _, _, _, id = GetQuestLogTitle(i)
+				if not header and id == qid then title = t; SelectQuestLogEntry(i); SetAbandonQuest(); AbandonQuest(); break end
+			end
+		end
+	end)
+	if ok and title and DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffMentor|r: abandoned " .. title .. " (you asked to clear old quests)") end
+	return ok and title or nil
+end
+
 local function runAction(a)
 	if a.name == "flash" then if FlashClientIcon then pcall(FlashClientIcon) end
 	elseif a.name == "sound" then playSound(a.sound or "ping")
@@ -1343,6 +1368,8 @@ local function runAction(a)
 		playSound(a.sound)
 	elseif a.name == "track_quest" and a.quest then
 		focusQuest(a.quest)
+	elseif a.name == "abandon_quest" and a.quest then
+		UI.abandonQuest(a.quest)
 	elseif a.name == "speak" then UI.speak(a.text)
 	elseif a.name == "tomtom_poi" then
 		-- TomTom's own "closest quest objective" arrow follows the super-tracked quest and fights Guidelime's arrow; on/off here
