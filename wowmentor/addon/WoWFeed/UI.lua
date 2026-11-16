@@ -585,6 +585,29 @@ end
 -- already picked in this round are skipped, and the round restarts once all were visited. In combat, with enemy nameplates hidden,
 -- or when the game hides names, the plain macro above runs instead.
 local function plain(v) return v ~= nil and not (issecretvalue and issecretvalue(v)) end
+-- Distance bucket of a hostile unit, nearest = 1. CheckInteractDistance works on enemies (Forever, and since the 10.2 hotfix also in
+-- combat); spell ranges fill the gaps: Fear 20 yd, Shadow Bolt 30 yd. Unknown or far = 9.
+local FEAR, SHADOW_BOLT = 5782, 686
+local function inSpellRange(spell, u)
+	if not (C_Spell and C_Spell.IsSpellInRange) then return nil end
+	local ok, r = pcall(C_Spell.IsSpellInRange, spell, u)
+	if not ok or not plain(r) then return nil end
+	return r == true or r == 1
+end
+local function interact(u, idx)
+	if not CheckInteractDistance then return nil end
+	local ok, r = pcall(CheckInteractDistance, u, idx)
+	if not ok or not plain(r) then return nil end
+	return truthy(r)
+end
+local function distanceBucket(u)
+	if interact(u, 3) then return 1 end                 -- about 8 yards
+	if inSpellRange(FEAR, u) then return 2 end          -- 20 yards
+	if interact(u, 4) then return 3 end                 -- 28 yards
+	if inSpellRange(SHADOW_BOLT, u) then return 4 end   -- 30 yards
+	return 9
+end
+UI.distanceBucket = distanceBucket
 local function cycleCandidates(names, order)
 	local out = {}
 	for i = 1, 40 do
@@ -593,15 +616,35 @@ local function cycleCandidates(names, order)
 			local okN, nm = pcall(UnitName, u)
 			if okN and plain(nm) and type(nm) == "string" and names[nm] then
 				local okG, g = pcall(UnitGUID, u)
-				out[#out + 1] = { unit = u, guid = (okG and plain(g)) and g or u, rank = order[nm] or 99, i = i }
+				out[#out + 1] = { unit = u, guid = (okG and plain(g)) and g or u, rank = order[nm] or 99, i = i, d = distanceBucket(u) }
 			end
 		end
 	end
-	table.sort(out, function(a, b) if a.rank ~= b.rank then return a.rank < b.rank end return a.i < b.i end)
+	-- nearest first; within the same distance band the list order decides (rares and quest creatures lead)
+	table.sort(out, function(a, b)
+		if a.d ~= b.d then return a.d < b.d end
+		if a.rank ~= b.rank then return a.rank < b.rank end
+		return a.i < b.i
+	end)
 	return out
+end
+-- Target any reads the enemy nameplates; with them off it can only fall back to the name macro (list order, not distance). Turn
+-- them on once, out of combat, and say so in chat (V hides them again; the fallback still works then).
+function UI.ensureEnemyPlates()
+	if truthy(call(InCombatLockdown)) or S.platesChecked then return false end
+	S.platesChecked = true
+	if not (GetCVar and SetCVar) then return false end
+	local ok, v = pcall(GetCVar, "nameplateShowEnemies")
+	if ok and tostring(v) == "1" then return false end
+	if pcall(SetCVar, "nameplateShowEnemies", "1") then
+		if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffMentor|r: enemy nameplates are now on, so Target any picks the nearest one (V hides them again)") end
+		return true
+	end
+	return false
 end
 local function targetPreClick(self, _, down)
 	if truthy(call(InCombatLockdown)) or type(self.wfNames) ~= "table" then return end
+	pcall(UI.ensureEnemyPlates)
 	local t = now()
 	if type(self.wfPickT) == "number" and t - self.wfPickT < 0.4 then return end        -- one pick per physical click (the down and up halves both call this)
 	local cands = cycleCandidates(self.wfNames, type(self.wfOrder) == "table" and self.wfOrder or {})
@@ -633,7 +676,7 @@ local function hoverTip(owner, c)
 	elseif c.targets then
 		GameTooltip:SetText(c.tip or "Target the nearest of these")
 		for _, n in ipairs(c.targets) do GameTooltip:AddLine(cleanName(n), 1, 1, 1) end
-		GameTooltip:AddLine("Click (out of combat): targets the next one in view; keep clicking to cycle through every one nearby (needs enemy nameplates on, V)", 0.6, 0.8, 1, true)
+		GameTooltip:AddLine("Click (out of combat): targets the nearest one in view; keep clicking to cycle through every one nearby, nearest first", 0.6, 0.8, 1, true)
 		local b = owner
 		if b and b.wfChunks and #b.wfChunks > 1 then
 			GameTooltip:AddLine(("Nothing targeted? Click again for the next group (%d of %d)"):format(b.wfChunk or 1, #b.wfChunks), 0.6, 0.8, 1, true)
@@ -720,6 +763,7 @@ render.icon = function(P, c, x, w, y)
 				for k, n in ipairs(targets) do row.wfNames[cleanName(n)] = true; row.wfOrder[cleanName(n)] = row.wfOrder[cleanName(n)] or k end
 			end
 			row:SetScript("PreClick", targetPreClick)
+			if #targets > 1 then pcall(UI.ensureEnemyPlates) end
 			row:SetScript("PostClick", targetPostClick)
 			pcall(row.SetAttribute, row, "macrotext", row.wfChunks[row.wfChunk] or row.wfChunks[1])
 			if c.text then secRow = row end            -- the label becomes part of the button below
