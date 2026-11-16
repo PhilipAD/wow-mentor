@@ -113,17 +113,29 @@ check(click2() == "nameplate3", "then the farthest (29 yards)")
 -- same distance band: the list order decides
 yards = { nameplate1 = 15, nameplate2 = 15, nameplate3 = 40 }
 b2.wfSeen = {}; target = nil
-check(click2() == "nameplate1", "same band: list order (Goretusk first)")
+check(click2() == "nameplate1", "same band, no plate geometry: list order (Goretusk first)")
+
+-- same band: the nameplate decides (16 Nov: a skeleton listed first always beat a closer spider inside 20 yards)
+local geo = { nameplate1 = { sc = 0.8, low = 300 }, nameplate2 = { sc = 1.0, low = 120 }, nameplate3 = { sc = 0.6, low = 500 } }
+C_NamePlate = { GetNamePlateForUnit = function(u) local g = geo[u]; if not g then return nil end
+	return { GetEffectiveScale = function() return g.sc end, GetBottom = function() return g.low end } end }
+yards = { nameplate1 = 15, nameplate2 = 15, nameplate3 = 15 }
+b2.wfSeen = {}; target = nil
+check(click2() == "nameplate2", "same band: the larger, lower plate (nearer) wins over list order")
+geo = { nameplate1 = { sc = 1, low = 400 }, nameplate2 = { sc = 1, low = 150 }, nameplate3 = { sc = 1, low = 600 } }
+b2.wfSeen = {}; target = nil
+check(click2() == "nameplate2", "no distance scaling: the lower plate wins")
+C_NamePlate = nil
 
 -- enemy nameplates switched on once, out of combat, never in combat
-local cv = { nameplateShowEnemies = "0" }
+local cv = { nameplateShowEnemies = "0", nameplateShowAll = "0" }
 GetCVar = function(k) return cv[k] end
 SetCVar = function(k, v) cv[k] = tostring(v); return true end
 local S = WoWFeedUI.state
 S.platesChecked = nil; combat = true
 check(UI.ensureEnemyPlates() == false and cv.nameplateShowEnemies == "0", "not touched in combat")
 combat = false
-check(UI.ensureEnemyPlates() == true and cv.nameplateShowEnemies == "1", "turned on out of combat")
+check(UI.ensureEnemyPlates() == true and cv.nameplateShowEnemies == "1" and cv.nameplateShowAll == "1", "turned on out of combat, and always shown (not only for mobs already fighting him)")
 cv.nameplateShowEnemies = "0"
 check(UI.ensureEnemyPlates() == false and cv.nameplateShowEnemies == "0", "only once per session: if he hides them again (V), the choice stands")
 
